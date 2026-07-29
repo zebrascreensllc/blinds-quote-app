@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Copy, Check, ArrowLeft, Search, BarChart3, TrendingUp } from 'lucide-react';
 
-// Pricing data embedded
 const PRICING_DATA = {
   'Roller': [
     {'number': '82086K', 'manual': 14.92, 'cordless': 18.12},
@@ -261,6 +260,49 @@ export default function BlindsQuoteApp() {
     };
   };
 
+  const calculateStatistics = () => {
+    const monthlyStats = {};
+    let totalProfit = 0;
+    let totalQuotes = 0;
+    let pendingOrders = 0;
+
+    quotes.forEach(quote => {
+      const date = new Date(quote.createdDate);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      if (!monthlyStats[monthKey]) {
+        monthlyStats[monthKey] = { quotes: 0, profit: 0, orders: 0 };
+      }
+
+      monthlyStats[monthKey].quotes += 1;
+      totalQuotes += 1;
+
+      let quoteProfit = 0;
+      quote.rooms.forEach(room => {
+        const motorizedCount = room.windows.filter(w => w.motorized).length;
+        room.windows.forEach(window => {
+          const q = calculateWindowQuote(window, room.selectedFabrics, motorizedCount);
+          quoteProfit += q.profit;
+        });
+      });
+
+      monthlyStats[monthKey].profit += quoteProfit;
+      totalProfit += quoteProfit;
+      monthlyStats[monthKey].orders += 1;
+    });
+
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    quotes.forEach(quote => {
+      if (new Date(quote.createdDate) > sevenDaysAgo && quote.status === 'quote') {
+        pendingOrders += 1;
+      }
+    });
+
+    return { monthlyStats, totalProfit, totalQuotes, pendingOrders };
+  };
+
   const generateQuote = () => {
     if (!formData.clientName || !formData.clientPhone) {
       alert('Please fill client name and phone');
@@ -304,273 +346,58 @@ export default function BlindsQuoteApp() {
     });
   };
 
-  const calculateStatistics = () => {
-    // Group quotes by month
-    const monthlyStats = {};
-    let totalProfit = 0;
-    let totalQuotes = 0;
-    let pendingOrders = 0;
-
-    quotes.forEach(quote => {
-      const date = new Date(quote.createdDate);
-      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      
-      if (!monthlyStats[monthKey]) {
-        monthlyStats[monthKey] = {
-          quotes: 0,
-          profit: 0,
-          orders: 0
-        };
-      }
-
-      monthlyStats[monthKey].quotes += 1;
-      totalQuotes += 1;
-
-      // Calculate profit for this quote
-      let quoteProfit = 0;
-      quote.rooms.forEach(room => {
-        const motorizedCount = room.windows.filter(w => w.motorized).length;
-        room.windows.forEach(window => {
-          const q = calculateWindowQuote(window, room.selectedFabrics, motorizedCount);
-          quoteProfit += q.profit;
-        });
-      });
-
-      monthlyStats[monthKey].profit += quoteProfit;
-      totalProfit += quoteProfit;
-      monthlyStats[monthKey].orders += 1;
-    });
-
-    // Pending orders (assume quotes created in last 7 days without confirmation)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
-    quotes.forEach(quote => {
-      if (new Date(quote.createdDate) > sevenDaysAgo && quote.status === 'quote') {
-        pendingOrders += 1;
-      }
-    });
-
-    return { monthlyStats, totalProfit, totalQuotes, pendingOrders };
-  };
-
-  const renderQuoteDetail = () => {
-    if (!selectedQuote) return null;
-
-    const rooms = selectedQuote.rooms;
-    let totalMin = 0, totalMax = 0, totalProfit = 0;
-    const tableRows = [];
-
-    rooms.forEach(room => {
-      const roomWindows = room.windows;
-      const motorizedCount = roomWindows.filter(w => w.motorized).length;
-      let roomMin = 0, roomMax = 0, roomProfit = 0;
-
-      roomWindows.forEach(window => {
-        const quote = calculateWindowQuote(window, room.selectedFabrics, motorizedCount);
-        roomMin += quote.minQuote;
-        roomMax += quote.maxQuote;
-        roomProfit += quote.profit;
-      });
-
-      totalMin += roomMin;
-      totalMax += roomMax;
-      totalProfit += roomProfit;
-
-      const motorType = roomWindows.some(w => w.motorized) ? 'Motor' : 'Manual';
-      const solarType = roomWindows.some(w => w.solar) ? 'Yes' : 'No';
-
-      tableRows.push(
-        <tr key={room.id} className="border-b border-gray-200 text-xs">
-          <td className="p-2">{room.name}</td>
-          <td className="p-2 text-center">{roomWindows.length}</td>
-          <td className="p-2 text-center">{motorType}</td>
-          <td className="p-2 text-center">{solarType}</td>
-          <td className="p-2 text-center">${(roomMin / roomWindows.length).toFixed(0)}</td>
-          <td className="p-2 text-center">${(roomMax / roomWindows.length).toFixed(0)}</td>
-          <td className="p-2 text-right font-semibold">${roomMin.toFixed(0)}-${roomMax.toFixed(0)}</td>
-        </tr>
-      );
-    });
-
-    const taxMin = totalMin * SALES_TAX_RATE;
-    const taxMax = totalMax * SALES_TAX_RATE;
-    const grandMin = totalMin + taxMin;
-    const grandMax = totalMax + taxMax;
-
-    const copyText = `QUOTE - ${BUSINESS_NAME}
-
-Client: ${selectedQuote.clientName}
-Phone: ${selectedQuote.clientPhone}
-Location: ${selectedQuote.location}
-Date: ${selectedQuote.date}
-
-ROOM-BY-ROOM BREAKDOWN:
-${rooms.map(room => `${room.name}: $${room.windows.reduce((sum, w) => {
-  const quote = calculateWindowQuote(w, room.selectedFabrics, room.windows.filter(x => x.motorized).length);
-  return sum + quote.minQuote;
-}, 0).toFixed(0)} - $${room.windows.reduce((sum, w) => {
-  const quote = calculateWindowQuote(w, room.selectedFabrics, room.windows.filter(x => x.motorized).length);
-  return sum + quote.maxQuote;
-}, 0).toFixed(0)}`).join('\n')}
-
-OVERALL MIN: $${totalMin.toFixed(0)}
-OVERALL MAX: $${totalMax.toFixed(0)}
-Sales Tax (8.25%): $${taxMin.toFixed(0)} - $${taxMax.toFixed(0)}
-GRAND TOTAL: $${grandMin.toFixed(0)} - $${grandMax.toFixed(0)}
-
----YOUR PROFIT (Internal Only)---
-Total Profit: $${totalProfit.toFixed(0)}`;
-
-    return (
-      <div className="space-y-4">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold">{selectedQuote.clientName}</h3>
-          <button onClick={() => setSelectedQuote(null)} className="text-2xl">✕</button>
-        </div>
-
-        <div className="overflow-x-auto bg-white rounded-lg border border-gray-200">
-          <table className="w-full text-xs">
-            <thead className="bg-gray-100 border-b">
-              <tr>
-                <th className="p-2 text-left font-bold">Room</th>
-                <th className="p-2 text-center font-bold">Win</th>
-                <th className="p-2 text-center font-bold">Type</th>
-                <th className="p-2 text-center font-bold">Solar</th>
-                <th className="p-2 text-center font-bold">Min</th>
-                <th className="p-2 text-center font-bold">Max</th>
-                <th className="p-2 text-right font-bold">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tableRows}
-              <tr className="bg-blue-100 font-bold">
-                <td colSpan="6" className="p-2 text-right">TOTAL:</td>
-                <td className="p-2 text-right">${totalMin.toFixed(0)}-${totalMax.toFixed(0)}</td>
-              </tr>
-              <tr className="bg-blue-100">
-                <td colSpan="6" className="p-2 text-right">Tax (8.25%):</td>
-                <td className="p-2 text-right">${taxMin.toFixed(0)}-${taxMax.toFixed(0)}</td>
-              </tr>
-              <tr className="bg-green-100 font-bold">
-                <td colSpan="6" className="p-2 text-right">GRAND TOTAL:</td>
-                <td className="p-2 text-right">${grandMin.toFixed(0)}-${grandMax.toFixed(0)}</td>
-              </tr>
-              <tr className="bg-yellow-100">
-                <td colSpan="6" className="p-2 text-right font-bold">YOUR PROFIT:</td>
-                <td className="p-2 text-right text-green-700 font-bold">${totalProfit.toFixed(0)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(copyText);
-              setCopiedId(selectedQuote.id);
-              setTimeout(() => setCopiedId(null), 2000);
-            }}
-            className="flex-1 px-4 py-3 bg-blue-500 text-white rounded-lg font-bold flex items-center justify-center gap-2 text-sm"
-          >
-            {copiedId === selectedQuote.id ? <Check size={16} /> : <Copy size={16} />}
-            {copiedId === selectedQuote.id ? 'Copied!' : 'Copy'}
-          </button>
-          
-          <button
-            onClick={() => {
-              setQuotes(quotes.filter(q => q.id !== selectedQuote.id));
-              setSelectedQuote(null);
-            }}
-            className="px-4 py-3 bg-red-500 text-white rounded-lg font-bold"
-          >
-            <Trash2 size={18} />
-          </button>
-        </div>
-      </div>
-    );
-  };
-
   const renderMenu = () => (
-    <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' }}>
-      <div className="max-w-2xl mx-auto px-4 py-8">
-        {/* Logo Section */}
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-white mb-2" style={{ fontFamily: 'Georgia, serif' }}>ZEBRA</h1>
-          <p className="text-gray-400 tracking-widest text-sm mb-6">SCREENS & ROLLERS</p>
-          <div className="h-1 w-16 mx-auto" style={{ background: 'linear-gradient(90deg, #d4af37, #f4e4c1)' }}></div>
+    <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
+      <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: '48px' }}>
+          <h1 style={{ fontSize: '36px', fontWeight: 'bold', color: '#fff', marginBottom: '8px', fontFamily: 'Georgia, serif' }}>ZEBRA</h1>
+          <p style={{ color: '#888', letterSpacing: '4px', fontSize: '12px', marginBottom: '16px' }}>SCREENS & ROLLERS</p>
+          <div style={{ height: '4px', width: '64px', margin: '0 auto', background: 'linear-gradient(90deg, #d4af37, #f4e4c1)' }}></div>
         </div>
 
-        {/* Dashboard Cards */}
-        <div className="space-y-4">
-          
-          {/* Card 1: New Quote */}
-          <button
-            onClick={() => { resetForm(); setCurrentView('quote'); }}
-            className="w-full p-6 rounded-lg transition-all duration-300 hover:shadow-2xl"
-            style={{ 
-              background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)',
-              border: '1px solid #d4af37'
-            }}
-          >
-            <div className="flex items-center gap-4">
-              <div className="p-4 rounded-full" style={{ background: '#d4af37' }}>
-                <Plus size={28} className="text-black" />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <button onClick={() => { resetForm(); setCurrentView('quote'); }} style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }} onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'} onMouseLeave={e => e.target.style.boxShadow = 'none'}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ padding: '16px', borderRadius: '50%', background: '#d4af37', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Plus size={28} color="#000" />
               </div>
-              <div className="text-left flex-1">
-                <h3 className="text-xl font-bold text-white mb-1">New Quote</h3>
-                <p className="text-gray-400 text-sm">Create a new client quote</p>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>New Quote</h3>
+                <p style={{ color: '#aaa', fontSize: '14px' }}>Create a new client quote</p>
               </div>
-              <div className="text-3xl text-gray-600">→</div>
+              <div style={{ fontSize: '24px', color: '#666' }}>→</div>
             </div>
           </button>
 
-          {/* Card 2: Pull Existing Quote */}
-          <button
-            onClick={() => setCurrentView('history')}
-            className="w-full p-6 rounded-lg transition-all duration-300 hover:shadow-2xl"
-            style={{ 
-              background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)',
-              border: '1px solid #d4af37'
-            }}
-          >
-            <div className="flex items-center gap-4">
-              <div className="p-4 rounded-full" style={{ background: '#d4af37' }}>
-                <Search size={28} className="text-black" />
+          <button onClick={() => setCurrentView('history')} style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }} onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'} onMouseLeave={e => e.target.style.boxShadow = 'none'}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ padding: '16px', borderRadius: '50%', background: '#d4af37', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Search size={28} color="#000" />
               </div>
-              <div className="text-left flex-1">
-                <h3 className="text-xl font-bold text-white mb-1">Pull Existing Quote</h3>
-                <p className="text-gray-400 text-sm">Search & view past quotes ({quotes.length})</p>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>Pull Existing Quote</h3>
+                <p style={{ color: '#aaa', fontSize: '14px' }}>Search & view past quotes ({quotes.length})</p>
               </div>
-              <div className="text-3xl text-gray-600">→</div>
+              <div style={{ fontSize: '24px', color: '#666' }}>→</div>
             </div>
           </button>
 
-          {/* Card 3: Statistics */}
-          <button
-            onClick={() => setCurrentView('statistics')}
-            className="w-full p-6 rounded-lg transition-all duration-300 hover:shadow-2xl"
-            style={{ 
-              background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)',
-              border: '1px solid #d4af37'
-            }}
-          >
-            <div className="flex items-center gap-4">
-              <div className="p-4 rounded-full" style={{ background: '#d4af37' }}>
-                <BarChart3 size={28} className="text-black" />
+          <button onClick={() => setCurrentView('statistics')} style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }} onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'} onMouseLeave={e => e.target.style.boxShadow = 'none'}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ padding: '16px', borderRadius: '50%', background: '#d4af37', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <BarChart3 size={28} color="#000" />
               </div>
-              <div className="text-left flex-1">
-                <h3 className="text-xl font-bold text-white mb-1">Statistics</h3>
-                <p className="text-gray-400 text-sm">View business analytics & insights</p>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>Statistics</h3>
+                <p style={{ color: '#aaa', fontSize: '14px' }}>View business analytics & insights</p>
               </div>
-              <div className="text-3xl text-gray-600">→</div>
+              <div style={{ fontSize: '24px', color: '#666' }}>→</div>
             </div>
           </button>
         </div>
 
-        {/* Footer */}
-        <div className="mt-12 text-center">
-          <p className="text-gray-500 text-sm">All data is securely stored on your device</p>
+        <div style={{ marginTop: '48px', textAlign: 'center' }}>
+          <p style={{ color: '#666', fontSize: '12px' }}>All data is securely stored on your device</p>
         </div>
       </div>
     </div>
@@ -581,77 +408,181 @@ Total Profit: $${totalProfit.toFixed(0)}`;
       quote.clientName.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
+    if (selectedQuote) {
+      return renderQuoteDetail();
+    }
+
     return (
-      <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' }}>
-        <div className="max-w-2xl mx-auto px-4 py-8">
-          {/* Header */}
-          <div className="flex items-center gap-3 mb-8">
-            <button
-              onClick={() => {
-                setCurrentView('menu');
-                setSearchQuery('');
-                setSelectedQuote(null);
-              }}
-              className="p-2 rounded-lg hover:bg-gray-700 transition"
-            >
-              <ArrowLeft size={24} className="text-gray-300" />
+      <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
+        <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
+            <button onClick={() => { setCurrentView('menu'); setSearchQuery(''); }} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(100,100,100,0.3)', border: 'none', cursor: 'pointer' }}>
+              <ArrowLeft size={24} color="#aaa" />
             </button>
-            <h2 className="text-3xl font-bold text-white" style={{ fontFamily: 'Georgia, serif' }}>
-              Quote History
-            </h2>
+            <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff', fontFamily: 'Georgia, serif' }}>Quote History</h2>
           </div>
 
-          {!selectedQuote ? (
-            <>
-              {/* Search Bar */}
-              <div className="mb-8 relative">
-                <Search className="absolute left-4 top-3.5 text-gray-400" size={20} />
-                <input
-                  type="text"
-                  placeholder="Search by client name..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 rounded-lg"
-                  style={{ background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }}
-                />
-              </div>
+          <div style={{ marginBottom: '32px', position: 'relative' }}>
+            <Search style={{ position: 'absolute', left: '12px', top: '12px', color: '#666' }} size={20} />
+            <input
+              type="text"
+              placeholder="Search by client name..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ width: '100%', paddingLeft: '40px', paddingRight: '16px', paddingTop: '12px', paddingBottom: '12px', borderRadius: '8px', background: '#2a2a2a', border: '1px solid #d4af37', color: 'white', fontSize: '16px' }}
+            />
+          </div>
 
-              {/* Quotes List */}
-              {quotes.length === 0 ? (
-                <div className="text-center py-16">
-                  <p className="text-gray-400 text-lg">No quotes created yet</p>
-                </div>
-              ) : filteredQuotes.length === 0 ? (
-                <div className="text-center py-16">
-                  <p className="text-gray-400 text-lg">No quotes found for "{searchQuery}"</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {filteredQuotes.map(quote => (
-                    <button
-                      key={quote.id}
-                      onClick={() => setSelectedQuote(quote)}
-                      className="w-full p-4 rounded-lg text-left transition-all duration-300 hover:shadow-xl"
-                      style={{ 
-                        background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)',
-                        border: '1px solid #444'
-                      }}
-                    >
-                      <div className="flex justify-between items-start mb-2">
-                        <p className="font-bold text-white text-lg">{quote.clientName}</p>
-                        <span className="text-xs px-3 py-1 rounded-full" style={{ background: '#d4af37', color: '#000' }}>
-                          {quote.rooms.reduce((sum, r) => sum + r.windows.length, 0)} windows
-                        </span>
-                      </div>
-                      <p className="text-gray-400 text-sm">{quote.date} • {quote.location}</p>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
+          {quotes.length === 0 ? (
+            <div style={{ textAlign: 'center', paddingTop: '64px', paddingBottom: '64px' }}>
+              <p style={{ color: '#888', fontSize: '18px' }}>No quotes created yet</p>
+            </div>
+          ) : filteredQuotes.length === 0 ? (
+            <div style={{ textAlign: 'center', paddingTop: '64px', paddingBottom: '64px' }}>
+              <p style={{ color: '#888', fontSize: '18px' }}>No quotes found for "{searchQuery}"</p>
+            </div>
           ) : (
-            renderQuoteDetail()
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {filteredQuotes.map(quote => (
+                <button
+                  key={quote.id}
+                  onClick={() => setSelectedQuote(quote)}
+                  style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #444', borderRadius: '8px', padding: '16px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }}
+                  onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'}
+                  onMouseLeave={e => e.target.style.boxShadow = 'none'}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                    <p style={{ fontWeight: 'bold', color: '#fff', fontSize: '18px' }}>{quote.clientName}</p>
+                    <span style={{ fontSize: '12px', paddingLeft: '12px', paddingRight: '12px', paddingTop: '4px', paddingBottom: '4px', borderRadius: '999px', background: '#d4af37', color: '#000' }}>
+                      {quote.rooms.reduce((sum, r) => sum + r.windows.length, 0)} windows
+                    </span>
+                  </div>
+                  <p style={{ color: '#888', fontSize: '14px' }}>{quote.date} • {quote.location}</p>
+                </button>
+              ))}
+            </div>
           )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderQuoteDetail = () => {
+    if (!selectedQuote) return null;
+
+    const rooms = selectedQuote.rooms;
+    let totalMin = 0, totalMax = 0, totalProfit = 0;
+
+    rooms.forEach(room => {
+      const roomWindows = room.windows;
+      const motorizedCount = roomWindows.filter(w => w.motorized).length;
+
+      roomWindows.forEach(window => {
+        const quote = calculateWindowQuote(window, room.selectedFabrics, motorizedCount);
+        totalMin += quote.minQuote;
+        totalMax += quote.maxQuote;
+        totalProfit += quote.profit;
+      });
+    });
+
+    const taxMin = totalMin * SALES_TAX_RATE;
+    const taxMax = totalMax * SALES_TAX_RATE;
+    const grandMin = totalMin + taxMin;
+    const grandMax = totalMax + taxMax;
+
+    const copyText = `QUOTE - ${BUSINESS_NAME}\n\nClient: ${selectedQuote.clientName}\nPhone: ${selectedQuote.clientPhone}\nLocation: ${selectedQuote.location}\nDate: ${selectedQuote.date}\n\nOVERALL MIN: $${totalMin.toFixed(0)}\nOVERALL MAX: $${totalMax.toFixed(0)}\nSales Tax (8.25%): $${taxMin.toFixed(0)} - $${taxMax.toFixed(0)}\nGRAND TOTAL: $${grandMin.toFixed(0)} - $${grandMax.toFixed(0)}`;
+
+    return (
+      <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
+        <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+            <h3 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff' }}>{selectedQuote.clientName}</h3>
+            <button onClick={() => setSelectedQuote(null)} style={{ fontSize: '24px', color: '#aaa', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+          </div>
+
+          <div style={{ borderRadius: '8px', marginBottom: '32px', background: '#2a2a2a', border: '1px solid #444', overflowX: 'auto' }}>
+            <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+              <thead style={{ background: '#1a1a1a', borderBottom: '1px solid #444' }}>
+                <tr>
+                  <th style={{ padding: '8px', textAlign: 'left', fontWeight: 'bold', color: '#fff' }}>Room</th>
+                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Win</th>
+                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Type</th>
+                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Solar</th>
+                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Min</th>
+                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Max</th>
+                  <th style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rooms.map(room => {
+                  const roomWindows = room.windows;
+                  const motorizedCount = roomWindows.filter(w => w.motorized).length;
+                  let roomMin = 0, roomMax = 0;
+
+                  roomWindows.forEach(window => {
+                    const q = calculateWindowQuote(window, room.selectedFabrics, motorizedCount);
+                    roomMin += q.minQuote;
+                    roomMax += q.maxQuote;
+                  });
+
+                  const motorType = roomWindows.some(w => w.motorized) ? 'Motor' : 'Manual';
+                  const solarType = roomWindows.some(w => w.solar) ? 'Yes' : 'No';
+
+                  return (
+                    <tr key={room.id} style={{ borderBottom: '1px solid #444' }}>
+                      <td style={{ padding: '8px', color: '#fff' }}>{room.name}</td>
+                      <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{roomWindows.length}</td>
+                      <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{motorType}</td>
+                      <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{solarType}</td>
+                      <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>${(roomMin / roomWindows.length).toFixed(0)}</td>
+                      <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>${(roomMax / roomWindows.length).toFixed(0)}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>${roomMin.toFixed(0)}-${roomMax.toFixed(0)}</td>
+                    </tr>
+                  );
+                })}
+                <tr style={{ background: '#1a3a3a', borderTop: '2px solid #d4af37', fontWeight: 'bold' }}>
+                  <td colSpan="6" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>TOTAL:</td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>${totalMin.toFixed(0)}-${totalMax.toFixed(0)}</td>
+                </tr>
+                <tr style={{ background: '#1a3a3a' }}>
+                  <td colSpan="6" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>Tax (8.25%):</td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>${taxMin.toFixed(0)}-${taxMax.toFixed(0)}</td>
+                </tr>
+                <tr style={{ background: '#2a5a2a', fontWeight: 'bold' }}>
+                  <td colSpan="6" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>GRAND TOTAL:</td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>${grandMin.toFixed(0)}-${grandMax.toFixed(0)}</td>
+                </tr>
+                <tr style={{ background: '#3a3a2a' }}>
+                  <td colSpan="6" style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>YOUR PROFIT:</td>
+                  <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#ffd700' }}>${totalProfit.toFixed(0)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(copyText);
+                setCopiedId(selectedQuote.id);
+                setTimeout(() => setCopiedId(null), 2000);
+              }}
+              style={{ flex: 1, paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}
+            >
+              {copiedId === selectedQuote.id ? <Check size={16} /> : <Copy size={16} />}
+              {copiedId === selectedQuote.id ? 'Copied!' : 'Copy Quote'}
+            </button>
+            
+            <button
+              onClick={() => {
+                setQuotes(quotes.filter(q => q.id !== selectedQuote.id));
+                setSelectedQuote(null);
+              }}
+              style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer' }}
+            >
+              <Trash2 size={18} />
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -662,75 +593,62 @@ Total Profit: $${totalProfit.toFixed(0)}`;
     const monthlyEntries = Object.entries(stats.monthlyStats).sort().reverse().slice(0, 12);
 
     return (
-      <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' }}>
-        <div className="max-w-2xl mx-auto px-4 py-8">
-          {/* Header */}
-          <div className="flex items-center gap-3 mb-8">
-            <button
-              onClick={() => setCurrentView('menu')}
-              className="p-2 rounded-lg hover:bg-gray-700 transition"
-            >
-              <ArrowLeft size={24} className="text-gray-300" />
+      <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
+        <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
+            <button onClick={() => setCurrentView('menu')} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(100,100,100,0.3)', border: 'none', cursor: 'pointer' }}>
+              <ArrowLeft size={24} color="#aaa" />
             </button>
-            <h2 className="text-3xl font-bold text-white" style={{ fontFamily: 'Georgia, serif' }}>
-              Statistics
-            </h2>
+            <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff', fontFamily: 'Georgia, serif' }}>Statistics</h2>
           </div>
 
-          {/* Key Metrics */}
-          <div className="grid grid-cols-2 gap-4 mb-8">
-            {/* Total Quotes */}
-            <div className="p-6 rounded-lg" style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37' }}>
-              <p className="text-gray-400 text-sm mb-2">Total Quotes</p>
-              <p className="text-4xl font-bold text-white">{stats.totalQuotes}</p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '32px' }}>
+            <div style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px' }}>
+              <p style={{ color: '#888', fontSize: '12px', marginBottom: '8px' }}>Total Quotes</p>
+              <p style={{ fontSize: '32px', fontWeight: 'bold', color: '#fff' }}>{stats.totalQuotes}</p>
             </div>
 
-            {/* Total Profit */}
-            <div className="p-6 rounded-lg" style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37' }}>
-              <p className="text-gray-400 text-sm mb-2">Total Profit</p>
-              <p className="text-4xl font-bold text-white">${stats.totalProfit.toFixed(0)}</p>
+            <div style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px' }}>
+              <p style={{ color: '#888', fontSize: '12px', marginBottom: '8px' }}>Total Profit</p>
+              <p style={{ fontSize: '32px', fontWeight: 'bold', color: '#fff' }}>${stats.totalProfit.toFixed(0)}</p>
             </div>
 
-            {/* Pending Orders */}
-            <div className="p-6 rounded-lg" style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37' }}>
-              <p className="text-gray-400 text-sm mb-2">Pending (7 days)</p>
-              <p className="text-4xl font-bold text-white">{stats.pendingOrders}</p>
+            <div style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px' }}>
+              <p style={{ color: '#888', fontSize: '12px', marginBottom: '8px' }}>Pending (7 days)</p>
+              <p style={{ fontSize: '32px', fontWeight: 'bold', color: '#fff' }}>{stats.pendingOrders}</p>
             </div>
 
-            {/* Avg Quote Value */}
-            <div className="p-6 rounded-lg" style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37' }}>
-              <p className="text-gray-400 text-sm mb-2">Avg Profit/Quote</p>
-              <p className="text-4xl font-bold text-white">${(stats.totalProfit / Math.max(stats.totalQuotes, 1)).toFixed(0)}</p>
+            <div style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px' }}>
+              <p style={{ color: '#888', fontSize: '12px', marginBottom: '8px' }}>Avg Profit/Quote</p>
+              <p style={{ fontSize: '32px', fontWeight: 'bold', color: '#fff' }}>${(stats.totalProfit / Math.max(stats.totalQuotes, 1)).toFixed(0)}</p>
             </div>
           </div>
 
-          {/* Monthly Breakdown */}
-          <div className="p-6 rounded-lg mb-8" style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #444' }}>
-            <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-              <TrendingUp size={24} style={{ color: '#d4af37' }} />
+          <div style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #444', borderRadius: '8px', padding: '24px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 'bold', color: '#fff', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <TrendingUp size={24} color="#d4af37" />
               Monthly Breakdown
             </h3>
 
             {monthlyEntries.length === 0 ? (
-              <p className="text-gray-400 text-center py-8">No data yet</p>
+              <p style={{ color: '#888', textAlign: 'center', paddingTop: '32px', paddingBottom: '32px' }}>No data yet</p>
             ) : (
-              <div className="space-y-4">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {monthlyEntries.map(([month, data]) => (
-                  <div key={month} className="p-4 rounded-lg" style={{ background: '#1a1a1a', border: '1px solid #333' }}>
-                    <div className="flex justify-between items-center mb-2">
-                      <p className="font-bold text-white">{new Date(month + '-01').toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
-                      <span className="text-xs px-3 py-1 rounded-full" style={{ background: '#d4af37', color: '#000' }}>
-                        {data.quotes} quotes
-                      </span>
+                  <div key={month} style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', padding: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <p style={{ fontWeight: 'bold', color: '#fff' }}>{new Date(month + '-01').toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
+                      <span style={{ fontSize: '12px', paddingLeft: '12px', paddingRight: '12px', paddingTop: '4px', paddingBottom: '4px', borderRadius: '999px', background: '#d4af37', color: '#000' }}>{data.quotes} quotes</span>
                     </div>
-                    <div className="flex justify-between items-end">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                       <div>
-                        <p className="text-gray-400 text-sm">Profit: <span className="text-green-400 font-bold">${data.profit.toFixed(0)}</span></p>
+                        <p style={{ color: '#888', fontSize: '14px' }}>Profit: <span style={{ color: '#4ade80', fontWeight: 'bold' }}>${data.profit.toFixed(0)}</span></p>
                       </div>
-                      <div className="w-32 h-8 rounded" style={{ background: '#333' }}>
+                      <div style={{ width: '128px', height: '32px', borderRadius: '4px', background: '#333' }}>
                         <div 
-                          className="h-full rounded" 
                           style={{ 
+                            height: '100%',
+                            borderRadius: '4px',
                             width: `${(data.profit / Math.max(...monthlyEntries.map(e => e[1].profit), 1)) * 100}%`,
                             background: 'linear-gradient(90deg, #d4af37, #f4e4c1)'
                           }}
@@ -748,357 +666,82 @@ Total Profit: $${totalProfit.toFixed(0)}`;
   };
 
   const renderQuoteForm = () => (
-    <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' }}>
-      <div className="max-w-2xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-8">
-          <button
-            onClick={() => {
-              setCurrentView('menu');
-              resetForm();
-            }}
-            className="p-2 rounded-lg hover:bg-gray-700 transition"
-          >
-            <ArrowLeft size={24} className="text-gray-300" />
+    <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', paddingBottom: '48px', padding: '32px 16px' }}>
+      <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
+          <button onClick={() => { setCurrentView('menu'); resetForm(); }} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(100,100,100,0.3)', border: 'none', cursor: 'pointer' }}>
+            <ArrowLeft size={24} color="#aaa" />
           </button>
-          <h2 className="text-3xl font-bold text-white" style={{ fontFamily: 'Georgia, serif' }}>
-            Create Quote
-          </h2>
+          <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff', fontFamily: 'Georgia, serif' }}>Create Quote</h2>
         </div>
 
-        <div className="space-y-3 mb-8">
-          <input
-            type="text"
-            placeholder="Client Name"
-            value={formData.clientName}
-            onChange={(e) => setFormData({...formData, clientName: e.target.value})}
-            className="w-full p-3 rounded-lg text-base"
-            style={{ background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }}
-          />
-          
-          <input
-            type="tel"
-            placeholder="Client Phone"
-            value={formData.clientPhone}
-            onChange={(e) => setFormData({...formData, clientPhone: e.target.value})}
-            className="w-full p-3 rounded-lg text-base"
-            style={{ background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }}
-          />
-          
-          <input
-            type="text"
-            placeholder="Location / Address"
-            value={formData.location}
-            onChange={(e) => setFormData({...formData, location: e.target.value})}
-            className="w-full p-3 rounded-lg text-base"
-            style={{ background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }}
-          />
-          
-          <input
-            type="date"
-            value={formData.date}
-            onChange={(e) => setFormData({...formData, date: e.target.value})}
-            className="w-full p-3 rounded-lg text-base"
-            style={{ background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }}
-          />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px' }}>
+          <input type="text" placeholder="Client Name" value={formData.clientName} onChange={(e) => setFormData({...formData, clientName: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '8px', fontSize: '16px', background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }} />
+          <input type="tel" placeholder="Client Phone" value={formData.clientPhone} onChange={(e) => setFormData({...formData, clientPhone: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '8px', fontSize: '16px', background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }} />
+          <input type="text" placeholder="Location / Address" value={formData.location} onChange={(e) => setFormData({...formData, location: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '8px', fontSize: '16px', background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }} />
+          <input type="date" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '8px', fontSize: '16px', background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }} />
         </div>
 
-      <div className="pt-8">
-        <h3 className="font-bold text-2xl text-white mb-6" style={{ fontFamily: 'Georgia, serif' }}>Rooms & Windows</h3>
-        
+        <h3 style={{ fontWeight: 'bold', fontSize: '20px', color: '#fff', marginBottom: '24px', fontFamily: 'Georgia, serif' }}>Rooms & Windows</h3>
+
         {formData.rooms.map((room, roomIndex) => (
-          <div key={room.id} className="p-6 rounded-lg mb-6" style={{ background: '#2a2a2a', border: '1px solid #444' }}>
-            <input
-              type="text"
-              placeholder="Room Name (e.g., Living Room)"
-              value={room.name}
-              onChange={(e) => {
-                const newRooms = [...formData.rooms];
-                newRooms[roomIndex].name = e.target.value;
-                setFormData({...formData, rooms: newRooms});
-              }}
-              className="w-full p-3 rounded-lg mb-4 font-bold text-base"
-              style={{ background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
-            />
+          <div key={room.id} style={{ background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', padding: '24px', marginBottom: '24px' }}>
+            <input type="text" placeholder="Room Name (e.g., Living Room)" value={room.name} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].name = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontWeight: 'bold', fontSize: '16px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }} />
 
-            {/* Fabric Selection for this room */}
-            <div className="mb-4 bg-white p-3 rounded-lg border-2">
-              <p className="font-bold text-base mb-2">Select Fabrics for {room.name || 'this room'}:</p>
-              
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                <div>
-                  <p className="text-sm font-semibold text-gray-700 mb-2">Roller</p>
-                  {PRICING_DATA.Roller.map(fabric => (
-                    <label key={fabric.number} className="flex items-center gap-3 p-2 active:bg-blue-100 rounded-lg cursor-pointer text-base">
-                      <input
-                        type="checkbox"
-                        checked={room.selectedFabrics.includes(fabric.number)}
-                        onChange={(e) => {
-                          const newRooms = [...formData.rooms];
-                          if (e.target.checked) {
-                            newRooms[roomIndex].selectedFabrics.push(fabric.number);
-                          } else {
-                            newRooms[roomIndex].selectedFabrics = newRooms[roomIndex].selectedFabrics.filter(f => f !== fabric.number);
-                          }
-                          setFormData({...formData, rooms: newRooms});
-                        }}
-                        className="w-5 h-5 cursor-pointer"
-                      />
-                      <span>{fabric.number}</span>
-                    </label>
-                  ))}
-                </div>
-
-                <div>
-                  <p className="text-sm font-semibold text-gray-700 mb-2 mt-3">Zebra</p>
-                  {PRICING_DATA.Zebra.map(fabric => (
-                    <label key={fabric.number} className="flex items-center gap-3 p-2 active:bg-blue-100 rounded-lg cursor-pointer text-base">
-                      <input
-                        type="checkbox"
-                        checked={room.selectedFabrics.includes(fabric.number)}
-                        onChange={(e) => {
-                          const newRooms = [...formData.rooms];
-                          if (e.target.checked) {
-                            newRooms[roomIndex].selectedFabrics.push(fabric.number);
-                          } else {
-                            newRooms[roomIndex].selectedFabrics = newRooms[roomIndex].selectedFabrics.filter(f => f !== fabric.number);
-                          }
-                          setFormData({...formData, rooms: newRooms});
-                        }}
-                        className="w-5 h-5 cursor-pointer"
-                      />
-                      <span>{fabric.number}</span>
-                    </label>
-                  ))}
-                </div>
-
-                <div>
-                  <p className="text-sm font-semibold text-gray-700 mb-2 mt-3">Roman</p>
-                  {PRICING_DATA.Roman.map(fabric => (
-                    <label key={fabric.number} className="flex items-center gap-3 p-2 active:bg-blue-100 rounded-lg cursor-pointer text-base">
-                      <input
-                        type="checkbox"
-                        checked={room.selectedFabrics.includes(fabric.number)}
-                        onChange={(e) => {
-                          const newRooms = [...formData.rooms];
-                          if (e.target.checked) {
-                            newRooms[roomIndex].selectedFabrics.push(fabric.number);
-                          } else {
-                            newRooms[roomIndex].selectedFabrics = newRooms[roomIndex].selectedFabrics.filter(f => f !== fabric.number);
-                          }
-                          setFormData({...formData, rooms: newRooms});
-                        }}
-                        className="w-5 h-5 cursor-pointer"
-                      />
-                      <span>{fabric.number}</span>
-                    </label>
-                  ))}
-                </div>
-
-                <div>
-                  <p className="text-sm font-semibold text-gray-700 mb-2 mt-3">Bamboo</p>
-                  {PRICING_DATA.Bamboo.map(fabric => (
-                    <label key={fabric.number} className="flex items-center gap-3 p-2 active:bg-blue-100 rounded-lg cursor-pointer text-base">
-                      <input
-                        type="checkbox"
-                        checked={room.selectedFabrics.includes(fabric.number)}
-                        onChange={(e) => {
-                          const newRooms = [...formData.rooms];
-                          if (e.target.checked) {
-                            newRooms[roomIndex].selectedFabrics.push(fabric.number);
-                          } else {
-                            newRooms[roomIndex].selectedFabrics = newRooms[roomIndex].selectedFabrics.filter(f => f !== fabric.number);
-                          }
-                          setFormData({...formData, rooms: newRooms});
-                        }}
-                        className="w-5 h-5 cursor-pointer"
-                      />
-                      <span>{fabric.number}</span>
-                    </label>
-                  ))}
-                </div>
+            <div style={{ background: '#1a1a1a', padding: '12px', borderRadius: '8px', border: '1px solid #555', marginBottom: '16px' }}>
+              <p style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '8px', color: '#fff' }}>Select Fabrics:</p>
+              <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {['Roller', 'Zebra', 'Roman', 'Bamboo'].map(type => (
+                  <div key={type}>
+                    <p style={{ fontSize: '12px', fontWeight: '600', color: '#888', marginBottom: '4px', marginTop: '8px' }}>{type}</p>
+                    {PRICING_DATA[type].slice(0, 5).map(fabric => (
+                      <label key={fabric.number} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', color: '#ccc' }}>
+                        <input type="checkbox" checked={room.selectedFabrics.includes(fabric.number)} onChange={(e) => { const newRooms = [...formData.rooms]; if (e.target.checked) { newRooms[roomIndex].selectedFabrics.push(fabric.number); } else { newRooms[roomIndex].selectedFabrics = newRooms[roomIndex].selectedFabrics.filter(f => f !== fabric.number); } setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+                        <span>{fabric.number}</span>
+                      </label>
+                    ))}
+                  </div>
+                ))}
               </div>
-
-              {room.selectedFabrics.length > 0 && (
-                <p className="text-sm text-green-600 font-bold mt-2">
-                  ✓ {room.selectedFabrics.length} fabric(s) selected
-                </p>
-              )}
-              <p className="text-xs text-gray-500 mt-2">Leave empty for Min/Max quote</p>
             </div>
 
-            <div className="bg-blue-100 p-3 rounded-lg mb-3 text-sm font-bold text-blue-900">
-              Windows: {room.windows.length}
-            </div>
+            <div style={{ background: '#1a1a1a', padding: '12px', borderRadius: '8px', marginBottom: '12px', fontSize: '14px', fontWeight: 'bold', color: '#ccc', border: '1px solid #555' }}>Windows: {room.windows.length}</div>
             
             {room.windows.map((window, windowIndex) => (
-              <div key={window.id} className="bg-white p-3 rounded-lg mb-3 border-2">
-                <div className="font-bold text-base mb-3 text-gray-700">
-                  {room.name || 'Room'} - Window {windowIndex + 1}
+              <div key={window.id} style={{ background: '#1a1a1a', padding: '12px', borderRadius: '8px', marginBottom: '12px', border: '1px solid #555' }}>
+                <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '12px', color: '#ccc' }}>{room.name || 'Room'} - Window {windowIndex + 1}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                  <input type="number" placeholder="Width" value={window.width} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].width = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }} />
+                  <input type="number" placeholder="Height" value={window.height} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].height = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }} />
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <input
-                    type="number"
-                    placeholder="Width"
-                    value={window.width}
-                    onChange={(e) => {
-                      const newRooms = [...formData.rooms];
-                      newRooms[roomIndex].windows[windowIndex].width = e.target.value;
-                      setFormData({...formData, rooms: newRooms});
-                    }}
-                    className="p-2 border-2 rounded text-base"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Height"
-                    value={window.height}
-                    onChange={(e) => {
-                      const newRooms = [...formData.rooms];
-                      newRooms[roomIndex].windows[windowIndex].height = e.target.value;
-                      setFormData({...formData, rooms: newRooms});
-                    }}
-                    className="p-2 border-2 rounded text-base"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <select
-                    value={window.blindType}
-                    onChange={(e) => {
-                      const newRooms = [...formData.rooms];
-                      newRooms[roomIndex].windows[windowIndex].blindType = e.target.value;
-                      setFormData({...formData, rooms: newRooms});
-                    }}
-                    className="p-2 border-2 rounded text-base"
-                  >
-                    <option>Roller</option>
-                    <option>Zebra</option>
-                    <option>Roman</option>
-                    <option>Bamboo (Roller)</option>
-                    <option>Bamboo (Roman)</option>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                  <select value={window.blindType} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].blindType = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }}>
+                    <option>Roller</option><option>Zebra</option><option>Roman</option><option>Bamboo (Roller)</option><option>Bamboo (Roman)</option>
                   </select>
-
-                  <select
-                    value={window.mount}
-                    onChange={(e) => {
-                      const newRooms = [...formData.rooms];
-                      newRooms[roomIndex].windows[windowIndex].mount = e.target.value;
-                      setFormData({...formData, rooms: newRooms});
-                    }}
-                    className="p-2 border-2 rounded text-base"
-                  >
-                    <option>Inside</option>
-                    <option>Outside</option>
-                    <option>Outside-NoReduc</option>
+                  <select value={window.mount} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].mount = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }}>
+                    <option>Inside</option><option>Outside</option><option>Outside-NoReduc</option>
                   </select>
                 </div>
-
-                <div className="space-y-2 mb-2">
-                  <label className="flex items-center gap-3 p-2 active:bg-blue-100 cursor-pointer rounded-lg text-base font-semibold">
-                    <input
-                      type="checkbox"
-                      checked={window.motorized}
-                      onChange={(e) => {
-                        const newRooms = [...formData.rooms];
-                        newRooms[roomIndex].windows[windowIndex].motorized = e.target.checked;
-                        setFormData({...formData, rooms: newRooms});
-                      }}
-                      className="w-5 h-5 cursor-pointer"
-                    />
-                    Motor (+$80)
-                  </label>
-
-                  <label className="flex items-center gap-3 p-2 active:bg-blue-100 cursor-pointer rounded-lg text-base font-semibold">
-                    <input
-                      type="checkbox"
-                      checked={window.solar}
-                      onChange={(e) => {
-                        const newRooms = [...formData.rooms];
-                        newRooms[roomIndex].windows[windowIndex].solar = e.target.checked;
-                        setFormData({...formData, rooms: newRooms});
-                      }}
-                      className="w-5 h-5 cursor-pointer"
-                    />
-                    Solar (+$40)
-                  </label>
-
-                  {window.motorized && (
-                    <label className="flex items-center gap-3 p-2 active:bg-blue-100 cursor-pointer rounded-lg text-base font-semibold ml-4">
-                      <input
-                        type="checkbox"
-                        checked={window.cordless}
-                        onChange={(e) => {
-                          const newRooms = [...formData.rooms];
-                          newRooms[roomIndex].windows[windowIndex].cordless = e.target.checked;
-                          setFormData({...formData, rooms: newRooms});
-                        }}
-                        className="w-5 h-5 cursor-pointer"
-                      />
-                      Cordless
-                    </label>
-                  )}
-                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', fontWeight: '600', color: '#ccc' }}>
+                  <input type="checkbox" checked={window.motorized} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].motorized = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Motor (+$80)
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', fontWeight: '600', color: '#ccc' }}>
+                  <input type="checkbox" checked={window.solar} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].solar = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Solar (+$40)
+                </label>
+                {window.motorized && <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', paddingLeft: '28px', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', fontWeight: '600', color: '#ccc' }}>
+                  <input type="checkbox" checked={window.cordless} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].cordless = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Cordless
+                </label>}
               </div>
             ))}
 
-            <button
-              onClick={() => {
-                const newRooms = [...formData.rooms];
-                const newWindowId = Math.max(...newRooms[roomIndex].windows.map(w => w.id)) + 1;
-                newRooms[roomIndex].windows.push({
-                  id: newWindowId,
-                  width: '',
-                  height: '',
-                  blindType: 'Roller',
-                  motorized: false,
-                  cordless: false,
-                  solar: false,
-                  mount: 'Inside'
-                });
-                setFormData({...formData, rooms: newRooms});
-              }}
-              className="w-full p-3 border-2 border-dashed border-gray-400 rounded text-gray-700 hover:text-gray-900 font-bold text-base"
-            >
-              + Add Window
-            </button>
+            <button onClick={() => { const newRooms = [...formData.rooms]; const newWindowId = Math.max(...newRooms[roomIndex].windows.map(w => w.id)) + 1; newRooms[roomIndex].windows.push({ id: newWindowId, width: '', height: '', blindType: 'Roller', motorized: false, cordless: false, solar: false, mount: 'Inside' }); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer' }}>+ Add Window</button>
           </div>
         ))}
 
-        <button
-          onClick={() => {
-            const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1;
-            setFormData({
-              ...formData,
-              rooms: [...formData.rooms, {
-                id: newRoomId,
-                name: '',
-                selectedFabrics: [],
-                windows: [{
-                  id: 1,
-                  width: '',
-                  height: '',
-                  blindType: 'Roller',
-                  motorized: false,
-                  cordless: false,
-                  solar: false,
-                  mount: 'Inside'
-                }]
-              }]
-            });
-          }}
-          className="w-full p-4 border-2 border-dashed border-gray-400 rounded text-gray-700 hover:text-gray-900 font-bold text-base"
-        >
-          + Add Room
-        </button>
-      </div>
+        <button onClick={() => { const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1; setFormData({...formData, rooms: [...formData.rooms, { id: newRoomId, name: '', selectedFabrics: [], windows: [{ id: 1, width: '', height: '', blindType: 'Roller', motorized: false, cordless: false, solar: false, mount: 'Inside' }] }]}); }} style={{ width: '100%', padding: '16px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '32px' }}>+ Add Room</button>
 
-      <button
-        onClick={generateQuote}
-        className="w-full p-4 bg-green-500 text-white rounded-lg hover:bg-green-600 font-bold text-lg"
-      >
-        Generate Quote
-      </button>
+        <button onClick={generateQuote} style={{ width: '100%', padding: '16px', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>Generate Quote</button>
+      </div>
     </div>
   );
 
