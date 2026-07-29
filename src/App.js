@@ -150,7 +150,7 @@ const getPricingSnapshot = () => ({
   REMOTE_16CH: 10,
   SALES_TAX_RATE: 0.0825,
   WIDTH_SURCHARGES: {
-    "35-40": 30,
+    "36-40": 30,
     "41-55": 45,
     "56-70": 60,
     "71-88": 75
@@ -163,12 +163,12 @@ const getPricingSnapshot = () => ({
 
 // Width surcharge based on inches (uses pricing snapshot)
 const getWidthSurcharge = (width, pricing = null) => {
-  const p = pricing || { WIDTH_SURCHARGES: { "35-40": 30, "41-55": 45, "56-70": 60, "71-88": 75 } };
+  const p = pricing || { WIDTH_SURCHARGES: { "36-40": 30, "41-55": 45, "56-70": 60, "71-88": 75 } };
   const w = parseUnits(width);
-  if (w >= 35 && w <= 40) return p.WIDTH_SURCHARGES["35-40"];
-  if (w >= 41 && w <= 55) return p.WIDTH_SURCHARGES["41-55"];
-  if (w >= 56 && w <= 70) return p.WIDTH_SURCHARGES["56-70"];
-  if (w >= 71 && w <= 88) return p.WIDTH_SURCHARGES["71-88"];
+  if (w > 35 && w <= 40) return p.WIDTH_SURCHARGES["36-40"];
+  if (w > 40 && w <= 55) return p.WIDTH_SURCHARGES["41-55"];
+  if (w > 55 && w <= 70) return p.WIDTH_SURCHARGES["56-70"];
+  if (w > 70 && w <= 88) return p.WIDTH_SURCHARGES["71-88"];
   return 0;
 };
 
