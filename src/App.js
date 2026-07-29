@@ -575,7 +575,7 @@ export default function BlindsQuoteApp() {
     if (!selectedQuote) return null;
 
     const rooms = selectedQuote.rooms;
-    let totalMin = 0, totalMax = 0, totalProfit = 0;
+    let totalMin = 0, totalMax = 0;
 
     rooms.forEach(room => {
       const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
@@ -585,7 +585,6 @@ export default function BlindsQuoteApp() {
         const q = calculateGroupQuote(group, fabricNumbers, room.blindType, motorizedCount);
         totalMin += q.minQuote;
         totalMax += q.maxQuote;
-        totalProfit += q.profit;
       });
     });
 
