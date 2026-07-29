@@ -484,7 +484,53 @@ export default function BlindsQuoteApp() {
     const grandMin = totalMin + taxMin;
     const grandMax = totalMax + taxMax;
 
-    const copyText = `QUOTE - ${BUSINESS_NAME}\n\nClient: ${selectedQuote.clientName}\nPhone: ${selectedQuote.clientPhone}\nLocation: ${selectedQuote.location}\nDate: ${selectedQuote.date}\n\nOVERALL MIN: $${totalMin.toFixed(0)}\nOVERALL MAX: $${totalMax.toFixed(0)}\nSales Tax (8.25%): $${taxMin.toFixed(0)} - $${taxMax.toFixed(0)}\nGRAND TOTAL: $${grandMin.toFixed(0)} - $${grandMax.toFixed(0)}`;
+    const copyText = (() => {
+      let text = `QUOTE - ${BUSINESS_NAME}\n\nClient: ${selectedQuote.clientName}\nPhone: ${selectedQuote.clientPhone}\nLocation: ${selectedQuote.location}\nDate: ${selectedQuote.date}\n\n`;
+      
+      let totalWindows = 0;
+      
+      // Add room details
+      text += `ROOMS:\n${'━'.repeat(50)}\n`;
+      rooms.forEach(room => {
+        const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
+        let roomWindowCount = 0;
+        let roomText = `${room.name} (`;
+        
+        room.windowGroups.forEach(group => {
+          const qty = parseInt(group.quantity) || 1;
+          roomWindowCount += qty;
+          totalWindows += qty;
+          const controlLabel = group.controlType || 'Manual';
+          const addOns = [];
+          if (group.controlType === 'Motor') addOns.push('Motor');
+          if (group.solar) addOns.push('Solar');
+          const addOnText = addOns.length > 0 ? ` + ${addOns.join(' + ')}` : '';
+          roomText += `${qty}x${group.width}"W × ${group.height}"H (${controlLabel}${addOnText}), `;
+        });
+        
+        roomText = roomText.slice(0, -2) + ')\n';
+        roomWindowCount += ` windows)`;
+        text += room.name + ` (${roomWindowCount} windows)\n`;
+        
+        room.windowGroups.forEach(group => {
+          const qty = parseInt(group.quantity) || 1;
+          const controlLabel = group.controlType || 'Manual';
+          const addOns = [];
+          if (group.controlType === 'Motor') addOns.push('Motor');
+          if (group.solar) addOns.push('Solar');
+          const addOnText = addOns.length > 0 ? ` - ${addOns.join(', ')}` : '';
+          text += `  ${group.width}"W × ${group.height}"H (${qty}x) - ${controlLabel}${addOnText}\n`;
+        });
+      });
+      
+      text += `\n${'━'.repeat(50)}\n`;
+      text += `TOTAL WINDOWS: ${totalWindows}\n\n`;
+      text += `OVERALL QUOTE: $${totalMin.toFixed(0)} - $${totalMax.toFixed(0)}\n`;
+      text += `Sales Tax (8.25%): $${taxMin.toFixed(0)} - $${taxMax.toFixed(0)}\n`;
+      text += `GRAND TOTAL: $${grandMin.toFixed(0)} - $${grandMax.toFixed(0)}`;
+      
+      return text;
+    })();
 
     return (
       <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
