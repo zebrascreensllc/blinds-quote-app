@@ -431,12 +431,14 @@ export default function BlindsQuoteApp() {
     // Get all selected blind types (or default to Roller)
     const selectedBlindTypes = formData.rooms[0]?.blindTypes || ['Roller'];
     
+    // Calculate version ONCE for all blind types
+    const newVersion = `v${getNextVersion(formData.clientName, formData.location)}`;
+    
     // Capture pricing snapshot once for all quotes
     const pricingSnapshot = getPricingSnapshot();
     
-    // Create a quote for EACH selected blind type
+    // Create a quote for EACH selected blind type (all with same version)
     const newQuotes = selectedBlindTypes.map((blindType, idx) => {
-      const newVersion = `v${getNextVersion(formData.clientName, formData.location) + idx}`;
       const quoteName = `${formData.clientName}-${formData.location}-${blindType}-quote-${newVersion}`;
       
       // Create a copy of formData with only this blind type
@@ -1183,7 +1185,7 @@ export default function BlindsQuoteApp() {
 
                 <div style={{ padding: '8px', borderRadius: '6px', background: '#2a3a2a', marginBottom: '8px', border: '1px solid #4a6a4a' }}>
                   <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#aaa', marginBottom: '6px' }}>Surcharge Override (Optional)</p>
-                  <p style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>Auto: ${(() => { try { const w = getWidthSurcharge(group.width || ''); const h = getHeightSurcharge(group.height || ''); return (w + h).toFixed(0); } catch(e) { return '0'; } })()} {group.surchargeOverride !== null && `→ Overridden: $${group.surchargeOverride.toFixed(0)}`}</p>
+                  <p style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>Auto: ${(() => { try { const widthVal = (group.width || '').trim(); const heightVal = (group.height || '').trim(); const w = widthVal ? getWidthSurcharge(widthVal) : 0; const h = heightVal ? getHeightSurcharge(heightVal) : 0; const total = w + h; return isNaN(total) ? '0' : total.toFixed(0); } catch(e) { console.error('Surcharge calc error:', e); return '0'; } })()} {group.surchargeOverride !== null && `→ Overridden: $${group.surchargeOverride.toFixed(0)}`}</p>
                   <input type="number" placeholder="Leave blank to use auto-calculated" value={group.surchargeOverride !== null ? group.surchargeOverride : ''} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = e.target.value === '' ? null : parseFloat(e.target.value) || 0; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '6px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #555', color: 'white', marginBottom: '6px' }} />
                   <button onClick={() => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = null; setFormData({...formData, rooms: newRooms}); }} style={{ fontSize: '10px', padding: '4px 8px', background: 'transparent', color: '#888', border: '1px solid #555', borderRadius: '4px', cursor: 'pointer' }}>Reset to Auto</button>
                 </div>
