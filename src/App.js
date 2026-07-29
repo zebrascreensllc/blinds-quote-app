@@ -331,16 +331,19 @@ export default function BlindsQuoteApp() {
       SOLAR_COST_CLIENT: 40,
       SOLAR_COST_SUPPLIER: 22,
       REMOTE_6CH: 7,
-      REMOTE_16CH: 10
+      REMOTE_16CH: 10,
+      MISC_EXPENSE: 4.50,
+      SHIPPING_COST: 42,
+      PRICING_DATA: PRICING_DATA
     };
     
-    const cost = calculateGroupCost(group, fabricNumbers, blindType, pricing);
+    const cost = calculateGroupCost(group, fabricNumbers, blindType, p);
     const quantity = parseInt(group.quantity) || 1;
     let profitPerWindow = p.PROFIT_PER_WINDOW;
     
     // Add width and height surcharges
-    const widthSurcharge = getWidthSurcharge(group.width, pricing);
-    const heightSurcharge = getHeightSurcharge(group.height, pricing);
+    const widthSurcharge = getWidthSurcharge(group.width, p);
+    const heightSurcharge = getHeightSurcharge(group.height, p);
     const calculatedSurcharge = widthSurcharge + heightSurcharge;
     
     // Use override if provided, otherwise use calculated
