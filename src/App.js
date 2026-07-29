@@ -642,27 +642,35 @@ export default function BlindsQuoteApp() {
   const renderQuoteDetail = () => {
     if (!selectedQuote) return null;
 
-    const rooms = selectedQuote.rooms;
-    const storedPricing = selectedQuote.pricing || null; // Use stored pricing or null (fallback to defaults)
-    let totalMin = 0, totalMax = 0, totalProfit = 0;
+    try {
+      const rooms = selectedQuote.rooms;
+      const storedPricing = selectedQuote.pricing || null; // Use stored pricing or null (fallback to defaults)
+      let totalMin = 0, totalMax = 0, totalProfit = 0;
 
-    rooms.forEach(room => {
-      const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
-      
-      room.windowGroups.forEach(group => {
-        const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
-        const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], motorizedCount, storedPricing);
-        totalMin += q.minQuote;
-        totalMax += q.maxQuote;
-        totalProfit += q.profit;
+      rooms.forEach(room => {
+        const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
+        
+        room.windowGroups.forEach(group => {
+          const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
+          const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], motorizedCount, storedPricing);
+          
+          // Safety check for NaN
+          if (isNaN(q.minQuote) || isNaN(q.maxQuote)) {
+            console.error('NaN detected in quote calculation:', { group, q });
+            return;
+          }
+          
+          totalMin += q.minQuote;
+          totalMax += q.maxQuote;
+          totalProfit += q.profit;
+        });
       });
-    });
 
-    const taxRate = storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE;
-    const taxMin = totalMin * taxRate;
-    const taxMax = totalMax * taxRate;
-    const grandMin = totalMin + taxMin;
-    const grandMax = totalMax + taxMax;
+      const taxRate = storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE;
+      const taxMin = totalMin * taxRate;
+      const taxMax = totalMax * taxRate;
+      const grandMin = totalMin + taxMin;
+      const grandMax = totalMax + taxMax;
 
     const copyText = (() => {
       let text = `QUOTE - ${BUSINESS_NAME}\n\nClient: ${selectedQuote.clientName}\nPhone: ${selectedQuote.clientPhone}\nLocation: ${selectedQuote.location}\nDate: ${selectedQuote.date}\n\n`;
@@ -865,6 +873,21 @@ export default function BlindsQuoteApp() {
         </div>
       </div>
     );
+    } catch (error) {
+      console.error('Error rendering quote detail:', error);
+      return (
+        <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
+          <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+            <button onClick={() => setSelectedQuote(null)} style={{ marginBottom: '24px', padding: '8px 16px', borderRadius: '8px', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer' }}>← Back</button>
+            <div style={{ background: '#2a1a1a', border: '1px solid #8b4444', borderRadius: '8px', padding: '24px', color: '#ff6666' }}>
+              <p style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '12px' }}>⚠️ Error Loading Quote</p>
+              <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '16px' }}>{error.message}</p>
+              <p style={{ fontSize: '12px', color: '#666' }}>This may be an old quote format. Try creating a new quote or editing this one.</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
   };
 
   const renderStatistics = () => {
