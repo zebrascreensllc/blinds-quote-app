@@ -156,7 +156,8 @@ const getPricingSnapshot = () => ({
     "71-88": 75
   },
   HEIGHT_SURCHARGE: 37,
-  PRICING_DATA: PRICING_DATA,
+  // NOTE: DO NOT store PRICING_DATA - too large for localStorage
+  // Instead use current PRICING_DATA in calculateGroupCost with fallback
   CREATED_DATE: new Date().toISOString()
 });
 
@@ -183,22 +184,22 @@ const parseUnits = (input) => {
   if (!input) return 0;
   input = input.trim().toUpperCase();
   
+  // Match formats: 3'6", 3ft6in, 3ft 6in, 8' 8", etc. - CHECK THIS FIRST!
+  const feetInchMatch = input.match(/(\d+)\s*['ft]*\s*(\d+)\s*['"]/);
+  if (feetInchMatch) {
+    const feet = parseInt(feetInchMatch[1]);
+    const inches = parseInt(feetInchMatch[2]);
+    return feet * 12 + inches;
+  }
+  
   // Handle format like "83in 12/16" or "83 12/16" or "83.75"
   const fractionalMatch = input.match(/(\d+)\s*(?:in|")?(?:\s+(\d+)\/(\d+))?/);
-  if (fractionalMatch) {
+  if (fractionalMatch && !input.includes("'") && !input.includes("FT")) {
     const inches = parseInt(fractionalMatch[1]) || 0;
     const numerator = fractionalMatch[2] ? parseInt(fractionalMatch[2]) : 0;
     const denominator = fractionalMatch[3] ? parseInt(fractionalMatch[3]) : 1;
     const fraction = denominator > 0 ? numerator / denominator : 0;
     return inches + fraction;
-  }
-  
-  // Match formats: 3'6", 3ft6in, 3ft 6in, 42", 42in
-  const feetInchMatch = input.match(/(\d+)\s*['"ft]*\s*(\d+)\s*['"in"]*/);
-  if (feetInchMatch) {
-    const feet = parseInt(feetInchMatch[1]);
-    const inches = parseInt(feetInchMatch[2]);
-    return feet * 12 + inches;
   }
   
   // Match just inches or feet
@@ -448,8 +449,9 @@ export default function BlindsQuoteApp() {
     };
 
     if (editingQuote) {
-      setQuotes(quotes.map(q => q.id === editingQuote.id ? { ...q, archived: true } : q).concat([quoteData]));
-      alert('✅ Quote updated successfully! (Previous version saved as archive)');
+      // Create new version without archiving - keep all versions visible
+      setQuotes([...quotes, quoteData]);
+      alert('✅ Quote updated successfully! New version created (v' + getNextVersion(formData.clientName, formData.location) + ')');
     } else {
       setQuotes([...quotes, quoteData]);
       alert('✅ Quote created successfully!');
