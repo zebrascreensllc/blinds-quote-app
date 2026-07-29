@@ -285,14 +285,6 @@ export default function BlindsQuoteApp() {
     }
   };
 
-  const calculateGroupCostForMultipleTypes = (group, fabricNumbers, blindTypes) => {
-    const results = {};
-    blindTypes.forEach(type => {
-      results[type] = calculateGroupCost(group, fabricNumbers, type);
-    });
-    return results;
-  };
-
   const calculateGroupQuote = (group, fabricNumbers, blindType, totalMotorizedInRoom) => {
     const cost = calculateGroupCost(group, fabricNumbers, blindType);
     const quantity = parseInt(group.quantity) || 1;
