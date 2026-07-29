@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Copy, Check, ArrowLeft } from 'lucide-react';
+import { Plus, Trash2, Copy, Check, ArrowLeft, Search, BarChart3, TrendingUp } from 'lucide-react';
 
 // Pricing data embedded
 const PRICING_DATA = {
@@ -152,6 +152,7 @@ export default function BlindsQuoteApp() {
   const [quotes, setQuotes] = useState([]);
   const [selectedQuote, setSelectedQuote] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [formData, setFormData] = useState({
     clientName: '',
@@ -303,6 +304,56 @@ export default function BlindsQuoteApp() {
     });
   };
 
+  const calculateStatistics = () => {
+    // Group quotes by month
+    const monthlyStats = {};
+    let totalProfit = 0;
+    let totalQuotes = 0;
+    let pendingOrders = 0;
+
+    quotes.forEach(quote => {
+      const date = new Date(quote.createdDate);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      if (!monthlyStats[monthKey]) {
+        monthlyStats[monthKey] = {
+          quotes: 0,
+          profit: 0,
+          orders: 0
+        };
+      }
+
+      monthlyStats[monthKey].quotes += 1;
+      totalQuotes += 1;
+
+      // Calculate profit for this quote
+      let quoteProfit = 0;
+      quote.rooms.forEach(room => {
+        const motorizedCount = room.windows.filter(w => w.motorized).length;
+        room.windows.forEach(window => {
+          const q = calculateWindowQuote(window, room.selectedFabrics, motorizedCount);
+          quoteProfit += q.profit;
+        });
+      });
+
+      monthlyStats[monthKey].profit += quoteProfit;
+      totalProfit += quoteProfit;
+      monthlyStats[monthKey].orders += 1;
+    });
+
+    // Pending orders (assume quotes created in last 7 days without confirmation)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    quotes.forEach(quote => {
+      if (new Date(quote.createdDate) > sevenDaysAgo && quote.status === 'quote') {
+        pendingOrders += 1;
+      }
+    });
+
+    return { monthlyStats, totalProfit, totalQuotes, pendingOrders };
+  };
+
   const renderQuoteDetail = () => {
     if (!selectedQuote) return null;
 
@@ -441,110 +492,322 @@ Total Profit: $${totalProfit.toFixed(0)}`;
   };
 
   const renderMenu = () => (
-    <div className="space-y-3">
-      <h1 className="text-2xl font-bold text-center mb-6">{BUSINESS_NAME}</h1>
-      <button
-        onClick={() => { resetForm(); setCurrentView('quote'); }}
-        className="w-full px-4 py-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-bold flex items-center justify-center gap-2 text-lg"
-      >
-        <Plus size={24} /> New Quote
-      </button>
-      <button
-        onClick={() => setCurrentView('history')}
-        className="w-full px-4 py-4 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-bold text-lg"
-      >
-        History ({quotes.length})
-      </button>
-      
-      <div className="p-4 bg-green-100 rounded-lg text-sm text-green-800 border-2 border-green-300">
-        <p className="font-bold mb-1">✓ Offline Ready</p>
-        <p>Works without internet • Data backed up to iCloud</p>
+    <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' }}>
+      <div className="max-w-2xl mx-auto px-4 py-8">
+        {/* Logo Section */}
+        <div className="text-center mb-12">
+          <h1 className="text-4xl font-bold text-white mb-2" style={{ fontFamily: 'Georgia, serif' }}>ZEBRA</h1>
+          <p className="text-gray-400 tracking-widest text-sm mb-6">SCREENS & ROLLERS</p>
+          <div className="h-1 w-16 mx-auto" style={{ background: 'linear-gradient(90deg, #d4af37, #f4e4c1)' }}></div>
+        </div>
+
+        {/* Dashboard Cards */}
+        <div className="space-y-4">
+          
+          {/* Card 1: New Quote */}
+          <button
+            onClick={() => { resetForm(); setCurrentView('quote'); }}
+            className="w-full p-6 rounded-lg transition-all duration-300 hover:shadow-2xl"
+            style={{ 
+              background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)',
+              border: '1px solid #d4af37'
+            }}
+          >
+            <div className="flex items-center gap-4">
+              <div className="p-4 rounded-full" style={{ background: '#d4af37' }}>
+                <Plus size={28} className="text-black" />
+              </div>
+              <div className="text-left flex-1">
+                <h3 className="text-xl font-bold text-white mb-1">New Quote</h3>
+                <p className="text-gray-400 text-sm">Create a new client quote</p>
+              </div>
+              <div className="text-3xl text-gray-600">→</div>
+            </div>
+          </button>
+
+          {/* Card 2: Pull Existing Quote */}
+          <button
+            onClick={() => setCurrentView('history')}
+            className="w-full p-6 rounded-lg transition-all duration-300 hover:shadow-2xl"
+            style={{ 
+              background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)',
+              border: '1px solid #d4af37'
+            }}
+          >
+            <div className="flex items-center gap-4">
+              <div className="p-4 rounded-full" style={{ background: '#d4af37' }}>
+                <Search size={28} className="text-black" />
+              </div>
+              <div className="text-left flex-1">
+                <h3 className="text-xl font-bold text-white mb-1">Pull Existing Quote</h3>
+                <p className="text-gray-400 text-sm">Search & view past quotes ({quotes.length})</p>
+              </div>
+              <div className="text-3xl text-gray-600">→</div>
+            </div>
+          </button>
+
+          {/* Card 3: Statistics */}
+          <button
+            onClick={() => setCurrentView('statistics')}
+            className="w-full p-6 rounded-lg transition-all duration-300 hover:shadow-2xl"
+            style={{ 
+              background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)',
+              border: '1px solid #d4af37'
+            }}
+          >
+            <div className="flex items-center gap-4">
+              <div className="p-4 rounded-full" style={{ background: '#d4af37' }}>
+                <BarChart3 size={28} className="text-black" />
+              </div>
+              <div className="text-left flex-1">
+                <h3 className="text-xl font-bold text-white mb-1">Statistics</h3>
+                <p className="text-gray-400 text-sm">View business analytics & insights</p>
+              </div>
+              <div className="text-3xl text-gray-600">→</div>
+            </div>
+          </button>
+        </div>
+
+        {/* Footer */}
+        <div className="mt-12 text-center">
+          <p className="text-gray-500 text-sm">All data is securely stored on your device</p>
+        </div>
       </div>
     </div>
   );
 
-  const renderHistory = () => (
-    <div className="space-y-3">
-      <button
-        onClick={() => setCurrentView('menu')}
-        className="flex items-center gap-2 px-3 py-2 text-blue-600 font-bold text-lg"
-      >
-        <ArrowLeft size={20} /> Back
-      </button>
-      
-      <h2 className="text-xl font-bold">Quote History</h2>
-      
-      {quotes.length === 0 ? (
-        <p className="text-gray-500 text-center py-8">No quotes yet</p>
-      ) : (
-        <div className="space-y-2">
-          {quotes.map(quote => (
-            <div
-              key={quote.id}
-              onClick={() => setSelectedQuote(quote)}
-              className="p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 bg-white"
+  const renderHistory = () => {
+    const filteredQuotes = quotes.filter(quote =>
+      quote.clientName.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    return (
+      <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' }}>
+        <div className="max-w-2xl mx-auto px-4 py-8">
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-8">
+            <button
+              onClick={() => {
+                setCurrentView('menu');
+                setSearchQuery('');
+                setSelectedQuote(null);
+              }}
+              className="p-2 rounded-lg hover:bg-gray-700 transition"
             >
-              <p className="font-bold text-lg">{quote.clientName}</p>
-              <p className="text-sm text-gray-600">{quote.date} • {quote.location}</p>
-              <p className="text-xs text-gray-500">{quote.rooms.reduce((sum, r) => sum + r.windows.length, 0)} windows</p>
-            </div>
-          ))}
+              <ArrowLeft size={24} className="text-gray-300" />
+            </button>
+            <h2 className="text-3xl font-bold text-white" style={{ fontFamily: 'Georgia, serif' }}>
+              Quote History
+            </h2>
+          </div>
+
+          {!selectedQuote ? (
+            <>
+              {/* Search Bar */}
+              <div className="mb-8 relative">
+                <Search className="absolute left-4 top-3.5 text-gray-400" size={20} />
+                <input
+                  type="text"
+                  placeholder="Search by client name..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3 rounded-lg"
+                  style={{ background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }}
+                />
+              </div>
+
+              {/* Quotes List */}
+              {quotes.length === 0 ? (
+                <div className="text-center py-16">
+                  <p className="text-gray-400 text-lg">No quotes created yet</p>
+                </div>
+              ) : filteredQuotes.length === 0 ? (
+                <div className="text-center py-16">
+                  <p className="text-gray-400 text-lg">No quotes found for "{searchQuery}"</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredQuotes.map(quote => (
+                    <button
+                      key={quote.id}
+                      onClick={() => setSelectedQuote(quote)}
+                      className="w-full p-4 rounded-lg text-left transition-all duration-300 hover:shadow-xl"
+                      style={{ 
+                        background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)',
+                        border: '1px solid #444'
+                      }}
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <p className="font-bold text-white text-lg">{quote.clientName}</p>
+                        <span className="text-xs px-3 py-1 rounded-full" style={{ background: '#d4af37', color: '#000' }}>
+                          {quote.rooms.reduce((sum, r) => sum + r.windows.length, 0)} windows
+                        </span>
+                      </div>
+                      <p className="text-gray-400 text-sm">{quote.date} • {quote.location}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            renderQuoteDetail()
+          )}
         </div>
-      )}
-      
-      {selectedQuote && renderQuoteDetail()}
-    </div>
-  );
+      </div>
+    );
+  };
+
+  const renderStatistics = () => {
+    const stats = calculateStatistics();
+    const monthlyEntries = Object.entries(stats.monthlyStats).sort().reverse().slice(0, 12);
+
+    return (
+      <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' }}>
+        <div className="max-w-2xl mx-auto px-4 py-8">
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-8">
+            <button
+              onClick={() => setCurrentView('menu')}
+              className="p-2 rounded-lg hover:bg-gray-700 transition"
+            >
+              <ArrowLeft size={24} className="text-gray-300" />
+            </button>
+            <h2 className="text-3xl font-bold text-white" style={{ fontFamily: 'Georgia, serif' }}>
+              Statistics
+            </h2>
+          </div>
+
+          {/* Key Metrics */}
+          <div className="grid grid-cols-2 gap-4 mb-8">
+            {/* Total Quotes */}
+            <div className="p-6 rounded-lg" style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37' }}>
+              <p className="text-gray-400 text-sm mb-2">Total Quotes</p>
+              <p className="text-4xl font-bold text-white">{stats.totalQuotes}</p>
+            </div>
+
+            {/* Total Profit */}
+            <div className="p-6 rounded-lg" style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37' }}>
+              <p className="text-gray-400 text-sm mb-2">Total Profit</p>
+              <p className="text-4xl font-bold text-white">${stats.totalProfit.toFixed(0)}</p>
+            </div>
+
+            {/* Pending Orders */}
+            <div className="p-6 rounded-lg" style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37' }}>
+              <p className="text-gray-400 text-sm mb-2">Pending (7 days)</p>
+              <p className="text-4xl font-bold text-white">{stats.pendingOrders}</p>
+            </div>
+
+            {/* Avg Quote Value */}
+            <div className="p-6 rounded-lg" style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37' }}>
+              <p className="text-gray-400 text-sm mb-2">Avg Profit/Quote</p>
+              <p className="text-4xl font-bold text-white">${(stats.totalProfit / Math.max(stats.totalQuotes, 1)).toFixed(0)}</p>
+            </div>
+          </div>
+
+          {/* Monthly Breakdown */}
+          <div className="p-6 rounded-lg mb-8" style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #444' }}>
+            <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+              <TrendingUp size={24} style={{ color: '#d4af37' }} />
+              Monthly Breakdown
+            </h3>
+
+            {monthlyEntries.length === 0 ? (
+              <p className="text-gray-400 text-center py-8">No data yet</p>
+            ) : (
+              <div className="space-y-4">
+                {monthlyEntries.map(([month, data]) => (
+                  <div key={month} className="p-4 rounded-lg" style={{ background: '#1a1a1a', border: '1px solid #333' }}>
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="font-bold text-white">{new Date(month + '-01').toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
+                      <span className="text-xs px-3 py-1 rounded-full" style={{ background: '#d4af37', color: '#000' }}>
+                        {data.quotes} quotes
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-end">
+                      <div>
+                        <p className="text-gray-400 text-sm">Profit: <span className="text-green-400 font-bold">${data.profit.toFixed(0)}</span></p>
+                      </div>
+                      <div className="w-32 h-8 rounded" style={{ background: '#333' }}>
+                        <div 
+                          className="h-full rounded" 
+                          style={{ 
+                            width: `${(data.profit / Math.max(...monthlyEntries.map(e => e[1].profit), 1)) * 100}%`,
+                            background: 'linear-gradient(90deg, #d4af37, #f4e4c1)'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderQuoteForm = () => (
-    <div className="space-y-4">
-      <button
-        onClick={() => setCurrentView('menu')}
-        className="flex items-center gap-2 text-blue-600 font-bold text-lg"
-      >
-        <ArrowLeft size={20} /> Back
-      </button>
+    <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' }}>
+      <div className="max-w-2xl mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-8">
+          <button
+            onClick={() => {
+              setCurrentView('menu');
+              resetForm();
+            }}
+            className="p-2 rounded-lg hover:bg-gray-700 transition"
+          >
+            <ArrowLeft size={24} className="text-gray-300" />
+          </button>
+          <h2 className="text-3xl font-bold text-white" style={{ fontFamily: 'Georgia, serif' }}>
+            Create Quote
+          </h2>
+        </div>
 
-      <h2 className="text-xl font-bold">Create Quote</h2>
+        <div className="space-y-3 mb-8">
+          <input
+            type="text"
+            placeholder="Client Name"
+            value={formData.clientName}
+            onChange={(e) => setFormData({...formData, clientName: e.target.value})}
+            className="w-full p-3 rounded-lg text-base"
+            style={{ background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }}
+          />
+          
+          <input
+            type="tel"
+            placeholder="Client Phone"
+            value={formData.clientPhone}
+            onChange={(e) => setFormData({...formData, clientPhone: e.target.value})}
+            className="w-full p-3 rounded-lg text-base"
+            style={{ background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }}
+          />
+          
+          <input
+            type="text"
+            placeholder="Location / Address"
+            value={formData.location}
+            onChange={(e) => setFormData({...formData, location: e.target.value})}
+            className="w-full p-3 rounded-lg text-base"
+            style={{ background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }}
+          />
+          
+          <input
+            type="date"
+            value={formData.date}
+            onChange={(e) => setFormData({...formData, date: e.target.value})}
+            className="w-full p-3 rounded-lg text-base"
+            style={{ background: '#2a2a2a', border: '1px solid #d4af37', color: 'white' }}
+          />
+        </div>
 
-      <div className="space-y-3">
-        <input
-          type="text"
-          placeholder="Client Name"
-          value={formData.clientName}
-          onChange={(e) => setFormData({...formData, clientName: e.target.value})}
-          className="w-full p-3 border-2 rounded-lg text-base"
-        />
-        
-        <input
-          type="tel"
-          placeholder="Client Phone"
-          value={formData.clientPhone}
-          onChange={(e) => setFormData({...formData, clientPhone: e.target.value})}
-          className="w-full p-3 border-2 rounded-lg text-base"
-        />
-        
-        <input
-          type="text"
-          placeholder="Location"
-          value={formData.location}
-          onChange={(e) => setFormData({...formData, location: e.target.value})}
-          className="w-full p-3 border-2 rounded-lg text-base"
-        />
-        
-        <input
-          type="date"
-          value={formData.date}
-          onChange={(e) => setFormData({...formData, date: e.target.value})}
-          className="w-full p-3 border-2 rounded-lg text-base"
-        />
-      </div>
-
-      <div className="border-t-4 pt-4">
-        <h3 className="font-bold text-lg mb-3">Rooms & Windows</h3>
+      <div className="pt-8">
+        <h3 className="font-bold text-2xl text-white mb-6" style={{ fontFamily: 'Georgia, serif' }}>Rooms & Windows</h3>
         
         {formData.rooms.map((room, roomIndex) => (
-          <div key={room.id} className="border-2 p-4 rounded-lg mb-4 bg-gray-50">
+          <div key={room.id} className="p-6 rounded-lg mb-6" style={{ background: '#2a2a2a', border: '1px solid #444' }}>
             <input
               type="text"
               placeholder="Room Name (e.g., Living Room)"
@@ -554,7 +817,8 @@ Total Profit: $${totalProfit.toFixed(0)}`;
                 newRooms[roomIndex].name = e.target.value;
                 setFormData({...formData, rooms: newRooms});
               }}
-              className="w-full p-3 border-2 rounded-lg mb-3 font-bold text-base"
+              className="w-full p-3 rounded-lg mb-4 font-bold text-base"
+              style={{ background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
             />
 
             {/* Fabric Selection for this room */}
@@ -839,12 +1103,11 @@ Total Profit: $${totalProfit.toFixed(0)}`;
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-4">
-      <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-4 my-4">
-        {currentView === 'menu' && renderMenu()}
-        {currentView === 'quote' && renderQuoteForm()}
-        {currentView === 'history' && renderHistory()}
-      </div>
+    <div>
+      {currentView === 'menu' && renderMenu()}
+      {currentView === 'quote' && renderQuoteForm()}
+      {currentView === 'history' && renderHistory()}
+      {currentView === 'statistics' && renderStatistics()}
     </div>
   );
 }
