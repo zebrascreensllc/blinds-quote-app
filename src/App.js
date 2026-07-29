@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Copy, Check, ArrowLeft, Search, BarChart3, TrendingUp } from 'lucide-react';
+import { Plus, Trash2, Copy, Check, ArrowLeft, Search, BarChart3, TrendingUp, Edit2, ChevronDown, ChevronUp } from 'lucide-react';
 
 const PRICING_DATA = {
   'Roller': [
@@ -146,10 +146,19 @@ const SOLAR_COST_SUPPLIER = 22;
 const REMOTE_6CH = 7;
 const REMOTE_16CH = 10;
 
-// Helper function to convert feet/inches to inches
 const parseUnits = (input) => {
   if (!input) return 0;
   input = input.trim().toUpperCase();
+  
+  // Handle format like "83in 12/16" or "83 12/16" or "83.75"
+  const fractionalMatch = input.match(/(\d+)\s*(?:in|")?(?:\s+(\d+)\/(\d+))?/);
+  if (fractionalMatch) {
+    const inches = parseInt(fractionalMatch[1]) || 0;
+    const numerator = fractionalMatch[2] ? parseInt(fractionalMatch[2]) : 0;
+    const denominator = fractionalMatch[3] ? parseInt(fractionalMatch[3]) : 1;
+    const fraction = denominator > 0 ? numerator / denominator : 0;
+    return inches + fraction;
+  }
   
   // Match formats: 3'6", 3ft6in, 3ft 6in, 42", 42in
   const feetInchMatch = input.match(/(\d+)\s*['"ft]*\s*(\d+)\s*['"in"]*/);
@@ -163,11 +172,9 @@ const parseUnits = (input) => {
   const justNumberMatch = input.match(/(\d+)/);
   if (justNumberMatch) {
     const num = parseInt(justNumberMatch[1]);
-    // If it has apostrophe or "ft", it's feet
     if (input.includes("'") || input.includes('FT')) {
       return num * 12;
     }
-    // Otherwise treat as inches
     return num;
   }
   
@@ -180,6 +187,11 @@ export default function BlindsQuoteApp() {
   const [selectedQuote, setSelectedQuote] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [expandedClients, setExpandedClients] = useState({});
+  const [selectedVersions, setSelectedVersions] = useState(new Set());
+  const [editingQuote, setEditingQuote] = useState(null);
+  const [lastWidth, setLastWidth] = useState('');
+  const [lastHeight, setLastHeight] = useState('');
 
   const [formData, setFormData] = useState({
     clientName: '',
@@ -297,22 +309,47 @@ export default function BlindsQuoteApp() {
     };
   };
 
+  const getNextVersion = (clientName, location) => {
+    const clientQuotes = quotes.filter(q => q.clientName === clientName && q.location === location);
+    if (clientQuotes.length === 0) return 1;
+    const versions = clientQuotes.map(q => parseInt(q.version.replace('v', '')));
+    return Math.max(...versions) + 1;
+  };
+
   const generateQuote = () => {
     if (!formData.clientName || !formData.clientPhone) {
       alert('Please fill client name and phone');
       return;
     }
 
+    const version = editingQuote 
+      ? editingQuote.version 
+      : `v${getNextVersion(formData.clientName, formData.location)}`;
+    
+    const quoteName = editingQuote
+      ? editingQuote.quoteName
+      : `${formData.clientName}-${formData.location}-quote-${version}`;
+
     const quoteData = {
-      id: Date.now(),
+      id: editingQuote ? editingQuote.id : Date.now(),
+      quoteName: quoteName,
+      version: editingQuote ? `v${getNextVersion(formData.clientName, formData.location)}` : version,
       ...formData,
-      createdDate: new Date().toISOString(),
+      createdDate: editingQuote ? editingQuote.createdDate : new Date().toISOString(),
+      updatedDate: new Date().toISOString(),
       status: 'quote'
     };
 
-    setQuotes([...quotes, quoteData]);
-    alert('✅ Quote created successfully!');
+    if (editingQuote) {
+      setQuotes(quotes.map(q => q.id === editingQuote.id ? { ...q, archived: true } : q).concat([quoteData]));
+      alert('✅ Quote updated successfully! (Previous version saved as archive)');
+    } else {
+      setQuotes([...quotes, quoteData]);
+      alert('✅ Quote created successfully!');
+    }
+
     resetForm();
+    setEditingQuote(null);
     setCurrentView('menu');
   };
 
@@ -340,6 +377,18 @@ export default function BlindsQuoteApp() {
     });
   };
 
+  const loadQuoteForEdit = (quote) => {
+    setFormData({
+      clientName: quote.clientName,
+      clientPhone: quote.clientPhone,
+      location: quote.location,
+      date: quote.date,
+      rooms: quote.rooms
+    });
+    setEditingQuote(quote);
+    setCurrentView('quote');
+  };
+
   const renderMenu = () => (
     <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
@@ -350,7 +399,7 @@ export default function BlindsQuoteApp() {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <button onClick={() => { resetForm(); setCurrentView('quote'); }} style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }} onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'} onMouseLeave={e => e.target.style.boxShadow = 'none'}>
+          <button onClick={() => { resetForm(); setEditingQuote(null); setCurrentView('quote'); }} style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }} onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'} onMouseLeave={e => e.target.style.boxShadow = 'none'}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               <div style={{ padding: '16px', borderRadius: '50%', background: '#d4af37', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Plus size={28} color="#000" />
@@ -370,7 +419,7 @@ export default function BlindsQuoteApp() {
               </div>
               <div style={{ flex: 1 }}>
                 <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>Pull Existing Quote</h3>
-                <p style={{ color: '#aaa', fontSize: '14px' }}>Search & view past quotes ({quotes.length})</p>
+                <p style={{ color: '#aaa', fontSize: '14px' }}>Search & view past quotes ({quotes.filter(q => !q.archived).length})</p>
               </div>
               <div style={{ fontSize: '24px', color: '#666' }}>→</div>
             </div>
@@ -398,8 +447,27 @@ export default function BlindsQuoteApp() {
   );
 
   const renderHistory = () => {
-    const filteredQuotes = quotes.filter(quote =>
-      quote.clientName.toLowerCase().includes(searchQuery.toLowerCase())
+    const activeQuotes = quotes.filter(q => !q.archived);
+    const groupedByClient = {};
+    
+    activeQuotes.forEach(quote => {
+      const clientKey = `${quote.clientName} - ${quote.location}`;
+      if (!groupedByClient[clientKey]) {
+        groupedByClient[clientKey] = [];
+      }
+      groupedByClient[clientKey].push(quote);
+    });
+
+    Object.keys(groupedByClient).forEach(client => {
+      groupedByClient[client].sort((a, b) => {
+        const versionA = parseInt(a.version.replace('v', ''));
+        const versionB = parseInt(b.version.replace('v', ''));
+        return versionA - versionB;
+      });
+    });
+
+    const filteredClients = Object.keys(groupedByClient).filter(client =>
+      client.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     if (selectedQuote) {
@@ -410,7 +478,7 @@ export default function BlindsQuoteApp() {
       <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
         <div style={{ maxWidth: '600px', margin: '0 auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
-            <button onClick={() => { setCurrentView('menu'); setSearchQuery(''); }} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(100,100,100,0.3)', border: 'none', cursor: 'pointer' }}>
+            <button onClick={() => { setCurrentView('menu'); setSearchQuery(''); setSelectedVersions(new Set()); }} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(100,100,100,0.3)', border: 'none', cursor: 'pointer' }}>
               <ArrowLeft size={24} color="#aaa" />
             </button>
             <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff', fontFamily: 'Georgia, serif' }}>Quote History</h2>
@@ -427,32 +495,74 @@ export default function BlindsQuoteApp() {
             />
           </div>
 
-          {quotes.length === 0 ? (
+          {selectedVersions.size > 0 && (
+            <button onClick={() => {
+              if (window.confirm(`Delete ${selectedVersions.size} version(s)? This cannot be undone.`)) {
+                setQuotes(quotes.filter(q => !selectedVersions.has(q.id)));
+                setSelectedVersions(new Set());
+                alert('✅ Versions deleted successfully!');
+              }
+            }} style={{ width: '100%', padding: '12px', marginBottom: '16px', borderRadius: '8px', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>
+              Delete {selectedVersions.size} Selected
+            </button>
+          )}
+
+          {activeQuotes.length === 0 ? (
             <div style={{ textAlign: 'center', paddingTop: '64px', paddingBottom: '64px' }}>
               <p style={{ color: '#888', fontSize: '18px' }}>No quotes created yet</p>
             </div>
-          ) : filteredQuotes.length === 0 ? (
+          ) : filteredClients.length === 0 ? (
             <div style={{ textAlign: 'center', paddingTop: '64px', paddingBottom: '64px' }}>
               <p style={{ color: '#888', fontSize: '18px' }}>No quotes found for "{searchQuery}"</p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {filteredQuotes.map(quote => (
-                <button
-                  key={quote.id}
-                  onClick={() => setSelectedQuote(quote)}
-                  style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #444', borderRadius: '8px', padding: '16px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }}
-                  onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'}
-                  onMouseLeave={e => e.target.style.boxShadow = 'none'}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                    <p style={{ fontWeight: 'bold', color: '#fff', fontSize: '18px' }}>{quote.clientName}</p>
-                    <span style={{ fontSize: '12px', paddingLeft: '12px', paddingRight: '12px', paddingTop: '4px', paddingBottom: '4px', borderRadius: '999px', background: '#d4af37', color: '#000' }}>
-                      {quote.rooms.reduce((sum, r) => sum + r.windowGroups.reduce((s, w) => s + parseInt(w.quantity || 0), 0), 0)} windows
-                    </span>
-                  </div>
-                  <p style={{ color: '#888', fontSize: '14px' }}>{quote.date} • {quote.location}</p>
-                </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {filteredClients.map(clientName => (
+                <div key={clientName} style={{ background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', overflow: 'hidden' }}>
+                  <button
+                    onClick={() => setExpandedClients({...expandedClients, [clientName]: !expandedClients[clientName]})}
+                    style={{ width: '100%', padding: '16px', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                  >
+                    <div>
+                      <p style={{ fontWeight: 'bold', color: '#fff', fontSize: '18px', marginBottom: '4px' }}>{clientName}</p>
+                      <p style={{ color: '#888', fontSize: '14px' }}>{groupedByClient[clientName].length} version(s)</p>
+                    </div>
+                    {expandedClients[clientName] ? <ChevronUp size={24} color="#d4af37" /> : <ChevronDown size={24} color="#d4af37" />}
+                  </button>
+
+                  {expandedClients[clientName] && (
+                    <div style={{ background: '#1a1a1a', borderTop: '1px solid #444', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {groupedByClient[clientName].map(quote => (
+                        <div key={quote.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: '#2a2a2a', borderRadius: '6px' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedVersions.has(quote.id)}
+                            onChange={(e) => {
+                              const newSet = new Set(selectedVersions);
+                              if (e.target.checked) {
+                                newSet.add(quote.id);
+                              } else {
+                                newSet.delete(quote.id);
+                              }
+                              setSelectedVersions(newSet);
+                            }}
+                            style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                          />
+                          <button
+                            onClick={() => setSelectedQuote(quote)}
+                            style={{ flex: 1, textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', paddingLeft: '0' }}
+                          >
+                            <p style={{ color: '#d4af37', fontWeight: 'bold', fontSize: '14px', marginBottom: '2px' }}>{quote.quoteName}</p>
+                            <p style={{ color: '#888', fontSize: '12px' }}>{quote.date}</p>
+                          </button>
+                          <button onClick={() => loadQuoteForEdit(quote)} style={{ padding: '6px', borderRadius: '4px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>
+                            <Edit2 size={16} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )}
@@ -489,7 +599,6 @@ export default function BlindsQuoteApp() {
       
       let totalWindows = 0;
       
-      // Add room details
       text += `ROOMS:\n${'━'.repeat(50)}\n`;
       rooms.forEach(room => {
         let roomWindowCount = 0;
@@ -526,7 +635,7 @@ export default function BlindsQuoteApp() {
       <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
         <div style={{ maxWidth: '600px', margin: '0 auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-            <h3 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff' }}>{selectedQuote.clientName}</h3>
+            <h3 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff' }}>{selectedQuote.quoteName}</h3>
             <button onClick={() => setSelectedQuote(null)} style={{ fontSize: '24px', color: '#aaa', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
           </div>
 
@@ -572,10 +681,6 @@ export default function BlindsQuoteApp() {
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>GRAND TOTAL:</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>${grandMin.toFixed(0)}-${grandMax.toFixed(0)}</td>
                 </tr>
-                <tr style={{ background: '#3a3a2a' }}>
-                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>YOUR PROFIT:</td>
-                  <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#ffd700' }}>${totalProfit.toFixed(0)}</td>
-                </tr>
               </tbody>
             </table>
           </div>
@@ -590,7 +695,15 @@ export default function BlindsQuoteApp() {
               style={{ flex: 1, paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}
             >
               {copiedId === selectedQuote.id ? <Check size={16} /> : <Copy size={16} />}
-              {copiedId === selectedQuote.id ? 'Copied!' : 'Copy Quote'}
+              {copiedId === selectedQuote.id ? 'Copied!' : 'Copy'}
+            </button>
+            
+            <button
+              onClick={() => loadQuoteForEdit(selectedQuote)}
+              style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px', background: '#4f46e5', color: '#fff', border: 'none', cursor: 'pointer' }}
+            >
+              <Edit2 size={16} />
+              Edit
             </button>
             
             <button
@@ -600,7 +713,7 @@ export default function BlindsQuoteApp() {
               }}
               style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer' }}
             >
-              <Trash2 size={18} />
+              <Trash2 size={16} />
             </button>
           </div>
         </div>
@@ -609,9 +722,10 @@ export default function BlindsQuoteApp() {
   };
 
   const renderStatistics = () => {
+    const activeQuotes = quotes.filter(q => !q.archived);
     const stats = { monthlyStats: {}, totalProfit: 0, totalQuotes: 0, pendingOrders: 0 };
     
-    quotes.forEach(quote => {
+    activeQuotes.forEach(quote => {
       const date = new Date(quote.createdDate);
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       
@@ -639,7 +753,7 @@ export default function BlindsQuoteApp() {
 
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    quotes.forEach(quote => {
+    activeQuotes.forEach(quote => {
       if (new Date(quote.createdDate) > sevenDaysAgo && quote.status === 'quote') {
         stats.pendingOrders += 1;
       }
@@ -724,10 +838,10 @@ export default function BlindsQuoteApp() {
     <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', paddingBottom: '48px', padding: '32px 16px' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
-          <button onClick={() => { setCurrentView('menu'); resetForm(); }} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(100,100,100,0.3)', border: 'none', cursor: 'pointer' }}>
+          <button onClick={() => { setCurrentView('menu'); resetForm(); setEditingQuote(null); }} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(100,100,100,0.3)', border: 'none', cursor: 'pointer' }}>
             <ArrowLeft size={24} color="#aaa" />
           </button>
-          <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff', fontFamily: 'Georgia, serif' }}>Create Quote</h2>
+          <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff', fontFamily: 'Georgia, serif' }}>{editingQuote ? 'Edit Quote' : 'Create Quote'}</h2>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px' }}>
@@ -764,8 +878,8 @@ export default function BlindsQuoteApp() {
             {room.windowGroups.map((group, groupIndex) => (
               <div key={group.id} style={{ background: '#1a1a1a', padding: '12px', borderRadius: '8px', marginBottom: '12px', border: '1px solid #555' }}>
                 <input type="number" placeholder="Qty" value={group.quantity} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].quantity = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '8px' }} />
-                <input type="text" placeholder="Width (e.g., 35, 3'6, 3ft 6in)" value={group.width} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].width = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '8px' }} />
-                <input type="text" placeholder="Height (e.g., 75, 6'3, 6ft 3in)" value={group.height} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].height = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '12px' }} />
+                <input type="text" placeholder="Width (e.g., 35, 3'6, 83in 12/16)" value={group.width} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].width = e.target.value; setFormData({...formData, rooms: newRooms}); setLastWidth(e.target.value); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '8px' }} />
+                <input type="text" placeholder="Height (e.g., 75, 6'3, 83in 12/16)" value={group.height} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].height = e.target.value; setFormData({...formData, rooms: newRooms}); setLastHeight(e.target.value); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '12px' }} />
 
                 <select value={group.mount} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].mount = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '14px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '8px' }}>
                   <option>Inside</option>
@@ -786,13 +900,13 @@ export default function BlindsQuoteApp() {
               </div>
             ))}
 
-            <button onClick={() => { const newRooms = [...formData.rooms]; const newWindowId = Math.max(...newRooms[roomIndex].windowGroups.map(w => w.id)) + 1; newRooms[roomIndex].windowGroups.push({ id: newWindowId, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside' }); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer' }}>+ Add Window Group</button>
+            <button onClick={() => { const newRooms = [...formData.rooms]; const newWindowId = Math.max(...newRooms[roomIndex].windowGroups.map(w => w.id)) + 1; newRooms[roomIndex].windowGroups.push({ id: newWindowId, quantity: '', width: lastWidth, height: lastHeight, controlType: 'Manual', solar: false, mount: 'Inside' }); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer' }}>+ Add Window Group</button>
           </div>
         ))}
 
-        <button onClick={() => { const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1; setFormData({...formData, rooms: [...formData.rooms, { id: newRoomId, name: '', fabricInput: '', blindType: 'Roller', windowGroups: [{ id: 1, quantity: '', width: '', height: '', motorized: false, cordless: false, solar: false, mount: 'Inside' }] }]}); }} style={{ width: '100%', padding: '16px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '32px' }}>+ Add Room</button>
+        <button onClick={() => { const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1; setFormData({...formData, rooms: [...formData.rooms, { id: newRoomId, name: '', fabricInput: '', blindType: 'Roller', windowGroups: [{ id: 1, quantity: '', width: lastWidth, height: lastHeight, controlType: 'Manual', solar: false, mount: 'Inside' }] }]}); }} style={{ width: '100%', padding: '16px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '32px' }}>+ Add Room</button>
 
-        <button onClick={generateQuote} style={{ width: '100%', padding: '16px', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>Generate Quote</button>
+        <button onClick={generateQuote} style={{ width: '100%', padding: '16px', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>{editingQuote ? 'Save as New Version' : 'Generate Quote'}</button>
       </div>
     </div>
   );
