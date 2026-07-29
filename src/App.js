@@ -575,7 +575,7 @@ export default function BlindsQuoteApp() {
     if (!selectedQuote) return null;
 
     const rooms = selectedQuote.rooms;
-    let totalMin = 0, totalMax = 0;
+    let totalMin = 0, totalMax = 0, totalProfit = 0;
 
     rooms.forEach(room => {
       const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
@@ -585,6 +585,7 @@ export default function BlindsQuoteApp() {
         const q = calculateGroupQuote(group, fabricNumbers, room.blindType, motorizedCount);
         totalMin += q.minQuote;
         totalMax += q.maxQuote;
+        totalProfit += q.profit;
       });
     });
 
@@ -673,6 +674,10 @@ export default function BlindsQuoteApp() {
                 <tr style={{ background: '#2a5a2a', fontWeight: 'bold' }}>
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>GRAND TOTAL:</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>${grandMin.toFixed(0)}-${grandMax.toFixed(0)}</td>
+                </tr>
+                <tr style={{ background: '#3a3a2a', fontWeight: 'bold' }}>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>YOUR PROFIT:</td>
+                  <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#ffd700' }}>${totalProfit.toFixed(0)}</td>
                 </tr>
               </tbody>
             </table>
@@ -889,6 +894,12 @@ export default function BlindsQuoteApp() {
                   <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#ccc', marginBottom: '6px' }}>
                     <input type="checkbox" checked={group.solar} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].solar = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Solar (+$40)
                   </label>
+                )}
+
+                {room.windowGroups.length > 1 && (
+                  <button onClick={() => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups.splice(groupIndex, 1); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', marginTop: '8px', borderRadius: '4px', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                    <Trash2 size={14} /> Delete This Window Group
+                  </button>
                 )}
               </div>
             ))}
