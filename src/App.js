@@ -196,8 +196,7 @@ export default function BlindsQuoteApp() {
         quantity: '',
         width: '',
         height: '',
-        motorized: false,
-        cordless: false,
+        controlType: 'Manual',
         solar: false,
         mount: 'Inside'
       }]
@@ -228,10 +227,11 @@ export default function BlindsQuoteApp() {
     return 0;
   };
 
-  const calculateGroupCost = (group, fabricNumbers, blindType, cordless) => {
+  const calculateGroupCost = (group, fabricNumbers, blindType) => {
     const width = parseUnits(group.width);
     const height = parseUnits(group.height);
     const quantity = parseInt(group.quantity) || 1;
+    const cordless = group.controlType === 'Cordless';
     
     const area = Math.max(1.5, (width * height) / 1550);
     
@@ -274,11 +274,11 @@ export default function BlindsQuoteApp() {
   };
 
   const calculateGroupQuote = (group, fabricNumbers, blindType, totalMotorizedInRoom) => {
-    const cost = calculateGroupCost(group, fabricNumbers, blindType, false);
+    const cost = calculateGroupCost(group, fabricNumbers, blindType);
     const quantity = parseInt(group.quantity) || 1;
     let profitPerWindow = PROFIT_PER_WINDOW;
     
-    if (group.motorized) {
+    if (group.controlType === 'Motor') {
       const remoteType = totalMotorizedInRoom > 6 ? REMOTE_16CH : REMOTE_6CH;
       profitPerWindow += MOTOR_COST_CLIENT - MOTOR_COST_SUPPLIER - (remoteType / totalMotorizedInRoom);
     }
@@ -332,8 +332,7 @@ export default function BlindsQuoteApp() {
           quantity: '',
           width: '',
           height: '',
-          motorized: false,
-          cordless: false,
+          controlType: 'Manual',
           solar: false,
           mount: 'Inside'
         }]
@@ -472,7 +471,7 @@ export default function BlindsQuoteApp() {
       const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
       
       room.windowGroups.forEach(group => {
-        const motorizedCount = room.windowGroups.filter(w => w.motorized).length;
+        const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
         const q = calculateGroupQuote(group, fabricNumbers, room.blindType, motorizedCount);
         totalMin += q.minQuote;
         totalMax += q.maxQuote;
@@ -511,8 +510,8 @@ export default function BlindsQuoteApp() {
                   const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
                   
                   return room.windowGroups.map((group, groupIdx) => {
-                    const q = calculateGroupQuote(group, fabricNumbers, room.blindType, room.windowGroups.filter(w => w.motorized).length);
-                    const motorType = group.motorized ? 'Motor' : 'Manual';
+                    const q = calculateGroupQuote(group, fabricNumbers, room.blindType, room.windowGroups.filter(w => w.controlType === 'Motor').length);
+                    const motorType = group.controlType || 'Manual';
                     
                     return (
                       <tr key={`${roomIdx}-${groupIdx}`} style={{ borderBottom: '1px solid #444' }}>
@@ -590,7 +589,7 @@ export default function BlindsQuoteApp() {
       let quoteProfit = 0;
       quote.rooms.forEach(room => {
         const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
-        const motorizedCount = room.windowGroups.filter(w => w.motorized).length;
+        const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
         
         room.windowGroups.forEach(group => {
           const q = calculateGroupQuote(group, fabricNumbers, room.blindType, motorizedCount);
@@ -740,21 +739,22 @@ export default function BlindsQuoteApp() {
                     <option>Outside</option>
                     <option>Outside-NoReduc</option>
                   </select>
+                  <select value={group.controlType || 'Manual'} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].controlType = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ padding: '8px', borderRadius: '4px', fontSize: '14px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }}>
+                    <option value="Manual">Manual</option>
+                    <option value="Cordless">Cordless</option>
+                    <option value="Motor">Motor</option>
+                  </select>
                 </div>
 
-                <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#ccc', marginBottom: '6px' }}>
-                  <input type="checkbox" checked={group.motorized} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].motorized = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Motor (+$80)
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#ccc' }}>
-                  <input type="checkbox" checked={group.solar} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].solar = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Solar (+$40)
-                </label>
-                {group.motorized && <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', paddingLeft: '28px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#ccc' }}>
-                  <input type="checkbox" checked={group.cordless} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].cordless = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Cordless
-                </label>}
+                {(group.controlType || 'Manual') === 'Motor' && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#ccc', marginBottom: '6px' }}>
+                    <input type="checkbox" checked={group.solar} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].solar = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Solar (+$40)
+                  </label>
+                )}
               </div>
             ))}
 
-            <button onClick={() => { const newRooms = [...formData.rooms]; const newWindowId = Math.max(...newRooms[roomIndex].windowGroups.map(w => w.id)) + 1; newRooms[roomIndex].windowGroups.push({ id: newWindowId, quantity: '', width: '', height: '', motorized: false, cordless: false, solar: false, mount: 'Inside' }); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer' }}>+ Add Window Group</button>
+            <button onClick={() => { const newRooms = [...formData.rooms]; const newWindowId = Math.max(...newRooms[roomIndex].windowGroups.map(w => w.id)) + 1; newRooms[roomIndex].windowGroups.push({ id: newWindowId, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside' }); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer' }}>+ Add Window Group</button>
           </div>
         ))}
 
