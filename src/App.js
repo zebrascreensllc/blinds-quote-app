@@ -156,7 +156,7 @@ const getPricingSnapshot = () => ({
     "71-88": 75
   },
   HEIGHT_SURCHARGE: 37,
-  PRICING_DATA: PRICING_DATA, // Capture ALL fabric prices
+  PRICING_DATA: PRICING_DATA,
   CREATED_DATE: new Date().toISOString()
 });
 
@@ -276,8 +276,11 @@ export default function BlindsQuoteApp() {
   };
 
   const calculateGroupCost = (group, fabricNumbers, blindType, pricing = null) => {
-    const p = pricing || { MISC_EXPENSE: 4.50, SHIPPING_COST: 42, PRICING_DATA: PRICING_DATA };
-    const fabricData = p.PRICING_DATA || PRICING_DATA; // Use stored or current
+    // Build pricing object with fallbacks
+    const p = pricing || {};
+    
+    // Always ensure we have PRICING_DATA (use current as fallback)
+    const fabricData = p.PRICING_DATA || PRICING_DATA;
     
     // Defensive fallbacks for critical values
     const miscExpense = typeof p.MISC_EXPENSE === 'number' ? p.MISC_EXPENSE : 4.50;
@@ -293,21 +296,24 @@ export default function BlindsQuoteApp() {
     if (fabricNumbers.length === 0) {
       const allPrices = [];
       Object.keys(fabricData).forEach(type => {
-        fabricData[type].forEach(fabric => {
-          if (type === 'Bamboo') {
-            if (blindType === 'Bamboo (Roller)') {
-              allPrices.push(fabric.roller_manual);
-            } else if (blindType === 'Bamboo (Roman)') {
-              allPrices.push(fabric.roman_manual);
+        if (Array.isArray(fabricData[type])) {
+          fabricData[type].forEach(fabric => {
+            if (type === 'Bamboo') {
+              if (blindType === 'Bamboo (Roller)' && fabric.roller_manual) {
+                allPrices.push(fabric.roller_manual);
+              } else if (blindType === 'Bamboo (Roman)' && fabric.roman_manual) {
+                allPrices.push(fabric.roman_manual);
+              }
+            } else {
+              const price = cordless ? fabric.cordless : fabric.manual;
+              if (price) allPrices.push(price);
             }
-          } else {
-            allPrices.push(cordless ? fabric.cordless : fabric.manual);
-          }
-        });
+          });
+        }
       });
       
       if (allPrices.length === 0) {
-        // Fallback if no prices found
+        // Fallback if no prices found - use safe estimate
         return {
           minCost: (area * 14.92 + miscExpense + shippingCost) * quantity,
           maxCost: (area * 20.38 + miscExpense + shippingCost) * quantity,
@@ -326,22 +332,25 @@ export default function BlindsQuoteApp() {
     } else {
       const costs = fabricNumbers.map(fabricNum => {
         const price = getFabricPrice(fabricNum, blindType, cordless, fabricData);
-        return (area * price + miscExpense + shippingCost) * quantity;
-      });
+        if (price > 0) {
+          return (area * price + miscExpense + shippingCost) * quantity;
+        }
+        return null;
+      }).filter(c => c !== null);
       
       if (costs.length === 0) {
-        // Fallback if no costs calculated
+        // If no valid costs found, show range
         return {
           minCost: (area * 14.92 + miscExpense + shippingCost) * quantity,
-          maxCost: (area * 14.92 + miscExpense + shippingCost) * quantity,
-          isRange: false
+          maxCost: (area * 20.38 + miscExpense + shippingCost) * quantity,
+          isRange: true
         };
       }
       
       return {
         minCost: Math.min(...costs),
         maxCost: Math.max(...costs),
-        isRange: false
+        isRange: costs.length > 1
       };
     }
   };
@@ -477,15 +486,55 @@ export default function BlindsQuoteApp() {
   };
 
   const loadQuoteForEdit = (quote) => {
-    setFormData({
-      clientName: quote.clientName,
-      clientPhone: quote.clientPhone,
-      location: quote.location,
-      date: quote.date,
-      rooms: quote.rooms
-    });
-    setEditingQuote(quote);
-    setCurrentView('quote');
+    try {
+      // Ensure rooms have proper structure
+      const rooms = (quote.rooms || []).map(room => ({
+        ...room,
+        id: room.id || 1,
+        name: room.name || '',
+        fabricInput: room.fabricInput || '',
+        blindTypes: Array.isArray(room.blindTypes) ? room.blindTypes : ['Roller'],
+        windowGroups: (room.windowGroups || []).map(g => ({
+          ...g,
+          id: g.id || 1,
+          quantity: g.quantity || '',
+          width: g.width || '',
+          height: g.height || '',
+          controlType: g.controlType || 'Manual',
+          solar: g.solar || false,
+          mount: g.mount || 'Inside',
+          surchargeOverride: g.surchargeOverride !== undefined ? g.surchargeOverride : null
+        }))
+      }));
+
+      setFormData({
+        clientName: quote.clientName || '',
+        clientPhone: quote.clientPhone || '',
+        location: quote.location || '',
+        date: quote.date || new Date().toISOString().split('T')[0],
+        rooms: rooms.length > 0 ? rooms : [{
+          id: 1,
+          name: '',
+          fabricInput: '',
+          blindTypes: ['Roller'],
+          windowGroups: [{
+            id: 1,
+            quantity: '',
+            width: '',
+            height: '',
+            controlType: 'Manual',
+            solar: false,
+            mount: 'Inside',
+            surchargeOverride: null
+          }]
+        }]
+      });
+      setEditingQuote(quote);
+      setCurrentView('quote');
+    } catch (error) {
+      console.error('Error loading quote for edit:', error);
+      alert('❌ Error loading quote. Please try again.');
+    }
   };
 
   const renderMenu = () => (
@@ -743,49 +792,51 @@ export default function BlindsQuoteApp() {
             <button onClick={() => setSelectedQuote(null)} style={{ fontSize: '24px', color: '#aaa', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
           </div>
 
-          {/* Pricing Details Section */}
-          <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#1a3a3a', border: '1px solid #4a7a6a', padding: '16px' }}>
-            <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#d4af37', marginBottom: '12px' }}>📋 PRICING DETAILS (Used for this quote)</p>
-            <p style={{ fontSize: '11px', color: '#aaa', marginBottom: '12px', fontStyle: 'italic' }}>✅ All fabric prices, profit margins, and surcharges captured and locked for this quote</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '12px' }}>
-              <div>
-                <p style={{ color: '#888', marginBottom: '4px' }}>Profit Per Window:</p>
-                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.PROFIT_PER_WINDOW || 60}</p>
-              </div>
-              <div>
-                <p style={{ color: '#888', marginBottom: '4px' }}>Captured Date:</p>
-                <p style={{ color: '#fff', fontWeight: 'bold' }}>{storedPricing?.CREATED_DATE ? new Date(storedPricing.CREATED_DATE).toLocaleDateString() : 'N/A'}</p>
-              </div>
-              <div>
-                <p style={{ color: '#888', marginBottom: '4px' }}>Width Surcharge (41-55"):</p>
-                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.WIDTH_SURCHARGES?.["41-55"] || 45}</p>
-              </div>
-              <div>
-                <p style={{ color: '#888', marginBottom: '4px' }}>Height Surcharge (&gt;90"):</p>
-                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.HEIGHT_SURCHARGE || 37}</p>
-              </div>
-              <div>
-                <p style={{ color: '#888', marginBottom: '4px' }}>Motor Cost (Client):</p>
-                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.MOTOR_COST_CLIENT || 80}</p>
-              </div>
-              <div>
-                <p style={{ color: '#888', marginBottom: '4px' }}>Solar Cost (Client):</p>
-                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.SOLAR_COST_CLIENT || 40}</p>
-              </div>
-              <div>
-                <p style={{ color: '#888', marginBottom: '4px' }}>Misc Expense:</p>
-                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.MISC_EXPENSE || 4.50}</p>
-              </div>
-              <div>
-                <p style={{ color: '#888', marginBottom: '4px' }}>Shipping Cost:</p>
-                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.SHIPPING_COST || 42}</p>
-              </div>
-              <div style={{ gridColumn: '1 / -1', paddingTop: '8px', borderTop: '1px solid #4a7a6a' }}>
-                <p style={{ color: '#d4af37', fontSize: '11px', fontWeight: 'bold' }}>📦 Fabric Prices: LOCKED ({storedPricing?.PRICING_DATA ? Object.keys(storedPricing.PRICING_DATA).length : 'N/A'} blind types)</p>
-                <p style={{ color: '#888', fontSize: '11px', marginTop: '4px' }}>All fabric costs are captured and will not change even if you update prices later</p>
+          {/* Pricing Details Section - Only show if pricing snapshot exists */}
+          {storedPricing && storedPricing.PROFIT_PER_WINDOW && (
+            <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#1a3a3a', border: '1px solid #4a7a6a', padding: '16px' }}>
+              <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#d4af37', marginBottom: '12px' }}>📋 PRICING DETAILS (Used for this quote)</p>
+              <p style={{ fontSize: '11px', color: '#aaa', marginBottom: '12px', fontStyle: 'italic' }}>✅ All fabric prices, profit margins, and surcharges captured and locked for this quote</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '12px' }}>
+                <div>
+                  <p style={{ color: '#888', marginBottom: '4px' }}>Profit Per Window:</p>
+                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.PROFIT_PER_WINDOW}</p>
+                </div>
+                <div>
+                  <p style={{ color: '#888', marginBottom: '4px' }}>Captured Date:</p>
+                  <p style={{ color: '#fff', fontWeight: 'bold' }}>{storedPricing?.CREATED_DATE ? new Date(storedPricing.CREATED_DATE).toLocaleDateString() : selectedQuote?.createdDate ? new Date(selectedQuote.createdDate).toLocaleDateString() : 'N/A'}</p>
+                </div>
+                <div>
+                  <p style={{ color: '#888', marginBottom: '4px' }}>Width Surcharge (41-55"):</p>
+                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45}</p>
+                </div>
+                <div>
+                  <p style={{ color: '#888', marginBottom: '4px' }}>Height Surcharge (&gt;90"):</p>
+                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.HEIGHT_SURCHARGE ?? 37}</p>
+                </div>
+                <div>
+                  <p style={{ color: '#888', marginBottom: '4px' }}>Motor Cost (Client):</p>
+                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.MOTOR_COST_CLIENT ?? 80}</p>
+                </div>
+                <div>
+                  <p style={{ color: '#888', marginBottom: '4px' }}>Solar Cost (Client):</p>
+                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.SOLAR_COST_CLIENT ?? 40}</p>
+                </div>
+                <div>
+                  <p style={{ color: '#888', marginBottom: '4px' }}>Misc Expense:</p>
+                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.MISC_EXPENSE ?? 4.50}</p>
+                </div>
+                <div>
+                  <p style={{ color: '#888', marginBottom: '4px' }}>Shipping Cost:</p>
+                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.SHIPPING_COST ?? 42}</p>
+                </div>
+                <div style={{ gridColumn: '1 / -1', paddingTop: '8px', borderTop: '1px solid #4a7a6a' }}>
+                  <p style={{ color: '#d4af37', fontSize: '11px', fontWeight: 'bold' }}>📦 Fabric Prices: LOCKED ({storedPricing.PRICING_DATA ? Object.keys(storedPricing.PRICING_DATA).length : 'N/A'} blind types)</p>
+                  <p style={{ color: '#888', fontSize: '11px', marginTop: '4px' }}>All fabric costs are captured and will not change even if you update prices later</p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Current Pricing Comparison */}
           {storedPricing && storedPricing.WIDTH_SURCHARGES && (
