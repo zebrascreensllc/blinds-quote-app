@@ -492,24 +492,14 @@ export default function BlindsQuoteApp() {
       // Add room details
       text += `ROOMS:\n${'━'.repeat(50)}\n`;
       rooms.forEach(room => {
-        const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
         let roomWindowCount = 0;
-        let roomText = `${room.name} (`;
         
         room.windowGroups.forEach(group => {
           const qty = parseInt(group.quantity) || 1;
           roomWindowCount += qty;
           totalWindows += qty;
-          const controlLabel = group.controlType || 'Manual';
-          const addOns = [];
-          if (group.controlType === 'Motor') addOns.push('Motor');
-          if (group.solar) addOns.push('Solar');
-          const addOnText = addOns.length > 0 ? ` + ${addOns.join(' + ')}` : '';
-          roomText += `${qty}x${group.width}"W × ${group.height}"H (${controlLabel}${addOnText}), `;
         });
         
-        roomText = roomText.slice(0, -2) + ')\n';
-        roomWindowCount += ` windows)`;
         text += room.name + ` (${roomWindowCount} windows)\n`;
         
         room.windowGroups.forEach(group => {
