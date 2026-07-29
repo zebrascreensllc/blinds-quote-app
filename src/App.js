@@ -202,7 +202,7 @@ export default function BlindsQuoteApp() {
       id: 1,
       name: '',
       fabricInput: '',
-      blindType: 'Roller',
+      blindTypes: ['Roller'],
       windowGroups: [{
         id: 1,
         quantity: '',
@@ -285,6 +285,14 @@ export default function BlindsQuoteApp() {
     }
   };
 
+  const calculateGroupCostForMultipleTypes = (group, fabricNumbers, blindTypes) => {
+    const results = {};
+    blindTypes.forEach(type => {
+      results[type] = calculateGroupCost(group, fabricNumbers, type);
+    });
+    return results;
+  };
+
   const calculateGroupQuote = (group, fabricNumbers, blindType, totalMotorizedInRoom) => {
     const cost = calculateGroupCost(group, fabricNumbers, blindType);
     const quantity = parseInt(group.quantity) || 1;
@@ -326,9 +334,11 @@ export default function BlindsQuoteApp() {
       ? editingQuote.version 
       : `v${getNextVersion(formData.clientName, formData.location)}`;
     
+    const blindType = formData.rooms[0]?.blindTypes?.[0] || 'Roller';
+    
     const quoteName = editingQuote
       ? editingQuote.quoteName
-      : `${formData.clientName}-${formData.location}-quote-${version}`;
+      : `${formData.clientName}-${formData.location}-${blindType}-quote-${version}`;
 
     const quoteData = {
       id: editingQuote ? editingQuote.id : Date.now(),
@@ -363,7 +373,7 @@ export default function BlindsQuoteApp() {
         id: 1,
         name: '',
         fabricInput: '',
-        blindType: 'Roller',
+        blindTypes: ['Roller'],
         windowGroups: [{
           id: 1,
           quantity: '',
@@ -582,7 +592,7 @@ export default function BlindsQuoteApp() {
       
       room.windowGroups.forEach(group => {
         const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
-        const q = calculateGroupQuote(group, fabricNumbers, room.blindType, motorizedCount);
+        const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], motorizedCount);
         totalMin += q.minQuote;
         totalMax += q.maxQuote;
         totalProfit += q.profit;
@@ -649,7 +659,7 @@ export default function BlindsQuoteApp() {
                   const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
                   
                   return room.windowGroups.map((group, groupIdx) => {
-                    const q = calculateGroupQuote(group, fabricNumbers, room.blindType, room.windowGroups.filter(w => w.controlType === 'Motor').length);
+                    const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], room.windowGroups.filter(w => w.controlType === 'Motor').length);
                     const motorType = group.controlType || 'Manual';
                     
                     return (
@@ -740,7 +750,7 @@ export default function BlindsQuoteApp() {
         const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
         
         room.windowGroups.forEach(group => {
-          const q = calculateGroupQuote(group, fabricNumbers, room.blindType, motorizedCount);
+          const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], motorizedCount);
           quoteProfit += q.profit;
         });
       });
@@ -860,14 +870,30 @@ export default function BlindsQuoteApp() {
 
             {!room.fabricInput.trim() && (
               <div style={{ marginBottom: '16px' }}>
-                <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#888', marginBottom: '8px' }}>Blind Type (for Min/Max calculation):</p>
-                <select value={room.blindType} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].blindType = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '8px', fontSize: '16px', background: '#1a1a1a', border: '1px solid #666', color: 'white' }}>
-                  <option>Roller</option>
-                  <option>Zebra</option>
-                  <option>Roman</option>
-                  <option>Bamboo (Roller)</option>
-                  <option>Bamboo (Roman)</option>
-                </select>
+                <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#888', marginBottom: '8px' }}>Blind Type (for Min/Max calculation) - Select one or more:</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  {['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'].map(type => (
+                    <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', borderRadius: '6px', background: '#1a1a1a', cursor: 'pointer', fontSize: '14px', color: '#ccc' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={(room.blindTypes || ['Roller']).includes(type)}
+                        onChange={(e) => { 
+                          const newRooms = [...formData.rooms];
+                          let types = room.blindTypes || ['Roller'];
+                          if (e.target.checked) {
+                            types = [...new Set([...types, type])];
+                          } else {
+                            types = types.filter(t => t !== type);
+                          }
+                          newRooms[roomIndex].blindTypes = types.length > 0 ? types : ['Roller'];
+                          setFormData({...formData, rooms: newRooms}); 
+                        }}
+                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                      />
+                      {type}
+                    </label>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -906,7 +932,7 @@ export default function BlindsQuoteApp() {
           </div>
         ))}
 
-        <button onClick={() => { const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1; setFormData({...formData, rooms: [...formData.rooms, { id: newRoomId, name: '', fabricInput: '', blindType: 'Roller', windowGroups: [{ id: 1, quantity: '', width: lastWidth, height: lastHeight, controlType: 'Manual', solar: false, mount: 'Inside' }] }]}); }} style={{ width: '100%', padding: '16px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '32px' }}>+ Add Room</button>
+        <button onClick={() => { const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1; setFormData({...formData, rooms: [...formData.rooms, { id: newRoomId, name: '', fabricInput: '', blindTypes: ['Roller'], windowGroups: [{ id: 1, quantity: '', width: lastWidth, height: lastHeight, controlType: 'Manual', solar: false, mount: 'Inside' }] }]}); }} style={{ width: '100%', padding: '16px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '32px' }}>+ Add Room</button>
 
         <button onClick={generateQuote} style={{ width: '100%', padding: '16px', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>{editingQuote ? 'Save as New Version' : 'Generate Quote'}</button>
       </div>
