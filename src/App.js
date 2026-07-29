@@ -777,6 +777,8 @@ export default function BlindsQuoteApp() {
               </div>
             </div>
           )}
+
+          <div style={{ borderRadius: '8px', marginBottom: '32px', background: '#2a2a2a', border: '1px solid #444', overflowX: 'auto' }}>
             <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
               <thead style={{ background: '#1a1a1a', borderBottom: '1px solid #444' }}>
                 <tr>
