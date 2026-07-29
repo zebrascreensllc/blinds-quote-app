@@ -137,7 +137,7 @@ const PRICING_DATA = {
 const BUSINESS_NAME = 'Zebra Screens & Rollers';
 const SALES_TAX_RATE = 0.0825;
 const MISC_EXPENSE = 4.50;
-const SHIPPING_COST = 40;
+const SHIPPING_COST = 42;
 const PROFIT_PER_WINDOW = 60;
 const MOTOR_COST_CLIENT = 80;
 const MOTOR_COST_SUPPLIER = 50;
@@ -601,24 +601,18 @@ export default function BlindsQuoteApp() {
       text += `ROOMS:\n${'━'.repeat(50)}\n`;
       rooms.forEach(room => {
         let roomWindowCount = 0;
+        const controlTypes = new Set();
         
         room.windowGroups.forEach(group => {
           const qty = parseInt(group.quantity) || 1;
           roomWindowCount += qty;
           totalWindows += qty;
-        });
-        
-        text += room.name + ` (${roomWindowCount} windows)\n`;
-        
-        room.windowGroups.forEach(group => {
-          const qty = parseInt(group.quantity) || 1;
           const controlLabel = group.controlType || 'Manual';
-          const addOns = [];
-          if (group.controlType === 'Motor') addOns.push('Motor');
-          if (group.solar) addOns.push('Solar');
-          const addOnText = addOns.length > 0 ? ` - ${addOns.join(', ')}` : '';
-          text += `  ${group.width}"W × ${group.height}"H (${qty}x) - ${controlLabel}${addOnText}\n`;
+          controlTypes.add(controlLabel);
         });
+        
+        const controlList = Array.from(controlTypes).join(', ');
+        text += `${room.name} (${roomWindowCount} windows) - ${controlList}\n`;
       });
       
       text += `\n${'━'.repeat(50)}\n`;
