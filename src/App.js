@@ -146,6 +146,34 @@ const SOLAR_COST_SUPPLIER = 22;
 const REMOTE_6CH = 7;
 const REMOTE_16CH = 10;
 
+// Helper function to convert feet/inches to inches
+const parseUnits = (input) => {
+  if (!input) return 0;
+  input = input.trim().toUpperCase();
+  
+  // Match formats: 3'6", 3ft6in, 3ft 6in, 42", 42in
+  const feetInchMatch = input.match(/(\d+)\s*['"ft]*\s*(\d+)\s*['"in"]*/);
+  if (feetInchMatch) {
+    const feet = parseInt(feetInchMatch[1]);
+    const inches = parseInt(feetInchMatch[2]);
+    return feet * 12 + inches;
+  }
+  
+  // Match just inches or feet
+  const justNumberMatch = input.match(/(\d+)/);
+  if (justNumberMatch) {
+    const num = parseInt(justNumberMatch[1]);
+    // If it has apostrophe or "ft", it's feet
+    if (input.includes("'") || input.includes('FT')) {
+      return num * 12;
+    }
+    // Otherwise treat as inches
+    return num;
+  }
+  
+  return 0;
+};
+
 export default function BlindsQuoteApp() {
   const [currentView, setCurrentView] = useState('menu');
   const [quotes, setQuotes] = useState([]);
@@ -161,12 +189,13 @@ export default function BlindsQuoteApp() {
     rooms: [{
       id: 1,
       name: '',
-      selectedFabrics: [],
-      windows: [{
+      fabricInput: '',
+      blindType: 'Roller',
+      windowGroups: [{
         id: 1,
+        quantity: '',
         width: '',
         height: '',
-        blindType: 'Roller',
         motorized: false,
         cordless: false,
         solar: false,
@@ -199,34 +228,41 @@ export default function BlindsQuoteApp() {
     return 0;
   };
 
-  const calculateWindowCost = (window, selectedFabrics) => {
-    const area = Math.max(1.5, (parseFloat(window.width) * parseFloat(window.height)) / 1550);
+  const calculateGroupCost = (group, fabricNumbers, blindType, cordless) => {
+    const width = parseUnits(group.width);
+    const height = parseUnits(group.height);
+    const quantity = parseInt(group.quantity) || 1;
     
-    if (selectedFabrics.length === 0) {
+    const area = Math.max(1.5, (width * height) / 1550);
+    
+    if (fabricNumbers.length === 0) {
       const allPrices = [];
       Object.keys(PRICING_DATA).forEach(type => {
         PRICING_DATA[type].forEach(fabric => {
           if (type === 'Bamboo') {
-            if (window.blindType === 'Bamboo (Roller)') {
+            if (blindType === 'Bamboo (Roller)') {
               allPrices.push(fabric.roller_manual);
-            } else if (window.blindType === 'Bamboo (Roman)') {
+            } else if (blindType === 'Bamboo (Roman)') {
               allPrices.push(fabric.roman_manual);
             }
           } else {
-            allPrices.push(window.cordless ? fabric.cordless : fabric.manual);
+            allPrices.push(cordless ? fabric.cordless : fabric.manual);
           }
         });
       });
       
+      const minPrice = Math.min(...allPrices);
+      const maxPrice = Math.max(...allPrices);
+      
       return {
-        minCost: area * Math.min(...allPrices) + MISC_EXPENSE + SHIPPING_COST,
-        maxCost: area * Math.max(...allPrices) + MISC_EXPENSE + SHIPPING_COST,
+        minCost: (area * minPrice + MISC_EXPENSE + SHIPPING_COST) * quantity,
+        maxCost: (area * maxPrice + MISC_EXPENSE + SHIPPING_COST) * quantity,
         isRange: true
       };
     } else {
-      const costs = selectedFabrics.map(fabricNum => {
-        const price = getFabricPrice(fabricNum, window.blindType, window.cordless);
-        return area * price + MISC_EXPENSE + SHIPPING_COST;
+      const costs = fabricNumbers.map(fabricNum => {
+        const price = getFabricPrice(fabricNum, blindType, cordless);
+        return (area * price + MISC_EXPENSE + SHIPPING_COST) * quantity;
       });
       
       return {
@@ -237,70 +273,28 @@ export default function BlindsQuoteApp() {
     }
   };
 
-  const calculateWindowQuote = (window, selectedFabrics, totalMotorizedInRoom) => {
-    const cost = calculateWindowCost(window, selectedFabrics);
-    let profit = PROFIT_PER_WINDOW;
+  const calculateGroupQuote = (group, fabricNumbers, blindType, totalMotorizedInRoom) => {
+    const cost = calculateGroupCost(group, fabricNumbers, blindType, false);
+    const quantity = parseInt(group.quantity) || 1;
+    let profitPerWindow = PROFIT_PER_WINDOW;
     
-    if (window.motorized) {
+    if (group.motorized) {
       const remoteType = totalMotorizedInRoom > 6 ? REMOTE_16CH : REMOTE_6CH;
-      profit += MOTOR_COST_CLIENT - MOTOR_COST_SUPPLIER - (remoteType / totalMotorizedInRoom);
+      profitPerWindow += MOTOR_COST_CLIENT - MOTOR_COST_SUPPLIER - (remoteType / totalMotorizedInRoom);
     }
     
-    if (window.solar) {
-      profit += SOLAR_COST_CLIENT - SOLAR_COST_SUPPLIER;
+    if (group.solar) {
+      profitPerWindow += SOLAR_COST_CLIENT - SOLAR_COST_SUPPLIER;
     }
     
     return {
-      minQuote: cost.minCost + profit,
-      maxQuote: cost.maxCost + profit,
+      minQuote: cost.minCost + (profitPerWindow * quantity),
+      maxQuote: cost.maxCost + (profitPerWindow * quantity),
       minCost: cost.minCost,
       maxCost: cost.maxCost,
-      profit,
+      profit: profitPerWindow * quantity,
       isRange: cost.isRange
     };
-  };
-
-  const calculateStatistics = () => {
-    const monthlyStats = {};
-    let totalProfit = 0;
-    let totalQuotes = 0;
-    let pendingOrders = 0;
-
-    quotes.forEach(quote => {
-      const date = new Date(quote.createdDate);
-      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      
-      if (!monthlyStats[monthKey]) {
-        monthlyStats[monthKey] = { quotes: 0, profit: 0, orders: 0 };
-      }
-
-      monthlyStats[monthKey].quotes += 1;
-      totalQuotes += 1;
-
-      let quoteProfit = 0;
-      quote.rooms.forEach(room => {
-        const motorizedCount = room.windows.filter(w => w.motorized).length;
-        room.windows.forEach(window => {
-          const q = calculateWindowQuote(window, room.selectedFabrics, motorizedCount);
-          quoteProfit += q.profit;
-        });
-      });
-
-      monthlyStats[monthKey].profit += quoteProfit;
-      totalProfit += quoteProfit;
-      monthlyStats[monthKey].orders += 1;
-    });
-
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
-    quotes.forEach(quote => {
-      if (new Date(quote.createdDate) > sevenDaysAgo && quote.status === 'quote') {
-        pendingOrders += 1;
-      }
-    });
-
-    return { monthlyStats, totalProfit, totalQuotes, pendingOrders };
   };
 
   const generateQuote = () => {
@@ -331,12 +325,13 @@ export default function BlindsQuoteApp() {
       rooms: [{
         id: 1,
         name: '',
-        selectedFabrics: [],
-        windows: [{
+        fabricInput: '',
+        blindType: 'Roller',
+        windowGroups: [{
           id: 1,
+          quantity: '',
           width: '',
           height: '',
-          blindType: 'Roller',
           motorized: false,
           cordless: false,
           solar: false,
@@ -454,7 +449,7 @@ export default function BlindsQuoteApp() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                     <p style={{ fontWeight: 'bold', color: '#fff', fontSize: '18px' }}>{quote.clientName}</p>
                     <span style={{ fontSize: '12px', paddingLeft: '12px', paddingRight: '12px', paddingTop: '4px', paddingBottom: '4px', borderRadius: '999px', background: '#d4af37', color: '#000' }}>
-                      {quote.rooms.reduce((sum, r) => sum + r.windows.length, 0)} windows
+                      {quote.rooms.reduce((sum, r) => sum + r.windowGroups.reduce((s, w) => s + parseInt(w.quantity || 0), 0), 0)} windows
                     </span>
                   </div>
                   <p style={{ color: '#888', fontSize: '14px' }}>{quote.date} • {quote.location}</p>
@@ -474,14 +469,14 @@ export default function BlindsQuoteApp() {
     let totalMin = 0, totalMax = 0, totalProfit = 0;
 
     rooms.forEach(room => {
-      const roomWindows = room.windows;
-      const motorizedCount = roomWindows.filter(w => w.motorized).length;
-
-      roomWindows.forEach(window => {
-        const quote = calculateWindowQuote(window, room.selectedFabrics, motorizedCount);
-        totalMin += quote.minQuote;
-        totalMax += quote.maxQuote;
-        totalProfit += quote.profit;
+      const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
+      
+      room.windowGroups.forEach(group => {
+        const motorizedCount = room.windowGroups.filter(w => w.motorized).length;
+        const q = calculateGroupQuote(group, fabricNumbers, room.blindType, motorizedCount);
+        totalMin += q.minQuote;
+        totalMax += q.maxQuote;
+        totalProfit += q.profit;
       });
     });
 
@@ -505,55 +500,45 @@ export default function BlindsQuoteApp() {
               <thead style={{ background: '#1a1a1a', borderBottom: '1px solid #444' }}>
                 <tr>
                   <th style={{ padding: '8px', textAlign: 'left', fontWeight: 'bold', color: '#fff' }}>Room</th>
-                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Win</th>
+                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Qty</th>
+                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Size</th>
                   <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Type</th>
-                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Solar</th>
-                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Min</th>
-                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Max</th>
                   <th style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>Total</th>
                 </tr>
               </thead>
               <tbody>
-                {rooms.map(room => {
-                  const roomWindows = room.windows;
-                  const motorizedCount = roomWindows.filter(w => w.motorized).length;
-                  let roomMin = 0, roomMax = 0;
-
-                  roomWindows.forEach(window => {
-                    const q = calculateWindowQuote(window, room.selectedFabrics, motorizedCount);
-                    roomMin += q.minQuote;
-                    roomMax += q.maxQuote;
+                {rooms.map((room, roomIdx) => {
+                  const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
+                  
+                  return room.windowGroups.map((group, groupIdx) => {
+                    const q = calculateGroupQuote(group, fabricNumbers, room.blindType, room.windowGroups.filter(w => w.motorized).length);
+                    const motorType = group.motorized ? 'Motor' : 'Manual';
+                    
+                    return (
+                      <tr key={`${roomIdx}-${groupIdx}`} style={{ borderBottom: '1px solid #444' }}>
+                        <td style={{ padding: '8px', color: '#fff' }}>{room.name}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.quantity}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.width}x{group.height}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{motorType}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>${q.minQuote.toFixed(0)}-${q.maxQuote.toFixed(0)}</td>
+                      </tr>
+                    );
                   });
-
-                  const motorType = roomWindows.some(w => w.motorized) ? 'Motor' : 'Manual';
-                  const solarType = roomWindows.some(w => w.solar) ? 'Yes' : 'No';
-
-                  return (
-                    <tr key={room.id} style={{ borderBottom: '1px solid #444' }}>
-                      <td style={{ padding: '8px', color: '#fff' }}>{room.name}</td>
-                      <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{roomWindows.length}</td>
-                      <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{motorType}</td>
-                      <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{solarType}</td>
-                      <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>${(roomMin / roomWindows.length).toFixed(0)}</td>
-                      <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>${(roomMax / roomWindows.length).toFixed(0)}</td>
-                      <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>${roomMin.toFixed(0)}-${roomMax.toFixed(0)}</td>
-                    </tr>
-                  );
                 })}
                 <tr style={{ background: '#1a3a3a', borderTop: '2px solid #d4af37', fontWeight: 'bold' }}>
-                  <td colSpan="6" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>TOTAL:</td>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>TOTAL:</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>${totalMin.toFixed(0)}-${totalMax.toFixed(0)}</td>
                 </tr>
                 <tr style={{ background: '#1a3a3a' }}>
-                  <td colSpan="6" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>Tax (8.25%):</td>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>Tax (8.25%):</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>${taxMin.toFixed(0)}-${taxMax.toFixed(0)}</td>
                 </tr>
                 <tr style={{ background: '#2a5a2a', fontWeight: 'bold' }}>
-                  <td colSpan="6" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>GRAND TOTAL:</td>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>GRAND TOTAL:</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>${grandMin.toFixed(0)}-${grandMax.toFixed(0)}</td>
                 </tr>
                 <tr style={{ background: '#3a3a2a' }}>
-                  <td colSpan="6" style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>YOUR PROFIT:</td>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>YOUR PROFIT:</td>
                   <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#ffd700' }}>${totalProfit.toFixed(0)}</td>
                 </tr>
               </tbody>
@@ -589,7 +574,42 @@ export default function BlindsQuoteApp() {
   };
 
   const renderStatistics = () => {
-    const stats = calculateStatistics();
+    const stats = { monthlyStats: {}, totalProfit: 0, totalQuotes: 0, pendingOrders: 0 };
+    
+    quotes.forEach(quote => {
+      const date = new Date(quote.createdDate);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      if (!stats.monthlyStats[monthKey]) {
+        stats.monthlyStats[monthKey] = { quotes: 0, profit: 0 };
+      }
+
+      stats.monthlyStats[monthKey].quotes += 1;
+      stats.totalQuotes += 1;
+
+      let quoteProfit = 0;
+      quote.rooms.forEach(room => {
+        const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
+        const motorizedCount = room.windowGroups.filter(w => w.motorized).length;
+        
+        room.windowGroups.forEach(group => {
+          const q = calculateGroupQuote(group, fabricNumbers, room.blindType, motorizedCount);
+          quoteProfit += q.profit;
+        });
+      });
+
+      stats.monthlyStats[monthKey].profit += quoteProfit;
+      stats.totalProfit += quoteProfit;
+    });
+
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    quotes.forEach(quote => {
+      if (new Date(quote.createdDate) > sevenDaysAgo && quote.status === 'quote') {
+        stats.pendingOrders += 1;
+      }
+    });
+
     const monthlyEntries = Object.entries(stats.monthlyStats).sort().reverse().slice(0, 12);
 
     return (
@@ -688,57 +708,57 @@ export default function BlindsQuoteApp() {
           <div key={room.id} style={{ background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', padding: '24px', marginBottom: '24px' }}>
             <input type="text" placeholder="Room Name (e.g., Living Room)" value={room.name} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].name = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontWeight: 'bold', fontSize: '16px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }} />
 
-            <div style={{ background: '#1a1a1a', padding: '12px', borderRadius: '8px', border: '1px solid #555', marginBottom: '16px' }}>
-              <p style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '8px', color: '#fff' }}>Select Fabrics:</p>
-              <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {['Roller', 'Zebra', 'Roman', 'Bamboo'].map(type => (
-                  <div key={type}>
-                    <p style={{ fontSize: '12px', fontWeight: '600', color: '#888', marginBottom: '4px', marginTop: '8px' }}>{type}</p>
-                    {PRICING_DATA[type].slice(0, 5).map(fabric => (
-                      <label key={fabric.number} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', color: '#ccc' }}>
-                        <input type="checkbox" checked={room.selectedFabrics.includes(fabric.number)} onChange={(e) => { const newRooms = [...formData.rooms]; if (e.target.checked) { newRooms[roomIndex].selectedFabrics.push(fabric.number); } else { newRooms[roomIndex].selectedFabrics = newRooms[roomIndex].selectedFabrics.filter(f => f !== fabric.number); } setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
-                        <span>{fabric.number}</span>
-                      </label>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
+            <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff', marginBottom: '8px' }}>Fabric Numbers (comma-separated, or leave blank for Min/Max):</p>
+            <input type="text" placeholder="e.g., 82086K, 82067E (or leave blank)" value={room.fabricInput} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].fabricInput = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '14px', background: '#1a1a1a', border: '1px solid #666', color: 'white' }} />
 
-            <div style={{ background: '#1a1a1a', padding: '12px', borderRadius: '8px', marginBottom: '12px', fontSize: '14px', fontWeight: 'bold', color: '#ccc', border: '1px solid #555' }}>Windows: {room.windows.length}</div>
-            
-            {room.windows.map((window, windowIndex) => (
-              <div key={window.id} style={{ background: '#1a1a1a', padding: '12px', borderRadius: '8px', marginBottom: '12px', border: '1px solid #555' }}>
-                <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '12px', color: '#ccc' }}>{room.name || 'Room'} - Window {windowIndex + 1}</div>
+            {!room.fabricInput.trim() && (
+              <div style={{ marginBottom: '16px' }}>
+                <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#888', marginBottom: '8px' }}>Blind Type (for Min/Max calculation):</p>
+                <select value={room.blindType} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].blindType = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '8px', fontSize: '16px', background: '#1a1a1a', border: '1px solid #666', color: 'white' }}>
+                  <option>Roller</option>
+                  <option>Zebra</option>
+                  <option>Roman</option>
+                  <option>Bamboo (Roller)</option>
+                  <option>Bamboo (Roman)</option>
+                </select>
+              </div>
+            )}
+
+            <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#ccc', marginBottom: '12px' }}>Window Groups:</p>
+
+            {room.windowGroups.map((group, groupIndex) => (
+              <div key={group.id} style={{ background: '#1a1a1a', padding: '12px', borderRadius: '8px', marginBottom: '12px', border: '1px solid #555' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
-                  <input type="number" placeholder="Width" value={window.width} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].width = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }} />
-                  <input type="number" placeholder="Height" value={window.height} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].height = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }} />
+                  <input type="number" placeholder="Qty" value={group.quantity} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].quantity = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }} />
+                  <input type="text" placeholder="Width (e.g., 35, 3'6\", 3ft 6in)" value={group.width} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].width = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }} />
                 </div>
+                <input type="text" placeholder="Height (e.g., 75, 6'3\", 6ft 3in)" value={group.height} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].height = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '12px' }} />
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
-                  <select value={window.blindType} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].blindType = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }}>
-                    <option>Roller</option><option>Zebra</option><option>Roman</option><option>Bamboo (Roller)</option><option>Bamboo (Roman)</option>
-                  </select>
-                  <select value={window.mount} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].mount = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }}>
-                    <option>Inside</option><option>Outside</option><option>Outside-NoReduc</option>
+                  <select value={group.mount} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].mount = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ padding: '8px', borderRadius: '4px', fontSize: '14px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }}>
+                    <option>Inside</option>
+                    <option>Outside</option>
+                    <option>Outside-NoReduc</option>
                   </select>
                 </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', fontWeight: '600', color: '#ccc' }}>
-                  <input type="checkbox" checked={window.motorized} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].motorized = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Motor (+$80)
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#ccc', marginBottom: '6px' }}>
+                  <input type="checkbox" checked={group.motorized} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].motorized = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Motor (+$80)
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', fontWeight: '600', color: '#ccc' }}>
-                  <input type="checkbox" checked={window.solar} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].solar = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Solar (+$40)
+                <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#ccc' }}>
+                  <input type="checkbox" checked={group.solar} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].solar = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Solar (+$40)
                 </label>
-                {window.motorized && <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', paddingLeft: '28px', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', fontWeight: '600', color: '#ccc' }}>
-                  <input type="checkbox" checked={window.cordless} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windows[windowIndex].cordless = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Cordless
+                {group.motorized && <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', paddingLeft: '28px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#ccc' }}>
+                  <input type="checkbox" checked={group.cordless} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].cordless = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Cordless
                 </label>}
               </div>
             ))}
 
-            <button onClick={() => { const newRooms = [...formData.rooms]; const newWindowId = Math.max(...newRooms[roomIndex].windows.map(w => w.id)) + 1; newRooms[roomIndex].windows.push({ id: newWindowId, width: '', height: '', blindType: 'Roller', motorized: false, cordless: false, solar: false, mount: 'Inside' }); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer' }}>+ Add Window</button>
+            <button onClick={() => { const newRooms = [...formData.rooms]; const newWindowId = Math.max(...newRooms[roomIndex].windowGroups.map(w => w.id)) + 1; newRooms[roomIndex].windowGroups.push({ id: newWindowId, quantity: '', width: '', height: '', motorized: false, cordless: false, solar: false, mount: 'Inside' }); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer' }}>+ Add Window Group</button>
           </div>
         ))}
 
-        <button onClick={() => { const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1; setFormData({...formData, rooms: [...formData.rooms, { id: newRoomId, name: '', selectedFabrics: [], windows: [{ id: 1, width: '', height: '', blindType: 'Roller', motorized: false, cordless: false, solar: false, mount: 'Inside' }] }]}); }} style={{ width: '100%', padding: '16px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '32px' }}>+ Add Room</button>
+        <button onClick={() => { const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1; setFormData({...formData, rooms: [...formData.rooms, { id: newRoomId, name: '', fabricInput: '', blindType: 'Roller', windowGroups: [{ id: 1, quantity: '', width: '', height: '', motorized: false, cordless: false, solar: false, mount: 'Inside' }] }]}); }} style={{ width: '100%', padding: '16px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '32px' }}>+ Add Room</button>
 
         <button onClick={generateQuote} style={{ width: '100%', padding: '16px', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>Generate Quote</button>
       </div>
