@@ -146,6 +146,48 @@ const SOLAR_COST_SUPPLIER = 22;
 const REMOTE_6CH = 7;
 const REMOTE_16CH = 10;
 
+// Create pricing snapshot (captures current pricing)
+const getPricingSnapshot = () => ({
+  PROFIT_PER_WINDOW: 60,
+  MOTOR_COST_CLIENT: 80,
+  MOTOR_COST_SUPPLIER: 50,
+  SOLAR_COST_CLIENT: 40,
+  SOLAR_COST_SUPPLIER: 22,
+  MISC_EXPENSE: 4.50,
+  SHIPPING_COST: 42,
+  REMOTE_6CH: 7,
+  REMOTE_16CH: 10,
+  SALES_TAX_RATE: 0.0825,
+  WIDTH_SURCHARGES: {
+    "35-40": 30,
+    "41-55": 45,
+    "56-70": 60,
+    "71-88": 75
+  },
+  HEIGHT_SURCHARGE: 37,
+  PRICING_DATA: PRICING_DATA, // Capture ALL fabric prices
+  CREATED_DATE: new Date().toISOString()
+});
+
+// Width surcharge based on inches (uses pricing snapshot)
+const getWidthSurcharge = (width, pricing = null) => {
+  const p = pricing || { WIDTH_SURCHARGES: { "35-40": 30, "41-55": 45, "56-70": 60, "71-88": 75 } };
+  const w = parseUnits(width);
+  if (w >= 35 && w <= 40) return p.WIDTH_SURCHARGES["35-40"];
+  if (w >= 41 && w <= 55) return p.WIDTH_SURCHARGES["41-55"];
+  if (w >= 56 && w <= 70) return p.WIDTH_SURCHARGES["56-70"];
+  if (w >= 71 && w <= 88) return p.WIDTH_SURCHARGES["71-88"];
+  return 0;
+};
+
+// Height surcharge based on inches (uses pricing snapshot)
+const getHeightSurcharge = (height, pricing = null) => {
+  const p = pricing || { HEIGHT_SURCHARGE: 37 };
+  const h = parseUnits(height);
+  if (h > 90) return p.HEIGHT_SURCHARGE;
+  return 0;
+};
+
 const parseUnits = (input) => {
   if (!input) return 0;
   input = input.trim().toUpperCase();
@@ -210,7 +252,8 @@ export default function BlindsQuoteApp() {
         height: '',
         controlType: 'Manual',
         solar: false,
-        mount: 'Inside'
+        mount: 'Inside',
+        surchargeOverride: null
       }]
     }]
   });
@@ -224,9 +267,11 @@ export default function BlindsQuoteApp() {
     localStorage.setItem('blindsQuotes', JSON.stringify(quotes));
   }, [quotes]);
 
-  const getFabricPrice = (fabricNum, blindType, cordless) => {
-    for (const type of Object.keys(PRICING_DATA)) {
-      const fabric = PRICING_DATA[type].find(f => f.number === fabricNum);
+  const getFabricPrice = (fabricNum, blindType, cordless, fabricData = null) => {
+    const data = fabricData || PRICING_DATA; // Use stored or current pricing
+    
+    for (const type of Object.keys(data)) {
+      const fabric = data[type].find(f => f.number === fabricNum);
       if (fabric) {
         if (type === 'Bamboo') {
           if (blindType === 'Bamboo (Roller)') return fabric.roller_manual;
@@ -239,7 +284,9 @@ export default function BlindsQuoteApp() {
     return 0;
   };
 
-  const calculateGroupCost = (group, fabricNumbers, blindType) => {
+  const calculateGroupCost = (group, fabricNumbers, blindType, pricing = null) => {
+    const p = pricing || { MISC_EXPENSE: 4.50, SHIPPING_COST: 42, PRICING_DATA: PRICING_DATA };
+    const fabricData = p.PRICING_DATA || PRICING_DATA; // Use stored or current
     const width = parseUnits(group.width);
     const height = parseUnits(group.height);
     const quantity = parseInt(group.quantity) || 1;
@@ -249,8 +296,8 @@ export default function BlindsQuoteApp() {
     
     if (fabricNumbers.length === 0) {
       const allPrices = [];
-      Object.keys(PRICING_DATA).forEach(type => {
-        PRICING_DATA[type].forEach(fabric => {
+      Object.keys(fabricData).forEach(type => {
+        fabricData[type].forEach(fabric => {
           if (type === 'Bamboo') {
             if (blindType === 'Bamboo (Roller)') {
               allPrices.push(fabric.roller_manual);
@@ -267,14 +314,14 @@ export default function BlindsQuoteApp() {
       const maxPrice = Math.max(...allPrices);
       
       return {
-        minCost: (area * minPrice + MISC_EXPENSE + SHIPPING_COST) * quantity,
-        maxCost: (area * maxPrice + MISC_EXPENSE + SHIPPING_COST) * quantity,
+        minCost: (area * minPrice + p.MISC_EXPENSE + p.SHIPPING_COST) * quantity,
+        maxCost: (area * maxPrice + p.MISC_EXPENSE + p.SHIPPING_COST) * quantity,
         isRange: true
       };
     } else {
       const costs = fabricNumbers.map(fabricNum => {
-        const price = getFabricPrice(fabricNum, blindType, cordless);
-        return (area * price + MISC_EXPENSE + SHIPPING_COST) * quantity;
+        const price = getFabricPrice(fabricNum, blindType, cordless, fabricData);
+        return (area * price + p.MISC_EXPENSE + p.SHIPPING_COST) * quantity;
       });
       
       return {
@@ -285,27 +332,50 @@ export default function BlindsQuoteApp() {
     }
   };
 
-  const calculateGroupQuote = (group, fabricNumbers, blindType, totalMotorizedInRoom) => {
-    const cost = calculateGroupCost(group, fabricNumbers, blindType);
+  const calculateGroupQuote = (group, fabricNumbers, blindType, totalMotorizedInRoom, pricing = null) => {
+    const p = pricing || {
+      PROFIT_PER_WINDOW: 60,
+      MOTOR_COST_CLIENT: 80,
+      MOTOR_COST_SUPPLIER: 50,
+      SOLAR_COST_CLIENT: 40,
+      SOLAR_COST_SUPPLIER: 22,
+      REMOTE_6CH: 7,
+      REMOTE_16CH: 10
+    };
+    
+    const cost = calculateGroupCost(group, fabricNumbers, blindType, pricing);
     const quantity = parseInt(group.quantity) || 1;
-    let profitPerWindow = PROFIT_PER_WINDOW;
+    let profitPerWindow = p.PROFIT_PER_WINDOW;
+    
+    // Add width and height surcharges
+    const widthSurcharge = getWidthSurcharge(group.width, pricing);
+    const heightSurcharge = getHeightSurcharge(group.height, pricing);
+    const calculatedSurcharge = widthSurcharge + heightSurcharge;
+    
+    // Use override if provided, otherwise use calculated
+    const surchargePerWindow = group.surchargeOverride !== null ? group.surchargeOverride : calculatedSurcharge;
     
     if (group.controlType === 'Motor') {
-      const remoteType = totalMotorizedInRoom > 6 ? REMOTE_16CH : REMOTE_6CH;
-      profitPerWindow += MOTOR_COST_CLIENT - MOTOR_COST_SUPPLIER - (remoteType / totalMotorizedInRoom);
+      const remoteType = totalMotorizedInRoom > 6 ? p.REMOTE_16CH : p.REMOTE_6CH;
+      profitPerWindow += p.MOTOR_COST_CLIENT - p.MOTOR_COST_SUPPLIER - (remoteType / totalMotorizedInRoom);
     }
     
     if (group.solar) {
-      profitPerWindow += SOLAR_COST_CLIENT - SOLAR_COST_SUPPLIER;
+      profitPerWindow += p.SOLAR_COST_CLIENT - p.SOLAR_COST_SUPPLIER;
     }
     
     return {
-      minQuote: cost.minCost + (profitPerWindow * quantity),
-      maxQuote: cost.maxCost + (profitPerWindow * quantity),
+      minQuote: cost.minCost + (profitPerWindow * quantity) + (surchargePerWindow * quantity),
+      maxQuote: cost.maxCost + (profitPerWindow * quantity) + (surchargePerWindow * quantity),
       minCost: cost.minCost,
       maxCost: cost.maxCost,
-      profit: profitPerWindow * quantity,
-      isRange: cost.isRange
+      profit: (profitPerWindow + surchargePerWindow) * quantity,
+      isRange: cost.isRange,
+      widthSurcharge: widthSurcharge,
+      heightSurcharge: heightSurcharge,
+      calculatedSurcharge: calculatedSurcharge,
+      actualSurcharge: surchargePerWindow,
+      isOverridden: group.surchargeOverride !== null
     };
   };
 
@@ -322,21 +392,22 @@ export default function BlindsQuoteApp() {
       return;
     }
 
-    const version = editingQuote 
-      ? editingQuote.version 
-      : `v${getNextVersion(formData.clientName, formData.location)}`;
-    
+    // Calculate new version number
+    const newVersion = `v${getNextVersion(formData.clientName, formData.location)}`;
     const blindType = formData.rooms[0]?.blindTypes?.[0] || 'Roller';
     
-    const quoteName = editingQuote
-      ? editingQuote.quoteName
-      : `${formData.clientName}-${formData.location}-${blindType}-quote-${version}`;
+    // Create quoteName with the new version
+    const quoteName = `${formData.clientName}-${formData.location}-${blindType}-quote-${newVersion}`;
+
+    // Capture pricing snapshot with this quote
+    const pricingSnapshot = getPricingSnapshot();
 
     const quoteData = {
       id: editingQuote ? editingQuote.id : Date.now(),
       quoteName: quoteName,
-      version: editingQuote ? `v${getNextVersion(formData.clientName, formData.location)}` : version,
+      version: newVersion,
       ...formData,
+      pricing: pricingSnapshot,
       createdDate: editingQuote ? editingQuote.createdDate : new Date().toISOString(),
       updatedDate: new Date().toISOString(),
       status: 'quote'
@@ -373,7 +444,8 @@ export default function BlindsQuoteApp() {
           height: '',
           controlType: 'Manual',
           solar: false,
-          mount: 'Inside'
+          mount: 'Inside',
+          surchargeOverride: null
         }]
       }]
     });
@@ -577,6 +649,7 @@ export default function BlindsQuoteApp() {
     if (!selectedQuote) return null;
 
     const rooms = selectedQuote.rooms;
+    const storedPricing = selectedQuote.pricing || null; // Use stored pricing or null (fallback to defaults)
     let totalMin = 0, totalMax = 0, totalProfit = 0;
 
     rooms.forEach(room => {
@@ -584,15 +657,16 @@ export default function BlindsQuoteApp() {
       
       room.windowGroups.forEach(group => {
         const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
-        const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], motorizedCount);
+        const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], motorizedCount, storedPricing);
         totalMin += q.minQuote;
         totalMax += q.maxQuote;
         totalProfit += q.profit;
       });
     });
 
-    const taxMin = totalMin * SALES_TAX_RATE;
-    const taxMax = totalMax * SALES_TAX_RATE;
+    const taxRate = storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE;
+    const taxMin = totalMin * taxRate;
+    const taxMax = totalMax * taxRate;
     const grandMin = totalMin + taxMin;
     const grandMax = totalMax + taxMax;
 
@@ -621,6 +695,7 @@ export default function BlindsQuoteApp() {
       text += `\n${'━'.repeat(50)}\n`;
       text += `TOTAL WINDOWS: ${totalWindows}\n\n`;
       text += `OVERALL QUOTE: $${totalMin.toFixed(0)} - $${totalMax.toFixed(0)}\n`;
+      text += `(Includes width & height surcharges)\n`;
       text += `Sales Tax (8.25%): $${taxMin.toFixed(0)} - $${taxMax.toFixed(0)}\n`;
       text += `GRAND TOTAL: $${grandMin.toFixed(0)} - $${grandMax.toFixed(0)}`;
       
@@ -635,7 +710,73 @@ export default function BlindsQuoteApp() {
             <button onClick={() => setSelectedQuote(null)} style={{ fontSize: '24px', color: '#aaa', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
           </div>
 
-          <div style={{ borderRadius: '8px', marginBottom: '32px', background: '#2a2a2a', border: '1px solid #444', overflowX: 'auto' }}>
+          {/* Pricing Details Section */}
+          <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#1a3a3a', border: '1px solid #4a7a6a', padding: '16px' }}>
+            <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#d4af37', marginBottom: '12px' }}>📋 PRICING DETAILS (Used for this quote)</p>
+            <p style={{ fontSize: '11px', color: '#aaa', marginBottom: '12px', fontStyle: 'italic' }}>✅ All fabric prices, profit margins, and surcharges captured and locked for this quote</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '12px' }}>
+              <div>
+                <p style={{ color: '#888', marginBottom: '4px' }}>Profit Per Window:</p>
+                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.PROFIT_PER_WINDOW || 60}</p>
+              </div>
+              <div>
+                <p style={{ color: '#888', marginBottom: '4px' }}>Captured Date:</p>
+                <p style={{ color: '#fff', fontWeight: 'bold' }}>{storedPricing?.CREATED_DATE ? new Date(storedPricing.CREATED_DATE).toLocaleDateString() : 'N/A'}</p>
+              </div>
+              <div>
+                <p style={{ color: '#888', marginBottom: '4px' }}>Width Surcharge (41-55"):</p>
+                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.WIDTH_SURCHARGES?.["41-55"] || 45}</p>
+              </div>
+              <div>
+                <p style={{ color: '#888', marginBottom: '4px' }}>Height Surcharge (&gt;90"):</p>
+                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.HEIGHT_SURCHARGE || 37}</p>
+              </div>
+              <div>
+                <p style={{ color: '#888', marginBottom: '4px' }}>Motor Cost (Client):</p>
+                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.MOTOR_COST_CLIENT || 80}</p>
+              </div>
+              <div>
+                <p style={{ color: '#888', marginBottom: '4px' }}>Solar Cost (Client):</p>
+                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.SOLAR_COST_CLIENT || 40}</p>
+              </div>
+              <div>
+                <p style={{ color: '#888', marginBottom: '4px' }}>Misc Expense:</p>
+                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.MISC_EXPENSE || 4.50}</p>
+              </div>
+              <div>
+                <p style={{ color: '#888', marginBottom: '4px' }}>Shipping Cost:</p>
+                <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing?.SHIPPING_COST || 42}</p>
+              </div>
+              <div style={{ gridColumn: '1 / -1', paddingTop: '8px', borderTop: '1px solid #4a7a6a' }}>
+                <p style={{ color: '#d4af37', fontSize: '11px', fontWeight: 'bold' }}>📦 Fabric Prices: LOCKED ({storedPricing?.PRICING_DATA ? Object.keys(storedPricing.PRICING_DATA).length : 'N/A'} blind types)</p>
+                <p style={{ color: '#888', fontSize: '11px', marginTop: '4px' }}>All fabric costs are captured and will not change even if you update prices later</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Current Pricing Comparison */}
+          {storedPricing && (
+            <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#2a2a1a', border: '1px solid #6a6a4a', padding: '16px' }}>
+              <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#f4e4c1', marginBottom: '12px' }}>⚠️ CURRENT PRICING (For comparison)</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', fontSize: '11px' }}>
+                <div>
+                  <p style={{ color: '#888', marginBottom: '4px' }}>Profit Per Window:</p>
+                  <p style={{ color: storedPricing.PROFIT_PER_WINDOW === 60 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${60}</p>
+                  {storedPricing.PROFIT_PER_WINDOW !== 60 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.PROFIT_PER_WINDOW} → $60</p>}
+                </div>
+                <div>
+                  <p style={{ color: '#888', marginBottom: '4px' }}>Width Surcharge (41-55"):</p>
+                  <p style={{ color: storedPricing.WIDTH_SURCHARGES?.["41-55"] === 45 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${45}</p>
+                  {storedPricing.WIDTH_SURCHARGES?.["41-55"] !== 45 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.WIDTH_SURCHARGES?.["41-55"]} → $45</p>}
+                </div>
+                <div>
+                  <p style={{ color: '#888', marginBottom: '4px' }}>Height Surcharge (&gt;90"):</p>
+                  <p style={{ color: storedPricing.HEIGHT_SURCHARGE === 37 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${37}</p>
+                  {storedPricing.HEIGHT_SURCHARGE !== 37 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.HEIGHT_SURCHARGE} → $37</p>}
+                </div>
+              </div>
+            </div>
+          )}
             <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
               <thead style={{ background: '#1a1a1a', borderBottom: '1px solid #444' }}>
                 <tr>
@@ -643,6 +784,7 @@ export default function BlindsQuoteApp() {
                   <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Qty</th>
                   <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Size</th>
                   <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Type</th>
+                  <th style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>Per Window</th>
                   <th style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>Total</th>
                 </tr>
               </thead>
@@ -651,8 +793,11 @@ export default function BlindsQuoteApp() {
                   const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
                   
                   return room.windowGroups.map((group, groupIdx) => {
-                    const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], room.windowGroups.filter(w => w.controlType === 'Motor').length);
+                    const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], room.windowGroups.filter(w => w.controlType === 'Motor').length, storedPricing);
                     const motorType = group.controlType || 'Manual';
+                    const quantity = parseInt(group.quantity) || 1;
+                    const perWindowMin = q.minQuote / quantity;
+                    const perWindowMax = q.maxQuote / quantity;
                     
                     return (
                       <tr key={`${roomIdx}-${groupIdx}`} style={{ borderBottom: '1px solid #444' }}>
@@ -660,6 +805,7 @@ export default function BlindsQuoteApp() {
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.quantity}</td>
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.width}x{group.height}</td>
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{motorType}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', color: '#d4af37', fontWeight: '600' }}>${perWindowMin.toFixed(0)}-${perWindowMax.toFixed(0)}</td>
                         <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>${q.minQuote.toFixed(0)}-${q.maxQuote.toFixed(0)}</td>
                       </tr>
                     );
@@ -668,6 +814,10 @@ export default function BlindsQuoteApp() {
                 <tr style={{ background: '#1a3a3a', borderTop: '2px solid #d4af37', fontWeight: 'bold' }}>
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>TOTAL:</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>${totalMin.toFixed(0)}-${totalMax.toFixed(0)}</td>
+                </tr>
+                <tr style={{ background: '#2a4a2a' }}>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '12px' }}>Surcharges (Width + Height):</td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '12px' }}>Included</td>
                 </tr>
                 <tr style={{ background: '#1a3a3a' }}>
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>Tax (8.25%):</td>
@@ -742,7 +892,7 @@ export default function BlindsQuoteApp() {
         const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
         
         room.windowGroups.forEach(group => {
-          const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], motorizedCount);
+          const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], motorizedCount, quote.pricing || null);
           quoteProfit += q.profit;
         });
       });
@@ -914,17 +1064,24 @@ export default function BlindsQuoteApp() {
                   </label>
                 )}
 
+                <div style={{ padding: '8px', borderRadius: '6px', background: '#2a3a2a', marginBottom: '8px', border: '1px solid #4a6a4a' }}>
+                  <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#aaa', marginBottom: '6px' }}>Surcharge Override (Optional)</p>
+                  <p style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>Auto: ${(getWidthSurcharge(group.width) + getHeightSurcharge(group.height)).toFixed(0)} {group.surchargeOverride !== null && `→ Overridden: $${group.surchargeOverride.toFixed(0)}`}</p>
+                  <input type="number" placeholder="Leave blank to use auto-calculated" value={group.surchargeOverride !== null ? group.surchargeOverride : ''} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = e.target.value === '' ? null : parseFloat(e.target.value) || 0; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '6px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #555', color: 'white', marginBottom: '6px' }} />
+                  <button onClick={() => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = null; setFormData({...formData, rooms: newRooms}); }} style={{ fontSize: '10px', padding: '4px 8px', background: 'transparent', color: '#888', border: '1px solid #555', borderRadius: '4px', cursor: 'pointer' }}>Reset to Auto</button>
+                </div>
+
                 <button onClick={() => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups.splice(groupIndex, 1); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', marginTop: '8px', borderRadius: '4px', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
                   <Trash2 size={14} /> Delete This Window Group
                 </button>
               </div>
             ))}
 
-            <button onClick={() => { const newRooms = [...formData.rooms]; const newWindowId = Math.max(...newRooms[roomIndex].windowGroups.map(w => w.id)) + 1; newRooms[roomIndex].windowGroups.push({ id: newWindowId, quantity: '', width: lastWidth, height: lastHeight, controlType: 'Manual', solar: false, mount: 'Inside' }); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer' }}>+ Add Window Group</button>
+            <button onClick={() => { const newRooms = [...formData.rooms]; const newWindowId = Math.max(...newRooms[roomIndex].windowGroups.map(w => w.id)) + 1; newRooms[roomIndex].windowGroups.push({ id: newWindowId, quantity: '', width: lastWidth, height: lastHeight, controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null }); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer' }}>+ Add Window Group</button>
           </div>
         ))}
 
-        <button onClick={() => { const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1; setFormData({...formData, rooms: [...formData.rooms, { id: newRoomId, name: '', fabricInput: '', blindTypes: ['Roller'], windowGroups: [{ id: 1, quantity: '', width: lastWidth, height: lastHeight, controlType: 'Manual', solar: false, mount: 'Inside' }] }]}); }} style={{ width: '100%', padding: '16px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '32px' }}>+ Add Room</button>
+        <button onClick={() => { const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1; setFormData({...formData, rooms: [...formData.rooms, { id: newRoomId, name: '', fabricInput: '', blindTypes: ['Roller'], windowGroups: [{ id: 1, quantity: '', width: lastWidth, height: lastHeight, controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null }] }]}); }} style={{ width: '100%', padding: '16px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '32px' }}>+ Add Room</button>
 
         <button onClick={generateQuote} style={{ width: '100%', padding: '16px', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>{editingQuote ? 'Save as New Version' : 'Generate Quote'}</button>
       </div>
