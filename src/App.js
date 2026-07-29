@@ -136,15 +136,6 @@ const PRICING_DATA = {
 
 const BUSINESS_NAME = 'Zebra Screens & Rollers';
 const SALES_TAX_RATE = 0.0825;
-const MISC_EXPENSE = 4.50;
-const SHIPPING_COST = 42;
-const PROFIT_PER_WINDOW = 60;
-const MOTOR_COST_CLIENT = 80;
-const MOTOR_COST_SUPPLIER = 50;
-const SOLAR_COST_CLIENT = 40;
-const SOLAR_COST_SUPPLIER = 22;
-const REMOTE_6CH = 7;
-const REMOTE_16CH = 10;
 
 // Create pricing snapshot (captures current pricing)
 const getPricingSnapshot = () => ({
