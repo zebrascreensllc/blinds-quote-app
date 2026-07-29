@@ -278,6 +278,11 @@ export default function BlindsQuoteApp() {
   const calculateGroupCost = (group, fabricNumbers, blindType, pricing = null) => {
     const p = pricing || { MISC_EXPENSE: 4.50, SHIPPING_COST: 42, PRICING_DATA: PRICING_DATA };
     const fabricData = p.PRICING_DATA || PRICING_DATA; // Use stored or current
+    
+    // Defensive fallbacks for critical values
+    const miscExpense = typeof p.MISC_EXPENSE === 'number' ? p.MISC_EXPENSE : 4.50;
+    const shippingCost = typeof p.SHIPPING_COST === 'number' ? p.SHIPPING_COST : 42;
+    
     const width = parseUnits(group.width);
     const height = parseUnits(group.height);
     const quantity = parseInt(group.quantity) || 1;
@@ -301,19 +306,37 @@ export default function BlindsQuoteApp() {
         });
       });
       
+      if (allPrices.length === 0) {
+        // Fallback if no prices found
+        return {
+          minCost: (area * 14.92 + miscExpense + shippingCost) * quantity,
+          maxCost: (area * 20.38 + miscExpense + shippingCost) * quantity,
+          isRange: true
+        };
+      }
+      
       const minPrice = Math.min(...allPrices);
       const maxPrice = Math.max(...allPrices);
       
       return {
-        minCost: (area * minPrice + p.MISC_EXPENSE + p.SHIPPING_COST) * quantity,
-        maxCost: (area * maxPrice + p.MISC_EXPENSE + p.SHIPPING_COST) * quantity,
+        minCost: (area * minPrice + miscExpense + shippingCost) * quantity,
+        maxCost: (area * maxPrice + miscExpense + shippingCost) * quantity,
         isRange: true
       };
     } else {
       const costs = fabricNumbers.map(fabricNum => {
         const price = getFabricPrice(fabricNum, blindType, cordless, fabricData);
-        return (area * price + p.MISC_EXPENSE + p.SHIPPING_COST) * quantity;
+        return (area * price + miscExpense + shippingCost) * quantity;
       });
+      
+      if (costs.length === 0) {
+        // Fallback if no costs calculated
+        return {
+          minCost: (area * 14.92 + miscExpense + shippingCost) * quantity,
+          maxCost: (area * 14.92 + miscExpense + shippingCost) * quantity,
+          isRange: false
+        };
+      }
       
       return {
         minCost: Math.min(...costs),
@@ -358,12 +381,20 @@ export default function BlindsQuoteApp() {
       profitPerWindow += p.SOLAR_COST_CLIENT - p.SOLAR_COST_SUPPLIER;
     }
     
+    // Calculate final values
+    const minQuote = cost.minCost + (profitPerWindow * quantity) + (surchargePerWindow * quantity);
+    const maxQuote = cost.maxCost + (profitPerWindow * quantity) + (surchargePerWindow * quantity);
+    
+    // Validate and fallback for NaN
+    const safeMinQuote = isNaN(minQuote) ? 0 : minQuote;
+    const safeMaxQuote = isNaN(maxQuote) ? 0 : maxQuote;
+    
     return {
-      minQuote: cost.minCost + (profitPerWindow * quantity) + (surchargePerWindow * quantity),
-      maxQuote: cost.maxCost + (profitPerWindow * quantity) + (surchargePerWindow * quantity),
-      minCost: cost.minCost,
-      maxCost: cost.maxCost,
-      profit: (profitPerWindow + surchargePerWindow) * quantity,
+      minQuote: safeMinQuote,
+      maxQuote: safeMaxQuote,
+      minCost: isNaN(cost.minCost) ? 0 : cost.minCost,
+      maxCost: isNaN(cost.maxCost) ? 0 : cost.maxCost,
+      profit: isNaN((profitPerWindow + surchargePerWindow) * quantity) ? 0 : (profitPerWindow + surchargePerWindow) * quantity,
       isRange: cost.isRange,
       widthSurcharge: widthSurcharge,
       heightSurcharge: heightSurcharge,
@@ -757,7 +788,7 @@ export default function BlindsQuoteApp() {
           </div>
 
           {/* Current Pricing Comparison */}
-          {storedPricing && (
+          {storedPricing && storedPricing.WIDTH_SURCHARGES && (
             <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#2a2a1a', border: '1px solid #6a6a4a', padding: '16px' }}>
               <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#f4e4c1', marginBottom: '12px' }}>⚠️ CURRENT PRICING (For comparison)</p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', fontSize: '11px' }}>
@@ -768,13 +799,13 @@ export default function BlindsQuoteApp() {
                 </div>
                 <div>
                   <p style={{ color: '#888', marginBottom: '4px' }}>Width Surcharge (41-55"):</p>
-                  <p style={{ color: storedPricing.WIDTH_SURCHARGES?.["41-55"] === 45 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${45}</p>
-                  {storedPricing.WIDTH_SURCHARGES?.["41-55"] !== 45 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.WIDTH_SURCHARGES?.["41-55"]} → $45</p>}
+                  <p style={{ color: (storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45) === 45 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${45}</p>
+                  {(storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45) !== 45 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45} → $45</p>}
                 </div>
                 <div>
                   <p style={{ color: '#888', marginBottom: '4px' }}>Height Surcharge (&gt;90"):</p>
-                  <p style={{ color: storedPricing.HEIGHT_SURCHARGE === 37 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${37}</p>
-                  {storedPricing.HEIGHT_SURCHARGE !== 37 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.HEIGHT_SURCHARGE} → $37</p>}
+                  <p style={{ color: (storedPricing.HEIGHT_SURCHARGE ?? 37) === 37 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${37}</p>
+                  {(storedPricing.HEIGHT_SURCHARGE ?? 37) !== 37 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.HEIGHT_SURCHARGE ?? 37} → $37</p>}
                 </div>
               </div>
             </div>
