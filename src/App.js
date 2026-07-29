@@ -150,10 +150,10 @@ const getPricingSnapshot = () => ({
   REMOTE_16CH: 10,
   SALES_TAX_RATE: 0.0825,
   WIDTH_SURCHARGES: {
-    "36-40": 30,
-    "41-55": 45,
-    "56-70": 60,
-    "71-88": 75
+    "36-40": 10,
+    "41-55": 20,
+    "56-70": 40,
+    "71-88": 60
   },
   HEIGHT_SURCHARGE: 37,
   // NOTE: DO NOT store PRICING_DATA - too large for localStorage
@@ -163,12 +163,13 @@ const getPricingSnapshot = () => ({
 
 // Width surcharge based on inches (uses pricing snapshot)
 const getWidthSurcharge = (width, pricing = null) => {
-  const p = pricing || { WIDTH_SURCHARGES: { "36-40": 30, "41-55": 45, "56-70": 60, "71-88": 75 } };
+  const p = pricing || { WIDTH_SURCHARGES: { "36-40": 10, "41-55": 20, "56-70": 40, "71-88": 60 } };
   const w = parseUnits(width);
   if (w > 35 && w <= 40) return p.WIDTH_SURCHARGES["36-40"];
   if (w > 40 && w <= 55) return p.WIDTH_SURCHARGES["41-55"];
   if (w > 55 && w <= 70) return p.WIDTH_SURCHARGES["56-70"];
   if (w > 70 && w <= 88) return p.WIDTH_SURCHARGES["71-88"];
+  if (w > 88) return 75;
   return 0;
 };
 
@@ -427,34 +428,47 @@ export default function BlindsQuoteApp() {
       return;
     }
 
-    // Calculate new version number
-    const newVersion = `v${getNextVersion(formData.clientName, formData.location)}`;
-    const blindType = formData.rooms[0]?.blindTypes?.[0] || 'Roller';
+    // Get all selected blind types (or default to Roller)
+    const selectedBlindTypes = formData.rooms[0]?.blindTypes || ['Roller'];
     
-    // Create quoteName with the new version
-    const quoteName = `${formData.clientName}-${formData.location}-${blindType}-quote-${newVersion}`;
-
-    // Capture pricing snapshot with this quote
+    // Capture pricing snapshot once for all quotes
     const pricingSnapshot = getPricingSnapshot();
+    
+    // Create a quote for EACH selected blind type
+    const newQuotes = selectedBlindTypes.map((blindType, idx) => {
+      const newVersion = `v${getNextVersion(formData.clientName, formData.location) + idx}`;
+      const quoteName = `${formData.clientName}-${formData.location}-${blindType}-quote-${newVersion}`;
+      
+      // Create a copy of formData with only this blind type
+      const quoteFormData = {
+        ...formData,
+        rooms: formData.rooms.map(room => ({
+          ...room,
+          blindTypes: [blindType] // Only this blind type for this quote
+        }))
+      };
 
-    const quoteData = {
-      id: editingQuote ? editingQuote.id : Date.now(),
-      quoteName: quoteName,
-      version: newVersion,
-      ...formData,
-      pricing: pricingSnapshot,
-      createdDate: editingQuote ? editingQuote.createdDate : new Date().toISOString(),
-      updatedDate: new Date().toISOString(),
-      status: 'quote'
-    };
+      return {
+        id: editingQuote ? editingQuote.id + idx : Date.now() + idx,
+        quoteName: quoteName,
+        version: newVersion,
+        ...quoteFormData,
+        pricing: pricingSnapshot,
+        createdDate: editingQuote ? editingQuote.createdDate : new Date().toISOString(),
+        updatedDate: new Date().toISOString(),
+        status: 'quote'
+      };
+    });
 
     if (editingQuote) {
-      // Create new version without archiving - keep all versions visible
-      setQuotes([...quotes, quoteData]);
-      alert('✅ Quote updated successfully! New version created (v' + getNextVersion(formData.clientName, formData.location) + ')');
+      // Create new versions without archiving - keep all versions visible
+      setQuotes([...quotes, ...newQuotes]);
+      const typeList = selectedBlindTypes.join(', ');
+      alert(`✅ Quote updated successfully! Created ${selectedBlindTypes.length} quote(s) for: ${typeList}`);
     } else {
-      setQuotes([...quotes, quoteData]);
-      alert('✅ Quote created successfully!');
+      setQuotes([...quotes, ...newQuotes]);
+      const typeList = selectedBlindTypes.join(', ');
+      alert(`✅ Created ${selectedBlindTypes.length} quote file(s)!\n\n${typeList}`);
     }
 
     resetForm();
@@ -1169,7 +1183,7 @@ export default function BlindsQuoteApp() {
 
                 <div style={{ padding: '8px', borderRadius: '6px', background: '#2a3a2a', marginBottom: '8px', border: '1px solid #4a6a4a' }}>
                   <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#aaa', marginBottom: '6px' }}>Surcharge Override (Optional)</p>
-                  <p style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>Auto: ${(getWidthSurcharge(group.width) + getHeightSurcharge(group.height)).toFixed(0)} {group.surchargeOverride !== null && `→ Overridden: $${group.surchargeOverride.toFixed(0)}`}</p>
+                  <p style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>Auto: ${(() => { try { const w = getWidthSurcharge(group.width || ''); const h = getHeightSurcharge(group.height || ''); return (w + h).toFixed(0); } catch(e) { return '0'; } })()} {group.surchargeOverride !== null && `→ Overridden: $${group.surchargeOverride.toFixed(0)}`}</p>
                   <input type="number" placeholder="Leave blank to use auto-calculated" value={group.surchargeOverride !== null ? group.surchargeOverride : ''} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = e.target.value === '' ? null : parseFloat(e.target.value) || 0; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '6px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #555', color: 'white', marginBottom: '6px' }} />
                   <button onClick={() => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = null; setFormData({...formData, rooms: newRooms}); }} style={{ fontSize: '10px', padding: '4px 8px', background: 'transparent', color: '#888', border: '1px solid #555', borderRadius: '4px', cursor: 'pointer' }}>Reset to Auto</button>
                 </div>
