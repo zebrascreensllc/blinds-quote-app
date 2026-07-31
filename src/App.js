@@ -1108,10 +1108,6 @@ export default function BlindsQuoteApp() {
                     </div>
                     <button
                       onClick={() => {
-                        // Recalculate quote with edited room
-                        const updatedRooms = selectedQuote.rooms;
-                        const editedPrices = editingRoomPrices[room.id];
-                        
                         // Create new version
                         const newVersion = (selectedQuote.version || 1) + 1;
                         const newQuote = {
@@ -1214,24 +1210,6 @@ export default function BlindsQuoteApp() {
       newExpanded.add(roomId);
     }
     setExpandedRooms(newExpanded);
-  };
-
-  // ✅ NEW HELPER: Get total motor count from rooms
-  const getTotalMotorCount = (rooms) => {
-    return rooms.reduce((total, room) => {
-      const motorCount = room.windowGroups.filter(g => g.controlType === 'Motor').reduce((sum, g) => sum + (parseInt(g.quantity) || 0), 0);
-      return total + motorCount;
-    }, 0);
-  };
-
-  // ✅ NEW HELPER: Get total motor cost
-  const getTotalMotorCost = (roomsList, pricing) => {
-    const motorCount = roomsList.reduce((total, room) => {
-      const motorCnt = room.windowGroups.filter(g => g.controlType === 'Motor').reduce((sum, g) => sum + (parseInt(g.quantity) || 0), 0);
-      return total + motorCnt;
-    }, 0);
-    const motorCost = pricing?.MOTOR_COST_SUPPLIER || 50;
-    return motorCount * motorCost;
   };
 
   const getLatestQuoteVersions = (quotesToProcess) => {
