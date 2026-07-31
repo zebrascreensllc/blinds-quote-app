@@ -220,6 +220,7 @@ export default function BlindsQuoteApp() {
   const [currentView, setCurrentView] = useState('menu');
   const [quotes, setQuotes] = useState([]);
   const [selectedQuote, setSelectedQuote] = useState(null);
+  const [expandedPricingDetails, setExpandedPricingDetails] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedClients, setExpandedClients] = useState({});
@@ -262,9 +263,10 @@ export default function BlindsQuoteApp() {
 
   const getFabricPrice = (fabricNum, blindType, cordless, fabricData = null) => {
     const data = fabricData || PRICING_DATA; // Use stored or current pricing
+    const searchNum = (fabricNum || '').toUpperCase(); // Convert to uppercase for comparison
     
     for (const type of Object.keys(data)) {
-      const fabric = data[type].find(f => f.number === fabricNum);
+      const fabric = data[type].find(f => (f.number || '').toUpperCase() === searchNum);
       if (fabric) {
         if (type === 'Bamboo') {
           if (blindType === 'Bamboo (Roller)') return fabric.roller_manual;
@@ -274,7 +276,44 @@ export default function BlindsQuoteApp() {
         }
       }
     }
-    return 0;
+    return 0; // Returns 0 if not found (will trigger max price fallback)
+  };
+
+  // Get max price for a blind type (for invalid fabrics)
+  const getMaxPriceForBlindType = (blindType, cordless, fabricData = null) => {
+    const data = fabricData || PRICING_DATA;
+    let maxPrice = 0;
+    
+    Object.keys(data).forEach(type => {
+      if (Array.isArray(data[type])) {
+        data[type].forEach(fabric => {
+          if (type === 'Bamboo') {
+            if (blindType === 'Bamboo (Roller)' && fabric.roller_manual) {
+              maxPrice = Math.max(maxPrice, fabric.roller_manual);
+            } else if (blindType === 'Bamboo (Roman)' && fabric.roman_manual) {
+              maxPrice = Math.max(maxPrice, fabric.roman_manual);
+            }
+          } else {
+            const price = cordless ? fabric.cordless : fabric.manual;
+            if (price) maxPrice = Math.max(maxPrice, price);
+          }
+        });
+      }
+    });
+    
+    return maxPrice > 0 ? maxPrice : 20.38; // Return max or default estimate
+  };
+  
+  // Check if fabric is valid
+  const isFabricValid = (fabricNum, fabricData = null) => {
+    const data = fabricData || PRICING_DATA;
+    const searchNum = (fabricNum || '').toUpperCase();
+    
+    for (const type of Object.keys(data)) {
+      const fabric = data[type].find(f => (f.number || '').toUpperCase() === searchNum);
+      if (fabric) return true;
+    }
+    return false;
   };
 
   const calculateGroupCost = (group, fabricNumbers, blindType, pricing = null) => {
@@ -287,6 +326,7 @@ export default function BlindsQuoteApp() {
     // Defensive fallbacks for critical values
     const miscExpense = typeof p.MISC_EXPENSE === 'number' ? p.MISC_EXPENSE : 4.50;
     const shippingCost = typeof p.SHIPPING_COST === 'number' ? p.SHIPPING_COST : 42;
+    const fabricWrapCost = 2; // $2 per sq meter for bottom bar fabric wrap
     
     const width = parseUnits(group.width);
     const height = parseUnits(group.height);
@@ -294,6 +334,7 @@ export default function BlindsQuoteApp() {
     const cordless = group.controlType === 'Cordless';
     
     const area = Math.max(1.5, (width * height) / 1550);
+    const fabricWrapTotal = area * fabricWrapCost; // Total fabric wrap cost for this area
     
     if (fabricNumbers.length === 0) {
       const allPrices = [];
@@ -317,8 +358,8 @@ export default function BlindsQuoteApp() {
       if (allPrices.length === 0) {
         // Fallback if no prices found - use safe estimate
         return {
-          minCost: (area * 14.92 + miscExpense + shippingCost) * quantity,
-          maxCost: (area * 20.38 + miscExpense + shippingCost) * quantity,
+          minCost: (area * 14.92 + miscExpense + shippingCost + fabricWrapTotal) * quantity,
+          maxCost: (area * 20.38 + miscExpense + shippingCost + fabricWrapTotal) * quantity,
           isRange: true
         };
       }
@@ -327,25 +368,26 @@ export default function BlindsQuoteApp() {
       const maxPrice = Math.max(...allPrices);
       
       return {
-        minCost: (area * minPrice + miscExpense + shippingCost) * quantity,
-        maxCost: (area * maxPrice + miscExpense + shippingCost) * quantity,
+        minCost: (area * minPrice + miscExpense + shippingCost + fabricWrapTotal) * quantity,
+        maxCost: (area * maxPrice + miscExpense + shippingCost + fabricWrapTotal) * quantity,
         isRange: true
       };
     } else {
+      const maxPrice = getMaxPriceForBlindType(blindType, cordless, fabricData);
+      
       const costs = fabricNumbers.map(fabricNum => {
         const price = getFabricPrice(fabricNum, blindType, cordless, fabricData);
-        if (price > 0) {
-          return (area * price + miscExpense + shippingCost) * quantity;
-        }
-        return null;
+        // Use max price if fabric not found (price = 0), otherwise use the found price
+        const effectivePrice = price > 0 ? price : maxPrice;
+        return (area * effectivePrice + miscExpense + shippingCost + fabricWrapTotal) * quantity;
       }).filter(c => c !== null);
       
       if (costs.length === 0) {
-        // If no valid costs found, show range
+        // Fallback if costs array is empty
         return {
-          minCost: (area * 14.92 + miscExpense + shippingCost) * quantity,
-          maxCost: (area * 20.38 + miscExpense + shippingCost) * quantity,
-          isRange: true
+          minCost: (area * maxPrice + miscExpense + shippingCost + fabricWrapTotal) * quantity,
+          maxCost: (area * maxPrice + miscExpense + shippingCost + fabricWrapTotal) * quantity,
+          isRange: false
         };
       }
       
@@ -422,55 +464,106 @@ export default function BlindsQuoteApp() {
     return Math.max(...versions) + 1;
   };
 
+  // Determine blind type from fabric number
+  const getBlindTypeFromFabric = (fabricNum, fabricData = null) => {
+    const data = fabricData || PRICING_DATA;
+    const searchNum = (fabricNum || '').toUpperCase();
+    
+    for (const type of Object.keys(data)) {
+      const fabric = data[type].find(f => (f.number || '').toUpperCase() === searchNum);
+      if (fabric) return type;
+    }
+    return null; // Unknown fabric
+  };
+
+  // Get blind types from all fabrics in all rooms
+  const getBlindTypesFromFabrics = (rooms, fabricData = null) => {
+    const data = fabricData || PRICING_DATA;
+    const blindTypesSet = new Set();
+    
+    rooms.forEach(room => {
+      const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
+      fabricNumbers.forEach(fabricNum => {
+        const blindType = getBlindTypeFromFabric(fabricNum, data);
+        if (blindType) {
+          blindTypesSet.add(blindType);
+        }
+      });
+    });
+    
+    return Array.from(blindTypesSet);
+  };
+
+  // Determine quote name prefix based on fabrics
+  const getQuoteNamePrefix = (rooms, fabricData = null) => {
+    const fabricBlindTypes = getBlindTypesFromFabrics(rooms, fabricData);
+    
+    if (fabricBlindTypes.length === 0) {
+      // No valid fabrics, use selected blind type
+      return (rooms[0]?.blindTypes?.[0]) || 'Roller';
+    } else if (fabricBlindTypes.length === 1) {
+      // All fabrics are one type
+      return fabricBlindTypes[0];
+    } else {
+      // Multiple fabric types
+      return 'multiple-fabric';
+    }
+  };
+
+  // Auto-detect blind types from fabric input
+  const autoDetectBlindTypes = (fabricInput, fabricData = null) => {
+    const data = fabricData || PRICING_DATA;
+    const fabricNumbers = fabricInput.split(',').map(f => f.trim()).filter(f => f);
+    const detectedTypes = new Set();
+    
+    fabricNumbers.forEach(fabricNum => {
+      const blindType = getBlindTypeFromFabric(fabricNum, data);
+      if (blindType) {
+        detectedTypes.add(blindType);
+      }
+    });
+    
+    // Return detected types, or default to ['Roller'] if none found
+    return detectedTypes.size > 0 ? Array.from(detectedTypes) : ['Roller'];
+  };
+
   const generateQuote = () => {
     if (!formData.clientName || !formData.clientPhone) {
       alert('Please fill client name and phone');
       return;
     }
 
-    // Get all selected blind types (or default to Roller)
-    const selectedBlindTypes = formData.rooms[0]?.blindTypes || ['Roller'];
+    // Determine quote name prefix based on ACTUAL FABRICS entered, not selected blind types
+    const quoteNamePrefix = getQuoteNamePrefix(formData.rooms, PRICING_DATA);
     
-    // Calculate version ONCE for all blind types
+    // Calculate version ONCE
     const newVersion = `v${getNextVersion(formData.clientName, formData.location)}`;
+    
+    // Create quote name based on fabrics
+    const quoteName = `${formData.clientName}-${formData.location}-${quoteNamePrefix}-quote-${newVersion}`;
     
     // Capture pricing snapshot once for all quotes
     const pricingSnapshot = getPricingSnapshot();
-    
-    // Create a quote for EACH selected blind type (all with same version)
-    const newQuotes = selectedBlindTypes.map((blindType, idx) => {
-      const quoteName = `${formData.clientName}-${formData.location}-${blindType}-quote-${newVersion}`;
-      
-      // Create a copy of formData with only this blind type
-      const quoteFormData = {
-        ...formData,
-        rooms: formData.rooms.map(room => ({
-          ...room,
-          blindTypes: [blindType] // Only this blind type for this quote
-        }))
-      };
 
-      return {
-        id: editingQuote ? editingQuote.id + idx : Date.now() + idx,
-        quoteName: quoteName,
-        version: newVersion,
-        ...quoteFormData,
-        pricing: pricingSnapshot,
-        createdDate: editingQuote ? editingQuote.createdDate : new Date().toISOString(),
-        updatedDate: new Date().toISOString(),
-        status: 'quote'
-      };
-    });
+    // Create a SINGLE quote (not multiple)
+    const quoteData = {
+      id: editingQuote ? editingQuote.id : Date.now(),
+      quoteName: quoteName,
+      version: newVersion,
+      ...formData,
+      pricing: pricingSnapshot,
+      createdDate: editingQuote ? editingQuote.createdDate : new Date().toISOString(),
+      updatedDate: new Date().toISOString(),
+      status: 'quote'
+    };
 
     if (editingQuote) {
-      // Create new versions without archiving - keep all versions visible
-      setQuotes([...quotes, ...newQuotes]);
-      const typeList = selectedBlindTypes.join(', ');
-      alert(`✅ Quote updated successfully! Created ${selectedBlindTypes.length} quote(s) for: ${typeList}`);
+      // Create new version without archiving - keep all versions visible
+      setQuotes([...quotes, quoteData]);
+      alert(`✅ Quote updated successfully! New version created (${quoteNamePrefix}-${newVersion})`);
     } else {
-      setQuotes([...quotes, ...newQuotes]);
-      const typeList = selectedBlindTypes.join(', ');
-      alert(`✅ Created ${selectedBlindTypes.length} quote file(s)!\n\n${typeList}`);
+      setQuotes([...quotes, quoteData]);
+      alert(`✅ Quote created successfully!\n\n${quoteNamePrefix.toUpperCase()}`);
     }
 
     resetForm();
@@ -744,13 +837,42 @@ export default function BlindsQuoteApp() {
       const rooms = selectedQuote.rooms;
       const storedPricing = selectedQuote.pricing || null; // Use stored pricing or null (fallback to defaults)
       let totalMin = 0, totalMax = 0, totalProfit = 0;
+      
+      // Check for invalid fabrics
+      const invalidFabrics = [];
+      rooms.forEach((room, roomIndex) => {
+        const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
+        const blindType = (room.blindTypes || ['Roller'])[0];
+        const fabricData = storedPricing?.PRICING_DATA || PRICING_DATA;
+        
+        fabricNumbers.forEach(fabricNum => {
+          if (!isFabricValid(fabricNum, fabricData)) {
+            invalidFabrics.push({ fabric: fabricNum, room: room.name || `Room ${roomIndex + 1}` });
+          }
+        });
+      });
 
       rooms.forEach(room => {
         const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
+        const fabricData = storedPricing?.PRICING_DATA || PRICING_DATA;
+        
+        // Determine blind type from ACTUAL FABRICS entered, not from selected checkbox
+        let actualBlindType = (room.blindTypes || ['Roller'])[0]; // Fallback to selected
+        
+        if (fabricNumbers.length > 0) {
+          // Get blind type from first valid fabric
+          for (const fabricNum of fabricNumbers) {
+            const detectedType = getBlindTypeFromFabric(fabricNum, fabricData);
+            if (detectedType) {
+              actualBlindType = detectedType;
+              break; // Use first valid fabric's type
+            }
+          }
+        }
         
         room.windowGroups.forEach(group => {
           const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
-          const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], motorizedCount, storedPricing);
+          const q = calculateGroupQuote(group, fabricNumbers, actualBlindType, motorizedCount, storedPricing);
           
           // Safety check for NaN
           if (isNaN(q.minQuote) || isNaN(q.maxQuote)) {
@@ -810,49 +932,79 @@ export default function BlindsQuoteApp() {
             <button onClick={() => setSelectedQuote(null)} style={{ fontSize: '24px', color: '#aaa', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
           </div>
 
-          {/* Pricing Details Section - Only show if pricing snapshot exists */}
+          {/* Invalid Fabrics Warning */}
+          {invalidFabrics.length > 0 && (
+            <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#3a2a2a', border: '2px solid #ff6b6b', padding: '16px' }}>
+              <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#ff6b6b', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '16px' }}>⚠️</span>
+                INVALID/NEW FABRICS DETECTED
+              </p>
+              <p style={{ fontSize: '11px', color: '#ffaaaa', marginBottom: '8px', fontStyle: 'italic' }}>
+                The following fabrics are not in the system. Quote is using HIGHEST PRICE as fallback:
+              </p>
+              <div style={{ background: '#2a1a1a', padding: '8px 12px', borderRadius: '4px', borderLeft: '3px solid #ff6b6b' }}>
+                {invalidFabrics.map((item, idx) => (
+                  <p key={idx} style={{ fontSize: '11px', color: '#ffdddd', margin: '4px 0' }}>
+                    • <strong>{item.fabric}</strong> ({item.room})
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Pricing Details Section - Collapsible (default collapsed) */}
           {storedPricing && storedPricing.PROFIT_PER_WINDOW && (
             <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#1a3a3a', border: '1px solid #4a7a6a', padding: '16px' }}>
-              <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#d4af37', marginBottom: '12px' }}>📋 PRICING DETAILS (Used for this quote)</p>
-              <p style={{ fontSize: '11px', color: '#aaa', marginBottom: '12px', fontStyle: 'italic' }}>✅ All fabric prices, profit margins, and surcharges captured and locked for this quote</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '12px' }}>
-                <div>
-                  <p style={{ color: '#888', marginBottom: '4px' }}>Profit Per Window:</p>
-                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.PROFIT_PER_WINDOW}</p>
-                </div>
-                <div>
-                  <p style={{ color: '#888', marginBottom: '4px' }}>Captured Date:</p>
-                  <p style={{ color: '#fff', fontWeight: 'bold' }}>{storedPricing?.CREATED_DATE ? new Date(storedPricing.CREATED_DATE).toLocaleDateString() : selectedQuote?.createdDate ? new Date(selectedQuote.createdDate).toLocaleDateString() : 'N/A'}</p>
-                </div>
-                <div>
-                  <p style={{ color: '#888', marginBottom: '4px' }}>Width Surcharge (41-55"):</p>
-                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45}</p>
-                </div>
-                <div>
-                  <p style={{ color: '#888', marginBottom: '4px' }}>Height Surcharge (&gt;90"):</p>
-                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.HEIGHT_SURCHARGE ?? 37}</p>
-                </div>
-                <div>
-                  <p style={{ color: '#888', marginBottom: '4px' }}>Motor Cost (Client):</p>
-                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.MOTOR_COST_CLIENT ?? 80}</p>
-                </div>
-                <div>
-                  <p style={{ color: '#888', marginBottom: '4px' }}>Solar Cost (Client):</p>
-                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.SOLAR_COST_CLIENT ?? 40}</p>
-                </div>
-                <div>
-                  <p style={{ color: '#888', marginBottom: '4px' }}>Misc Expense:</p>
-                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.MISC_EXPENSE ?? 4.50}</p>
-                </div>
-                <div>
-                  <p style={{ color: '#888', marginBottom: '4px' }}>Shipping Cost:</p>
-                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.SHIPPING_COST ?? 42}</p>
-                </div>
-                <div style={{ gridColumn: '1 / -1', paddingTop: '8px', borderTop: '1px solid #4a7a6a' }}>
-                  <p style={{ color: '#d4af37', fontSize: '11px', fontWeight: 'bold' }}>📦 Fabric Prices: LOCKED ({storedPricing.PRICING_DATA ? Object.keys(storedPricing.PRICING_DATA).length : 'N/A'} blind types)</p>
-                  <p style={{ color: '#888', fontSize: '11px', marginTop: '4px' }}>All fabric costs are captured and will not change even if you update prices later</p>
-                </div>
-              </div>
+              <button onClick={() => setExpandedPricingDetails(!expandedPricingDetails)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '0', marginBottom: expandedPricingDetails ? '12px' : '0' }}>
+                <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#d4af37', marginBottom: '0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>📋 PRICING DETAILS (Used for this quote)</span>
+                  <span style={{ color: '#888', fontSize: '14px' }}>{expandedPricingDetails ? '▼' : '▶'}</span>
+                </p>
+              </button>
+              
+              {expandedPricingDetails && (
+                <>
+                  <p style={{ fontSize: '11px', color: '#aaa', marginBottom: '12px', fontStyle: 'italic' }}>✅ All fabric prices, profit margins, and surcharges captured and locked for this quote</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '12px' }}>
+                    <div>
+                      <p style={{ color: '#888', marginBottom: '4px' }}>Profit Per Window:</p>
+                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.PROFIT_PER_WINDOW}</p>
+                    </div>
+                    <div>
+                      <p style={{ color: '#888', marginBottom: '4px' }}>Captured Date:</p>
+                      <p style={{ color: '#fff', fontWeight: 'bold' }}>{storedPricing?.CREATED_DATE ? new Date(storedPricing.CREATED_DATE).toLocaleDateString() : selectedQuote?.createdDate ? new Date(selectedQuote.createdDate).toLocaleDateString() : 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p style={{ color: '#888', marginBottom: '4px' }}>Width Surcharge (41-55"):</p>
+                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45}</p>
+                    </div>
+                    <div>
+                      <p style={{ color: '#888', marginBottom: '4px' }}>Height Surcharge (&gt;90"):</p>
+                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.HEIGHT_SURCHARGE ?? 37}</p>
+                    </div>
+                    <div>
+                      <p style={{ color: '#888', marginBottom: '4px' }}>Motor Cost (Client):</p>
+                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.MOTOR_COST_CLIENT ?? 80}</p>
+                    </div>
+                    <div>
+                      <p style={{ color: '#888', marginBottom: '4px' }}>Solar Cost (Client):</p>
+                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.SOLAR_COST_CLIENT ?? 40}</p>
+                    </div>
+                    <div>
+                      <p style={{ color: '#888', marginBottom: '4px' }}>Misc Expense:</p>
+                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.MISC_EXPENSE ?? 4.50}</p>
+                    </div>
+                    <div>
+                      <p style={{ color: '#888', marginBottom: '4px' }}>Shipping Cost:</p>
+                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.SHIPPING_COST ?? 42}</p>
+                    </div>
+                    <div style={{ gridColumn: '1 / -1', paddingTop: '8px', borderTop: '1px solid #4a7a6a' }}>
+                      <p style={{ color: '#d4af37', fontSize: '11px', fontWeight: 'bold' }}>📦 Fabric Prices: LOCKED ({storedPricing.PRICING_DATA ? Object.keys(storedPricing.PRICING_DATA).length : 'N/A'} blind types)</p>
+                      <p style={{ color: '#888', fontSize: '11px', marginTop: '4px' }}>All fabric costs are captured and will not change even if you update prices later</p>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -896,8 +1048,20 @@ export default function BlindsQuoteApp() {
                 {rooms.map((room, roomIdx) => {
                   const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
                   
+                  // Determine blind type from ACTUAL FABRICS entered
+                  let actualBlindType = (room.blindTypes || ['Roller'])[0];
+                  if (fabricNumbers.length > 0) {
+                    for (const fabricNum of fabricNumbers) {
+                      const detectedType = getBlindTypeFromFabric(fabricNum);
+                      if (detectedType) {
+                        actualBlindType = detectedType;
+                        break;
+                      }
+                    }
+                  }
+                  
                   return room.windowGroups.map((group, groupIdx) => {
-                    const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], room.windowGroups.filter(w => w.controlType === 'Motor').length, storedPricing);
+                    const q = calculateGroupQuote(group, fabricNumbers, actualBlindType, room.windowGroups.filter(w => w.controlType === 'Motor').length, storedPricing);
                     const motorType = group.controlType || 'Manual';
                     const quantity = parseInt(group.quantity) || 1;
                     const perWindowMin = q.minQuote / quantity;
@@ -1010,8 +1174,20 @@ export default function BlindsQuoteApp() {
         const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
         const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
         
+        // Determine blind type from ACTUAL FABRICS entered
+        let actualBlindType = (room.blindTypes || ['Roller'])[0];
+        if (fabricNumbers.length > 0) {
+          for (const fabricNum of fabricNumbers) {
+            const detectedType = getBlindTypeFromFabric(fabricNum, quote.pricing?.PRICING_DATA || PRICING_DATA);
+            if (detectedType) {
+              actualBlindType = detectedType;
+              break;
+            }
+          }
+        }
+        
         room.windowGroups.forEach(group => {
-          const q = calculateGroupQuote(group, fabricNumbers, (room.blindTypes || ['Roller'])[0], motorizedCount, quote.pricing || null);
+          const q = calculateGroupQuote(group, fabricNumbers, actualBlindType, motorizedCount, quote.pricing || null);
           quoteProfit += q.profit;
         });
       });
@@ -1127,23 +1303,39 @@ export default function BlindsQuoteApp() {
             <input type="text" placeholder="Room Name (e.g., Living Room)" value={room.name} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].name = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontWeight: 'bold', fontSize: '16px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }} />
 
             <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff', marginBottom: '8px' }}>Fabric Numbers (comma-separated, or leave blank for Min/Max):</p>
-            <input type="text" placeholder="e.g., 82086K, 82067E (or leave blank)" value={room.fabricInput} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].fabricInput = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '14px', background: '#1a1a1a', border: '1px solid #666', color: 'white' }} />
+            <input type="text" placeholder="e.g., 82086K, 82067E (or leave blank)" value={room.fabricInput} onChange={(e) => { 
+              const newRooms = [...formData.rooms]; 
+              newRooms[roomIndex].fabricInput = e.target.value; 
+              
+              // Auto-detect blind types from fabric input
+              if (e.target.value.trim()) {
+                const detectedTypes = autoDetectBlindTypes(e.target.value);
+                newRooms[roomIndex].blindTypes = detectedTypes;
+              }
+              
+              setFormData({...formData, rooms: newRooms}); 
+            }} style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '14px', background: '#1a1a1a', border: '1px solid #666', color: 'white' }} />
 
-            {!room.fabricInput.trim() && (
-              <div style={{ marginBottom: '16px' }}>
-                <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#888', marginBottom: '8px' }}>Blind Type (for Min/Max calculation) - Select one or more:</p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  {['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'].map(type => (
-                    <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', borderRadius: '6px', background: '#1a1a1a', cursor: 'pointer', fontSize: '14px', color: '#ccc' }}>
-                      <input 
-                        type="checkbox" 
-                        checked={(room.blindTypes || ['Roller']).includes(type)}
-                        onChange={(e) => { 
-                          const newRooms = [...formData.rooms];
-                          let types = room.blindTypes || ['Roller'];
-                          if (e.target.checked) {
-                            types = [...new Set([...types, type])];
-                          } else {
+            {/* Blind Type Selection - Always show, but with different labels */}
+            <div style={{ marginBottom: '16px' }}>
+              <p style={{ fontSize: '12px', fontWeight: 'bold', color: room.fabricInput.trim() ? '#4ade80' : '#888', marginBottom: '8px' }}>
+                {room.fabricInput.trim() 
+                  ? `✅ Auto-Detected: ${(room.blindTypes || ['Roller']).join(', ')} (Click to change)`
+                  : 'Blind Type (for Min/Max calculation) - Select one or more:'
+                }
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                {['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'].map(type => (
+                  <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', borderRadius: '6px', background: (room.blindTypes || ['Roller']).includes(type) ? '#1a3a1a' : '#1a1a1a', border: (room.blindTypes || ['Roller']).includes(type) ? '1px solid #4ade80' : '1px solid #444', cursor: 'pointer', fontSize: '14px', color: (room.blindTypes || ['Roller']).includes(type) ? '#4ade80' : '#ccc', transition: 'all 0.2s' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={(room.blindTypes || ['Roller']).includes(type)}
+                      onChange={(e) => { 
+                        const newRooms = [...formData.rooms];
+                        let types = room.blindTypes || ['Roller'];
+                        if (e.target.checked) {
+                          types = [...new Set([...types, type])];
+                        } else {
                             types = types.filter(t => t !== type);
                           }
                           newRooms[roomIndex].blindTypes = types.length > 0 ? types : ['Roller'];
@@ -1156,7 +1348,6 @@ export default function BlindsQuoteApp() {
                   ))}
                 </div>
               </div>
-            )}
 
             <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#ccc', marginBottom: '12px' }}>Window Groups:</p>
 
