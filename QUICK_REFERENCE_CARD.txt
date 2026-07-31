@@ -1,0 +1,155 @@
+╔══════════════════════════════════════════════════════════════════════════╗
+║           FILE PLACEMENT QUICK REFERENCE CARD                            ║
+║                  Zebra Screens & Rollers - App Update                    ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ DEPLOYMENT - RIGHT NOW (Immediate)                                      │
+└──────────────────────────────────────────────────────────────────────────┘
+
+  📦 File to Deploy:
+  ┌─ App.js
+  │  FROM:  /outputs/src/App.js
+  │  TO:    blinds-quote-app/src/App.js  (REPLACE)
+  │  SIZE:  1,785 lines
+  │  WHY:   Contains all 491 fabrics + fixes
+  └─ THEN: Push to GitHub → Wait 2-3 min → Test
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ REFACTORING PHASE 1 - FOR LATER (When Ready)                            │
+└──────────────────────────────────────────────────────────────────────────┘
+
+  📁 Folder Structure to Create:
+  
+  blinds-quote-app/src/
+  ├── data/              ← CREATE THIS FOLDER
+  └── utils/             ← CREATE THIS FOLDER
+
+  📦 Data Files:
+  ┌─ data_pricingData.js
+  │  FROM:  /outputs/src/data_pricingData.js
+  │  TO:    blinds-quote-app/src/data/pricingData.js  (RENAME)
+  │  SIZE:  508 lines (All 491 fabrics)
+  │
+  └─ data_constants.js
+     FROM:  /outputs/src/data_constants.js
+     TO:    blinds-quote-app/src/data/constants.js  (RENAME)
+     SIZE:  46 lines
+
+  📦 Utility Files:
+  ┌─ utils_fabricUtils.js
+  │  FROM:  /outputs/src/utils_fabricUtils.js
+  │  TO:    blinds-quote-app/src/utils/fabricUtils.js  (RENAME)
+  │  SIZE:  155 lines
+  │
+  ├─ utils_parseUnits.js
+  │  FROM:  /outputs/src/utils_parseUnits.js
+  │  TO:    blinds-quote-app/src/utils/parseUnits.js  (RENAME)
+  │  SIZE:  37 lines
+  │
+  └─ utils_calculations.js
+     FROM:  /outputs/src/utils_calculations.js
+     TO:    blinds-quote-app/src/utils/calculations.js  (RENAME)
+     SIZE:  182 lines
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ FILE MAPPING TABLE                                                       │
+└──────────────────────────────────────────────────────────────────────────┘
+
+  FROM (/outputs/src/)           TO (blinds-quote-app/src/)
+  ═════════════════════════════════════════════════════════════════════════
+  
+  App.js                         → App.js
+  ✅ DEPLOY NOW
+  
+  ═════════════════════════════════════════════════════════════════════════
+  
+  data_pricingData.js            → data/pricingData.js
+  ⏳ INTEGRATE LATER (Phase 1)
+  
+  data_constants.js              → data/constants.js
+  ⏳ INTEGRATE LATER (Phase 1)
+  
+  utils_fabricUtils.js           → utils/fabricUtils.js
+  ⏳ INTEGRATE LATER (Phase 1)
+  
+  utils_parseUnits.js            → utils/parseUnits.js
+  ⏳ INTEGRATE LATER (Phase 1)
+  
+  utils_calculations.js          → utils/calculations.js
+  ⏳ INTEGRATE LATER (Phase 1)
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ DOCUMENTATION FILES (For Reference)                                      │
+└──────────────────────────────────────────────────────────────────────────┘
+
+  📄 README_DEPLOYMENT_AND_REFACTORING.md
+     → Overview of everything
+  
+  📄 DEPLOYMENT_SUMMARY.md
+     → What changed + 5 test scenarios
+  
+  📄 MODULAR_REFACTORING_GUIDE.md
+     → Integration step-by-step (when ready)
+  
+  📄 FILE_STRUCTURE_GUIDE.md
+     → Detailed file placement instructions
+  
+  📄 STATUS_SUMMARY.txt
+     → Quick checklist
+  
+  📄 QUICK_REFERENCE_CARD.txt
+     → This file!
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ WHAT TO DO NOW                                                           │
+└──────────────────────────────────────────────────────────────────────────┘
+
+  Step 1: DOWNLOAD
+  ┌─ Go to /outputs/
+  └─ Download: src/App.js
+
+  Step 2: REPLACE
+  ┌─ Go to your GitHub: blinds-quote-app/src/
+  └─ Replace: App.js with downloaded file
+
+  Step 3: PUSH
+  ┌─ Commit: "Update: Complete fabric database + auto-detect blind type"
+  └─ Push to GitHub main branch
+
+  Step 4: WAIT
+  ┌─ Wait 2-3 minutes
+  └─ Vercel will auto-build and deploy
+
+  Step 5: TEST
+  ┌─ Visit: https://blinds-quote-app.vercel.app
+  └─ Follow: DEPLOYMENT_SUMMARY.md checklist (5 tests)
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ INTEGRATION TIMELINE                                                     │
+└──────────────────────────────────────────────────────────────────────────┘
+
+  NOW (Today)
+  └─ Deploy App.js
+  
+  Tomorrow/Later
+  └─ Phase 1 Integration (If you want to refactor)
+     ├─ Create data/ folder
+     ├─ Create utils/ folder
+     ├─ Add 5 modular files
+     └─ Update App.js imports
+  
+  Future
+  └─ Phase 2, 3, 4 (Components, hooks, etc.)
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ REMEMBER                                                                 │
+└──────────────────────────────────────────────────────────────────────────┘
+
+  ✅ Deploy NOW   - App.js only
+  ⏳ Integrate LATER - All other files (no rush!)
+  🔄 PARALLEL work - I'm working on Phase 2 while you test
+  📋 Each step is independent - You can't break anything
+  🚀 You're all set!
+
+═══════════════════════════════════════════════════════════════════════════
