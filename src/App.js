@@ -91,6 +91,7 @@ export default function BlindsQuoteApp() {
   const [selectedQuote, setSelectedQuote] = useState(null);
   const [expandedPricingDetails, setExpandedPricingDetails] = useState(false);
   const [expandedQuoteTable, setExpandedQuoteTable] = useState(true);
+  const [expandedPricingComparison, setExpandedPricingComparison] = useState(true);
   const [copiedId, setCopiedId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedClients, setExpandedClients] = useState({});
@@ -98,6 +99,11 @@ export default function BlindsQuoteApp() {
   const [editingQuote, setEditingQuote] = useState(null);
   const [lastWidth, setLastWidth] = useState('');
   const [lastHeight, setLastHeight] = useState('');
+  // ✅ NEW: Room collapse state
+  const [expandedRooms, setExpandedRooms] = useState(new Set());
+  // ✅ NEW: Edit room in quote view
+  const [editingRoomInQuote, setEditingRoomInQuote] = useState(null);
+  const [editingRoomPrices, setEditingRoomPrices] = useState({});
 
   const [formData, setFormData] = useState({
     clientName: '',
@@ -776,7 +782,7 @@ export default function BlindsQuoteApp() {
       
       let totalWindows = 0;
       
-      text += `ROOMS:\n${'━'.repeat(50)}\n`;
+      text += `ROOMS:\n`;
       rooms.forEach(room => {
         let roomWindowCount = 0;
         const controlTypes = new Set();
@@ -793,8 +799,7 @@ export default function BlindsQuoteApp() {
         text += `${room.name} (${roomWindowCount} windows) - ${controlList}\n`;
       });
       
-      text += `\n${'━'.repeat(50)}\n`;
-      text += `TOTAL WINDOWS: ${totalWindows}\n\n`;
+      text += `\nTOTAL WINDOWS: ${totalWindows}\n\n`;
       
       // Format price - show single if min === max
       const formatTextPrice = (min, max) => {
@@ -897,25 +902,34 @@ export default function BlindsQuoteApp() {
 
           {/* Current Pricing Comparison */}
           {storedPricing && storedPricing.WIDTH_SURCHARGES && (
-            <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#2a2a1a', border: '1px solid #6a6a4a', padding: '16px' }}>
-              <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#f4e4c1', marginBottom: '12px' }}>⚠️ CURRENT PRICING (For comparison)</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', fontSize: '11px' }}>
-                <div>
-                  <p style={{ color: '#888', marginBottom: '4px' }}>Profit Per Window:</p>
-                  <p style={{ color: storedPricing.PROFIT_PER_WINDOW === 60 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${60}</p>
-                  {storedPricing.PROFIT_PER_WINDOW !== 60 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.PROFIT_PER_WINDOW} → $60</p>}
-                </div>
-                <div>
-                  <p style={{ color: '#888', marginBottom: '4px' }}>Width Surcharge (41-55"):</p>
-                  <p style={{ color: (storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45) === 45 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${45}</p>
-                  {(storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45) !== 45 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45} → $45</p>}
-                </div>
-                <div>
-                  <p style={{ color: '#888', marginBottom: '4px' }}>Height Surcharge (&gt;90"):</p>
-                  <p style={{ color: (storedPricing.HEIGHT_SURCHARGE ?? 37) === 37 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${37}</p>
-                  {(storedPricing.HEIGHT_SURCHARGE ?? 37) !== 37 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.HEIGHT_SURCHARGE ?? 37} → $37</p>}
+            <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#2a2a1a', border: '1px solid #6a6a4a' }}>
+              <button onClick={() => setExpandedPricingComparison(!expandedPricingComparison)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '16px' }}>
+                <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#f4e4c1', marginBottom: '0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>⚠️ CURRENT PRICING (For comparison)</span>
+                  <span style={{ color: '#888', fontSize: '12px' }}>{expandedPricingComparison ? '▼' : '▶'}</span>
+                </p>
+              </button>
+              {expandedPricingComparison && (
+              <div style={{ padding: '0 16px 16px 16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', fontSize: '11px' }}>
+                  <div>
+                    <p style={{ color: '#888', marginBottom: '4px' }}>Profit Per Window:</p>
+                    <p style={{ color: storedPricing.PROFIT_PER_WINDOW === 60 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${60}</p>
+                    {storedPricing.PROFIT_PER_WINDOW !== 60 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.PROFIT_PER_WINDOW} → $60</p>}
+                  </div>
+                  <div>
+                    <p style={{ color: '#888', marginBottom: '4px' }}>Width Surcharge (41-55"):</p>
+                    <p style={{ color: (storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45) === 45 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${45}</p>
+                    {(storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45) !== 45 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45} → $45</p>}
+                  </div>
+                  <div>
+                    <p style={{ color: '#888', marginBottom: '4px' }}>Height Surcharge (&gt;90"):</p>
+                    <p style={{ color: (storedPricing.HEIGHT_SURCHARGE ?? 37) === 37 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${37}</p>
+                    {(storedPricing.HEIGHT_SURCHARGE ?? 37) !== 37 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.HEIGHT_SURCHARGE ?? 37} → $37</p>}
+                  </div>
                 </div>
               </div>
+              )}
             </div>
           )}
 
@@ -978,6 +992,43 @@ export default function BlindsQuoteApp() {
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>TOTAL:</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>{formatPrice(totalMin, totalMax)}</td>
                 </tr>
+                {/* ✅ NEW: Total Windows Row */}
+                <tr style={{ background: '#2a3a2a' }}>
+                  <td colSpan="5" style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '13px' }}>
+                    TOTAL WINDOWS: <span style={{ color: '#fff', fontWeight: 'bold' }}>{(() => {
+                      let totalWins = 0;
+                      selectedQuote.rooms.forEach(room => {
+                        room.windowGroups.forEach(group => {
+                          totalWins += parseInt(group.quantity) || 0;
+                        });
+                      });
+                      return totalWins;
+                    })()}</span>
+                  </td>
+                </tr>
+                {/* ✅ NEW: Motor Cost Breakdown Row */}
+                {(() => {
+                  let motorCount = 0;
+                  selectedQuote.rooms.forEach(room => {
+                    room.windowGroups.forEach(group => {
+                      if (group.controlType === 'Motor') {
+                        motorCount += parseInt(group.quantity) || 0;
+                      }
+                    });
+                  });
+                  if (motorCount > 0) {
+                    const motorCost = (storedPricing?.MOTOR_COST_SUPPLIER || 50);
+                    const totalMotorCost = motorCount * motorCost;
+                    return (
+                      <tr style={{ background: '#3a2a2a' }}>
+                        <td colSpan="5" style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '13px' }}>
+                          Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost total: <span style={{ color: '#fff', fontWeight: 'bold' }}>${totalMotorCost}</span>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return null;
+                })()}
                 <tr style={{ background: '#2a4a2a' }}>
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '12px' }}>Surcharges (Width + Height):</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '12px' }}>Included</td>
@@ -998,6 +1049,92 @@ export default function BlindsQuoteApp() {
             </table>
             </div>
             )}
+          </div>
+
+          {/* ✅ NEW: Edit Individual Rooms Section */}
+          <div style={{ background: '#2a2a1a', border: '1px solid #6a6a4a', borderRadius: '8px', padding: '16px', marginBottom: '24px' }}>
+            <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#d4af37', marginBottom: '16px' }}>✏️ Edit Room Prices:</p>
+            {selectedQuote.rooms.map((room, roomIdx) => (
+              <div key={room.id} style={{ background: '#1a1a1a', padding: '12px', borderRadius: '6px', marginBottom: '12px', border: '1px solid #555' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff' }}>{room.name}</p>
+                  <button
+                    onClick={() => {
+                      if (editingRoomInQuote === room.id) {
+                        setEditingRoomInQuote(null);
+                      } else {
+                        setEditingRoomInQuote(room.id);
+                        setEditingRoomPrices({...editingRoomPrices, [room.id]: { pricePerWindow: 200, motorCost: 50, taxRate: 0.0825 }});
+                      }
+                    }}
+                    style={{ padding: '6px 12px', borderRadius: '4px', background: editingRoomInQuote === room.id ? '#d4af37' : '#4f46e5', color: editingRoomInQuote === room.id ? '#000' : '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                  >
+                    {editingRoomInQuote === room.id ? 'Close' : 'Edit'}
+                  </button>
+                </div>
+                
+                {editingRoomInQuote === room.id && (
+                  <div style={{ background: '#0a0a0a', padding: '12px', borderRadius: '6px', border: '1px solid #666' }}>
+                    <div style={{ marginBottom: '12px' }}>
+                      <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '4px' }}>Price Per Window:</p>
+                      <input
+                        type="number"
+                        placeholder="Price per window"
+                        defaultValue={200}
+                        onChange={(e) => {setEditingRoomPrices({...editingRoomPrices, [room.id]: {...(editingRoomPrices[room.id] || {}), pricePerWindow: parseFloat(e.target.value) || 200}});}}
+                        style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '14px', background: '#1a1a1a', border: '1px solid #666', color: 'white' }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: '12px' }}>
+                      <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '4px' }}>Motor Cost (if applicable):</p>
+                      <input
+                        type="number"
+                        placeholder="Motor cost"
+                        defaultValue={50}
+                        onChange={(e) => {setEditingRoomPrices({...editingRoomPrices, [room.id]: {...(editingRoomPrices[room.id] || {}), motorCost: parseFloat(e.target.value) || 50}});}}
+                        style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '14px', background: '#1a1a1a', border: '1px solid #666', color: 'white' }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: '12px' }}>
+                      <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '4px' }}>Tax Rate % (or discount):</p>
+                      <input
+                        type="number"
+                        placeholder="Tax rate"
+                        step="0.01"
+                        defaultValue={8.25}
+                        onChange={(e) => {setEditingRoomPrices({...editingRoomPrices, [room.id]: {...(editingRoomPrices[room.id] || {}), taxRate: parseFloat(e.target.value) / 100 || 0.0825}});}}
+                        style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '14px', background: '#1a1a1a', border: '1px solid #666', color: 'white' }}
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        // Recalculate quote with edited room
+                        const updatedRooms = selectedQuote.rooms;
+                        const editedPrices = editingRoomPrices[room.id];
+                        
+                        // Create new version
+                        const newVersion = (selectedQuote.version || 1) + 1;
+                        const newQuote = {
+                          ...selectedQuote,
+                          version: newVersion,
+                          updatedDate: new Date().toISOString(),
+                          editedRoomIds: [...(selectedQuote.editedRoomIds || []), room.id]
+                        };
+                        
+                        // Save as new version
+                        setQuotes([...quotes, newQuote]);
+                        setSelectedQuote(newQuote);
+                        setEditingRoomInQuote(null);
+                        alert(`✅ Quote updated! New version ${newQuote.id.toString().slice(-4)}-v${newVersion} created`);
+                      }}
+                      style={{ width: '100%', padding: '8px', borderRadius: '4px', background: '#4ade80', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                    >
+                      Save Changes
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
 
           <div style={{ display: 'flex', gap: '12px' }}>
@@ -1051,11 +1188,81 @@ export default function BlindsQuoteApp() {
     }
   };
 
+  // Get latest version of each quote (deduplicate by ID, keep only newest)
+  // ✅ NEW HELPER: Get room summary for collapsed view
+  const getRoomSummary = (room) => {
+    const totalWindows = room.windowGroups.reduce((sum, g) => sum + (parseInt(g.quantity) || 0), 0);
+    const motorCount = room.windowGroups.filter(g => g.controlType === 'Motor').reduce((sum, g) => sum + (parseInt(g.quantity) || 0), 0);
+    const firstGroup = room.windowGroups[0];
+    const dimensions = firstGroup ? `${firstGroup.width || '?'}"W x ${firstGroup.height || '?'}"H` : '? x ?';
+    const blindType = (room.blindTypes || ['Roller'])[0];
+    
+    return {
+      windows: totalWindows,
+      dimensions,
+      fabric: room.fabricInput || blindType,
+      motorCount
+    };
+  };
+
+  // ✅ NEW HELPER: Toggle room expanded/collapsed
+  const toggleRoomExpanded = (roomId) => {
+    const newExpanded = new Set(expandedRooms);
+    if (newExpanded.has(roomId)) {
+      newExpanded.delete(roomId);
+    } else {
+      newExpanded.add(roomId);
+    }
+    setExpandedRooms(newExpanded);
+  };
+
+  // ✅ NEW HELPER: Get total motor count from rooms
+  const getTotalMotorCount = (rooms) => {
+    return rooms.reduce((total, room) => {
+      const motorCount = room.windowGroups.filter(g => g.controlType === 'Motor').reduce((sum, g) => sum + (parseInt(g.quantity) || 0), 0);
+      return total + motorCount;
+    }, 0);
+  };
+
+  // ✅ NEW HELPER: Get total motor cost
+  const getTotalMotorCost = (roomsList, pricing) => {
+    const motorCount = roomsList.reduce((total, room) => {
+      const motorCnt = room.windowGroups.filter(g => g.controlType === 'Motor').reduce((sum, g) => sum + (parseInt(g.quantity) || 0), 0);
+      return total + motorCnt;
+    }, 0);
+    const motorCost = pricing?.MOTOR_COST_SUPPLIER || 50;
+    return motorCount * motorCost;
+  };
+
+  const getLatestQuoteVersions = (quotesToProcess) => {
+    const latestByID = {};
+    
+    quotesToProcess.forEach(quote => {
+      if (!latestByID[quote.id]) {
+        latestByID[quote.id] = quote;
+      } else {
+        // Compare dates - keep the one with latest updatedDate
+        const currentDate = new Date(latestByID[quote.id].updatedDate || latestByID[quote.id].createdDate);
+        const newDate = new Date(quote.updatedDate || quote.createdDate);
+        
+        if (newDate > currentDate) {
+          latestByID[quote.id] = quote;
+        }
+      }
+    });
+    
+    return Object.values(latestByID);
+  };
+
   const renderStatistics = () => {
     const activeQuotes = quotes.filter(q => !q.archived);
+    // ✅ FIX: Get only latest version of each quote
+    const latestQuotes = getLatestQuoteVersions(activeQuotes);
+    
     const stats = { monthlyStats: {}, totalProfit: 0, totalQuotes: 0, pendingOrders: 0 };
     
-    activeQuotes.forEach(quote => {
+    // ✅ Use latestQuotes instead of activeQuotes
+    latestQuotes.forEach(quote => {
       const date = new Date(quote.createdDate);
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       
@@ -1095,7 +1302,8 @@ export default function BlindsQuoteApp() {
 
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    activeQuotes.forEach(quote => {
+    // ✅ Use latestQuotes for pending orders too
+    latestQuotes.forEach(quote => {
       if (new Date(quote.createdDate) > sevenDaysAgo && quote.status === 'quote') {
         stats.pendingOrders += 1;
       }
@@ -1195,98 +1403,123 @@ export default function BlindsQuoteApp() {
 
         <h3 style={{ fontWeight: 'bold', fontSize: '20px', color: '#fff', marginBottom: '24px', fontFamily: 'Georgia, serif' }}>Rooms & Windows</h3>
 
-        {formData.rooms.map((room, roomIndex) => (
-          <div key={room.id} style={{ background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', padding: '24px', marginBottom: '24px' }}>
-            <input type="text" placeholder="Room Name (e.g., Living Room)" value={room.name} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].name = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontWeight: 'bold', fontSize: '16px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }} />
+        {formData.rooms.map((room, roomIndex) => {
+          const isExpanded = expandedRooms.has(room.id);
+          const summary = getRoomSummary(room);
 
-            <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff', marginBottom: '8px' }}>Fabric Numbers (comma-separated, or leave blank for Min/Max):</p>
-            <input type="text" placeholder="e.g., 82086K, 82067E (or leave blank)" value={room.fabricInput} onChange={(e) => { 
-              const newRooms = [...formData.rooms]; 
-              newRooms[roomIndex].fabricInput = e.target.value; 
-              
-              // Auto-detect blind types from fabric input
-              if (e.target.value.trim()) {
-                const detectedTypes = autoDetectBlindTypes(e.target.value);
-                newRooms[roomIndex].blindTypes = detectedTypes;
-              }
-              
-              setFormData({...formData, rooms: newRooms}); 
-            }} style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '14px', background: '#1a1a1a', border: '1px solid #666', color: 'white' }} />
+          return (
+            <div key={room.id} style={{ background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', marginBottom: '24px', overflow: 'hidden' }}>
+              {/* COLLAPSED VIEW - Click to expand */}
+              <button onClick={() => toggleRoomExpanded(room.id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: '16px', fontWeight: 'bold', color: '#d4af37', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span>{room.name || 'Unnamed Room'}</span>
+                    <span style={{ fontSize: '13px', color: '#aaa' }}>({summary.windows} windows | {summary.dimensions})</span>
+                    <span style={{ fontSize: '13px', color: '#888' }}>{summary.fabric}</span>
+                    {summary.motorCount > 0 && <span style={{ fontSize: '13px', color: '#ffaa00' }}>Motor ({summary.motorCount})</span>}
+                  </p>
+                </div>
+                <span style={{ color: '#888', fontSize: '16px' }}>{isExpanded ? '▼' : '▶'}</span>
+              </button>
 
-            {/* Blind Type Selection - Always show, but with different labels */}
-            <div style={{ marginBottom: '16px' }}>
-              <p style={{ fontSize: '12px', fontWeight: 'bold', color: room.fabricInput.trim() ? '#4ade80' : '#888', marginBottom: '8px' }}>
-                {room.fabricInput.trim() 
-                  ? `✅ Auto-Detected: ${(room.blindTypes || ['Roller']).join(', ')} (Click to change)`
-                  : 'Blind Type (for Min/Max calculation) - Select one or more:'
-                }
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                {['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'].map(type => (
-                  <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', borderRadius: '6px', background: (room.blindTypes || ['Roller']).includes(type) ? '#1a3a1a' : '#1a1a1a', border: (room.blindTypes || ['Roller']).includes(type) ? '1px solid #4ade80' : '1px solid #444', cursor: 'pointer', fontSize: '14px', color: (room.blindTypes || ['Roller']).includes(type) ? '#4ade80' : '#ccc', transition: 'all 0.2s' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={(room.blindTypes || ['Roller']).includes(type)}
-                      onChange={(e) => { 
-                        const newRooms = [...formData.rooms];
-                        let types = room.blindTypes || ['Roller'];
-                        if (e.target.checked) {
-                          types = [...new Set([...types, type])];
-                        } else {
-                            types = types.filter(t => t !== type);
-                          }
-                          newRooms[roomIndex].blindTypes = types.length > 0 ? types : ['Roller'];
-                          setFormData({...formData, rooms: newRooms}); 
-                        }}
-                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                      />
-                      {type}
-                    </label>
+              {/* EXPANDED VIEW - Edit form */}
+              {isExpanded && (
+                <div style={{ background: '#1a1a1a', padding: '24px', borderTop: '1px solid #444' }}>
+                  <input type="text" placeholder="Room Name (e.g., Living Room)" value={room.name} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].name = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontWeight: 'bold', fontSize: '16px', background: '#0a0a0a', border: '1px solid #d4af37', color: 'white' }} />
+
+                  <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff', marginBottom: '8px' }}>Fabric Numbers (comma-separated, or leave blank for Min/Max):</p>
+                  <input type="text" placeholder="e.g., 82086K, 82067E (or leave blank)" value={room.fabricInput} onChange={(e) => { 
+                    const newRooms = [...formData.rooms]; 
+                    newRooms[roomIndex].fabricInput = e.target.value; 
+                    
+                    if (e.target.value.trim()) {
+                      const detectedTypes = autoDetectBlindTypes(e.target.value);
+                      newRooms[roomIndex].blindTypes = detectedTypes;
+                    }
+                    
+                    setFormData({...formData, rooms: newRooms}); 
+                  }} style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '14px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }} />
+
+                  <div style={{ marginBottom: '16px' }}>
+                    <p style={{ fontSize: '12px', fontWeight: 'bold', color: room.fabricInput.trim() ? '#4ade80' : '#888', marginBottom: '8px' }}>
+                      {room.fabricInput.trim() 
+                        ? `✅ Auto-Detected: ${(room.blindTypes || ['Roller']).join(', ')} (Click to change)`
+                        : 'Blind Type (for Min/Max calculation) - Select one or more:'
+                      }
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      {['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'].map(type => (
+                        <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', borderRadius: '6px', background: (room.blindTypes || ['Roller']).includes(type) ? '#1a3a1a' : '#0a0a0a', border: (room.blindTypes || ['Roller']).includes(type) ? '1px solid #4ade80' : '1px solid #444', cursor: 'pointer', fontSize: '14px', color: (room.blindTypes || ['Roller']).includes(type) ? '#4ade80' : '#ccc', transition: 'all 0.2s' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={(room.blindTypes || ['Roller']).includes(type)}
+                            onChange={(e) => { 
+                              const newRooms = [...formData.rooms];
+                              let types = room.blindTypes || ['Roller'];
+                              if (e.target.checked) {
+                                types = [...new Set([...types, type])];
+                              } else {
+                                types = types.filter(t => t !== type);
+                              }
+                              newRooms[roomIndex].blindTypes = types.length > 0 ? types : ['Roller'];
+                              setFormData({...formData, rooms: newRooms}); 
+                            }}
+                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                          />
+                          {type}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#ccc', marginBottom: '12px' }}>Window Groups:</p>
+
+                  {room.windowGroups.map((group, groupIndex) => (
+                    <div key={group.id} style={{ background: '#0a0a0a', padding: '12px', borderRadius: '8px', marginBottom: '12px', border: '1px solid #555' }}>
+                      <input type="number" placeholder="Qty" value={group.quantity} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].quantity = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '8px' }} />
+                      <input type="text" placeholder="Width (e.g., 35, 3'6, 83in 12/16)" value={group.width} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].width = e.target.value; setFormData({...formData, rooms: newRooms}); setLastWidth(e.target.value); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '8px' }} />
+                      <input type="text" placeholder="Height (e.g., 75, 6'3, 83in 12/16)" value={group.height} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].height = e.target.value; setFormData({...formData, rooms: newRooms}); setLastHeight(e.target.value); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '12px' }} />
+
+                      <select value={group.mount} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].mount = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '14px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '8px' }}>
+                        <option>Inside</option>
+                        <option>Outside</option>
+                        <option>Outside-NoReduc</option>
+                      </select>
+                      <select value={group.controlType || 'Manual'} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].controlType = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '14px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '12px' }}>
+                        <option value="Manual">Manual</option>
+                        <option value="Cordless">Cordless</option>
+                        <option value="Motor">Motor</option>
+                      </select>
+
+                      {(group.controlType || 'Manual') === 'Motor' && (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#ccc', marginBottom: '6px' }}>
+                          <input type="checkbox" checked={group.solar} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].solar = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Solar (+$40)
+                        </label>
+                      )}
+
+                      <div style={{ padding: '8px', borderRadius: '6px', background: '#2a3a2a', marginBottom: '8px', border: '1px solid #4a6a4a' }}>
+                        <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#aaa', marginBottom: '6px' }}>Surcharge Override (Optional)</p>
+                        <p style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>Auto: ${(() => { try { const widthVal = (group.width || '').trim(); const heightVal = (group.height || '').trim(); const w = widthVal ? getWidthSurcharge(widthVal) : 0; const h = heightVal ? getHeightSurcharge(heightVal) : 0; const total = w + h; return isNaN(total) ? '0' : total.toFixed(0); } catch(e) { console.error('Surcharge calc error:', e); return '0'; } })()} {group.surchargeOverride !== null && `→ Overridden: $${group.surchargeOverride.toFixed(0)}`}</p>
+                        <input type="number" placeholder="Leave blank to use auto-calculated" value={group.surchargeOverride !== null ? group.surchargeOverride : ''} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = e.target.value === '' ? null : parseFloat(e.target.value) || 0; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '6px', borderRadius: '4px', fontSize: '12px', background: '#0a0a0a', border: '1px solid #555', color: 'white', marginBottom: '6px' }} />
+                        <button onClick={() => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = null; setFormData({...formData, rooms: newRooms}); }} style={{ fontSize: '10px', padding: '4px 8px', background: 'transparent', color: '#888', border: '1px solid #555', borderRadius: '4px', cursor: 'pointer' }}>Reset to Auto</button>
+                      </div>
+
+                      <button onClick={() => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups.splice(groupIndex, 1); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', marginTop: '8px', borderRadius: '4px', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                        <Trash2 size={14} /> Delete This Window Group
+                      </button>
+                    </div>
                   ))}
+
+                  <button onClick={() => { const newRooms = [...formData.rooms]; const newWindowId = Math.max(...newRooms[roomIndex].windowGroups.map(w => w.id)) + 1; newRooms[roomIndex].windowGroups.push({ id: newWindowId, quantity: '', width: lastWidth, height: lastHeight, controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null }); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer' }}>+ Add Window Group</button>
+
+                  <button onClick={() => { const newRooms = [...formData.rooms]; newRooms.splice(roomIndex, 1); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', marginTop: '12px', borderRadius: '4px', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                    <Trash2 size={16} /> Delete This Room
+                  </button>
                 </div>
-              </div>
-
-            <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#ccc', marginBottom: '12px' }}>Window Groups:</p>
-
-            {room.windowGroups.map((group, groupIndex) => (
-              <div key={group.id} style={{ background: '#1a1a1a', padding: '12px', borderRadius: '8px', marginBottom: '12px', border: '1px solid #555' }}>
-                <input type="number" placeholder="Qty" value={group.quantity} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].quantity = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '8px' }} />
-                <input type="text" placeholder="Width (e.g., 35, 3'6, 83in 12/16)" value={group.width} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].width = e.target.value; setFormData({...formData, rooms: newRooms}); setLastWidth(e.target.value); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '8px' }} />
-                <input type="text" placeholder="Height (e.g., 75, 6'3, 83in 12/16)" value={group.height} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].height = e.target.value; setFormData({...formData, rooms: newRooms}); setLastHeight(e.target.value); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '16px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '12px' }} />
-
-                <select value={group.mount} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].mount = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '14px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '8px' }}>
-                  <option>Inside</option>
-                  <option>Outside</option>
-                  <option>Outside-NoReduc</option>
-                </select>
-                <select value={group.controlType || 'Manual'} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].controlType = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', borderRadius: '4px', fontSize: '14px', background: '#0a0a0a', border: '1px solid #666', color: 'white', marginBottom: '12px' }}>
-                  <option value="Manual">Manual</option>
-                  <option value="Cordless">Cordless</option>
-                  <option value="Motor">Motor</option>
-                </select>
-
-                {(group.controlType || 'Manual') === 'Motor' && (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '6px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', color: '#ccc', marginBottom: '6px' }}>
-                    <input type="checkbox" checked={group.solar} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].solar = e.target.checked; setFormData({...formData, rooms: newRooms}); }} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />Solar (+$40)
-                  </label>
-                )}
-
-                <div style={{ padding: '8px', borderRadius: '6px', background: '#2a3a2a', marginBottom: '8px', border: '1px solid #4a6a4a' }}>
-                  <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#aaa', marginBottom: '6px' }}>Surcharge Override (Optional)</p>
-                  <p style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>Auto: ${(() => { try { const widthVal = (group.width || '').trim(); const heightVal = (group.height || '').trim(); const w = widthVal ? getWidthSurcharge(widthVal) : 0; const h = heightVal ? getHeightSurcharge(heightVal) : 0; const total = w + h; return isNaN(total) ? '0' : total.toFixed(0); } catch(e) { console.error('Surcharge calc error:', e); return '0'; } })()} {group.surchargeOverride !== null && `→ Overridden: $${group.surchargeOverride.toFixed(0)}`}</p>
-                  <input type="number" placeholder="Leave blank to use auto-calculated" value={group.surchargeOverride !== null ? group.surchargeOverride : ''} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = e.target.value === '' ? null : parseFloat(e.target.value) || 0; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '6px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #555', color: 'white', marginBottom: '6px' }} />
-                  <button onClick={() => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = null; setFormData({...formData, rooms: newRooms}); }} style={{ fontSize: '10px', padding: '4px 8px', background: 'transparent', color: '#888', border: '1px solid #555', borderRadius: '4px', cursor: 'pointer' }}>Reset to Auto</button>
-                </div>
-
-                <button onClick={() => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups.splice(groupIndex, 1); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', marginTop: '8px', borderRadius: '4px', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                  <Trash2 size={14} /> Delete This Window Group
-                </button>
-              </div>
-            ))}
-
-            <button onClick={() => { const newRooms = [...formData.rooms]; const newWindowId = Math.max(...newRooms[roomIndex].windowGroups.map(w => w.id)) + 1; newRooms[roomIndex].windowGroups.push({ id: newWindowId, quantity: '', width: lastWidth, height: lastHeight, controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null }); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer' }}>+ Add Window Group</button>
-          </div>
-        ))}
+              )}
+            </div>
+          );
+        })}
 
         <button onClick={() => { const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1; setFormData({...formData, rooms: [...formData.rooms, { id: newRoomId, name: '', fabricInput: '', blindTypes: ['Roller'], windowGroups: [{ id: 1, quantity: '', width: lastWidth, height: lastHeight, controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null }] }]}); }} style={{ width: '100%', padding: '16px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '32px' }}>+ Add Room</button>
 
