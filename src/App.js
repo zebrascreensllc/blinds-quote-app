@@ -842,7 +842,6 @@ export default function BlindsQuoteApp() {
       const invalidFabrics = [];
       rooms.forEach((room, roomIndex) => {
         const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
-        const blindType = (room.blindTypes || ['Roller'])[0];
         const fabricData = storedPricing?.PRICING_DATA || PRICING_DATA;
         
         fabricNumbers.forEach(fabricNum => {
