@@ -598,6 +598,7 @@ export default function BlindsQuoteApp() {
   const [quotes, setQuotes] = useState([]);
   const [selectedQuote, setSelectedQuote] = useState(null);
   const [expandedPricingDetails, setExpandedPricingDetails] = useState(false);
+  const [expandedQuoteTable, setExpandedQuoteTable] = useState(true);
   const [copiedId, setCopiedId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedClients, setExpandedClients] = useState({});
@@ -657,6 +658,16 @@ export default function BlindsQuoteApp() {
   };
 
   // Get max price for a blind type (for invalid fabrics)
+  // Helper function to format price - shows single price if min === max, otherwise range
+  const formatPrice = (min, max) => {
+    const minRounded = Math.round(min);
+    const maxRounded = Math.round(max);
+    if (minRounded === maxRounded) {
+      return `$${minRounded}`;
+    }
+    return `$${minRounded}-$${maxRounded}`;
+  };
+
   const getMaxPriceForBlindType = (blindType, cordless, fabricData = null) => {
     const data = fabricData || PRICING_DATA;
     let maxPrice = 0;
@@ -1292,10 +1303,18 @@ export default function BlindsQuoteApp() {
       
       text += `\n${'━'.repeat(50)}\n`;
       text += `TOTAL WINDOWS: ${totalWindows}\n\n`;
-      text += `OVERALL QUOTE: $${totalMin.toFixed(0)} - $${totalMax.toFixed(0)}\n`;
+      
+      // Format price - show single if min === max
+      const formatTextPrice = (min, max) => {
+        const minR = Math.round(min);
+        const maxR = Math.round(max);
+        return minR === maxR ? `$${minR}` : `$${minR}-$${maxR}`;
+      };
+      
+      text += `OVERALL QUOTE: ${formatTextPrice(totalMin, totalMax)}\n`;
       text += `(Includes width & height surcharges)\n`;
-      text += `Sales Tax (8.25%): $${taxMin.toFixed(0)} - $${taxMax.toFixed(0)}\n`;
-      text += `GRAND TOTAL: $${grandMin.toFixed(0)} - $${grandMax.toFixed(0)}`;
+      text += `Sales Tax (8.25%): ${formatTextPrice(taxMin, taxMax)}\n`;
+      text += `GRAND TOTAL: ${formatTextPrice(grandMin, grandMax)}`;
       
       return text;
     })();
@@ -1408,7 +1427,15 @@ export default function BlindsQuoteApp() {
             </div>
           )}
 
-          <div style={{ borderRadius: '8px', marginBottom: '32px', background: '#2a2a2a', border: '1px solid #444', overflowX: 'auto' }}>
+          <div style={{ borderRadius: '8px', marginBottom: '32px', background: '#2a2a2a', border: '1px solid #444' }}>
+            <button onClick={() => setExpandedQuoteTable(!expandedQuoteTable)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '12px 16px', marginBottom: expandedQuoteTable ? '0' : '0' }}>
+              <p style={{ fontSize: '13px', fontWeight: 'bold', color: '#d4af37', marginBottom: '0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>💰 CURRENT PRICING</span>
+                <span style={{ color: '#888', fontSize: '14px' }}>{expandedQuoteTable ? '▼' : '▶'}</span>
+              </p>
+            </button>
+            {expandedQuoteTable && (
+            <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
               <thead style={{ background: '#1a1a1a', borderBottom: '1px solid #444' }}>
                 <tr>
@@ -1449,15 +1476,15 @@ export default function BlindsQuoteApp() {
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.quantity}</td>
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.width}x{group.height}</td>
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{motorType}</td>
-                        <td style={{ padding: '8px', textAlign: 'right', color: '#d4af37', fontWeight: '600' }}>${perWindowMin.toFixed(0)}-${perWindowMax.toFixed(0)}</td>
-                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>${q.minQuote.toFixed(0)}-${q.maxQuote.toFixed(0)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', color: '#d4af37', fontWeight: '600' }}>{formatPrice(perWindowMin, perWindowMax)}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>{formatPrice(q.minQuote, q.maxQuote)}</td>
                       </tr>
                     );
                   });
                 })}
                 <tr style={{ background: '#1a3a3a', borderTop: '2px solid #d4af37', fontWeight: 'bold' }}>
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>TOTAL:</td>
-                  <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>${totalMin.toFixed(0)}-${totalMax.toFixed(0)}</td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>{formatPrice(totalMin, totalMax)}</td>
                 </tr>
                 <tr style={{ background: '#2a4a2a' }}>
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '12px' }}>Surcharges (Width + Height):</td>
@@ -1465,11 +1492,11 @@ export default function BlindsQuoteApp() {
                 </tr>
                 <tr style={{ background: '#1a3a3a' }}>
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>Tax (8.25%):</td>
-                  <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>${taxMin.toFixed(0)}-${taxMax.toFixed(0)}</td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>{formatPrice(taxMin, taxMax)}</td>
                 </tr>
                 <tr style={{ background: '#2a5a2a', fontWeight: 'bold' }}>
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>GRAND TOTAL:</td>
-                  <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>${grandMin.toFixed(0)}-${grandMax.toFixed(0)}</td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>{formatPrice(grandMin, grandMax)}</td>
                 </tr>
                 <tr style={{ background: '#3a3a2a', fontWeight: 'bold' }}>
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>YOUR PROFIT:</td>
@@ -1477,6 +1504,8 @@ export default function BlindsQuoteApp() {
                 </tr>
               </tbody>
             </table>
+            </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: '12px' }}>
