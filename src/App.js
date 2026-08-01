@@ -435,7 +435,9 @@ export default function BlindsQuoteApp() {
         });
       });
 
-      const taxRate = editingTableField === 'tax' ? tableEditValues.taxRate : (storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE);
+      const taxRate = editingTableField === 'tax' 
+        ? (typeof tableEditValues.taxRate === 'number' ? tableEditValues.taxRate : (storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE))
+        : (storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE);
       const taxMin = totalMin * taxRate;
       const taxMax = totalMax * taxRate;
       const grandMin = totalMin + taxMin;
@@ -652,13 +654,24 @@ export default function BlindsQuoteApp() {
                           {editingTableField === `perWindow-${room.id}` ? (
                             <input
                               type="number"
-                              value={tableEditValues.perWindowPrices[room.id] || displayPrice}
-                              onChange={(e) => {setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [room.id]: parseFloat(e.target.value) || displayPrice}});}}
+                              value={tableEditValues.perWindowPrices[room.id] ?? displayPrice}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                // ✅ FIX #2: Allow empty string, don't revert on backspace
+                                const newValue = value === '' ? '' : parseFloat(value);
+                                setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [room.id]: newValue}});
+                              }}
                               style={{ width: '50px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
                               autoFocus
                             />
                           ) : (
-                            <span>${displayPrice.toFixed(0)}</span>
+                            <span>${(() => {
+                              // ✅ FIX #5: Format display price to 2 decimal places max
+                              const val = parseFloat(displayPrice);
+                              if (isNaN(val)) return '0';
+                              // Show up to 2 decimals, remove trailing zeros
+                              return val.toFixed(2).replace(/\.?0+$/, '');
+                            })()}</span>
                           )}
                           <button
                             onClick={() => {
@@ -678,7 +691,11 @@ export default function BlindsQuoteApp() {
                         </td>
                         <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: selectedQuote.editedPrices?.perWindowPrices[room.id] ? '#ffcc00' : '#fff' }}>
                           ${selectedQuote.editedPrices?.perWindowPrices[room.id] 
-                            ? (selectedQuote.editedPrices.perWindowPrices[room.id] * quantity).toFixed(0) 
+                            ? (() => {
+                              // ✅ FIX #5 (Total column): Format to 2 decimal places max
+                              const total = selectedQuote.editedPrices.perWindowPrices[room.id] * quantity;
+                              return total.toFixed(2).replace(/\.?0+$/, '');
+                            })()
                             : formatPrice(q.minQuote, q.maxQuote).replace(/\$|,/g, '')}
                         </td>
                       </tr>
@@ -715,7 +732,9 @@ export default function BlindsQuoteApp() {
                     });
                   });
                   if (motorCount > 0) {
-                    const motorCost = editingTableField === 'motorCost' ? (tableEditValues.motorCost || 80) : (storedPricing?.MOTOR_COST_CLIENT || 80);
+                    const motorCost = editingTableField === 'motorCost' 
+                      ? (typeof tableEditValues.motorCost === 'number' && tableEditValues.motorCost !== '' ? tableEditValues.motorCost : 80)
+                      : (storedPricing?.MOTOR_COST_CLIENT || 80);
                     const totalMotorCost = motorCount * motorCost;
                     return (
                       <tr style={{ background: '#3a2a2a' }}>
@@ -724,8 +743,13 @@ export default function BlindsQuoteApp() {
                           {editingTableField === 'motorCost' ? (
                             <input
                               type="number"
-                              value={tableEditValues.motorCost || 80}
-                              onChange={(e) => setTableEditValues({...tableEditValues, motorCost: parseFloat(e.target.value) || 80})}
+                              value={tableEditValues.motorCost ?? 80}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                // ✅ FIX #3: Allow empty string, don't revert on backspace
+                                const newValue = value === '' ? '' : parseFloat(value);
+                                setTableEditValues({...tableEditValues, motorCost: newValue});
+                              }}
                               style={{ width: '50px', padding: '2px', borderRadius: '4px', fontSize: '12px', marginLeft: '4px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
                               autoFocus
                             />
@@ -763,8 +787,20 @@ export default function BlindsQuoteApp() {
                       <input
                         type="number"
                         step="0.01"
-                        value={(tableEditValues.taxRate * 100).toFixed(2)}
-                        onChange={(e) => setTableEditValues({...tableEditValues, taxRate: parseFloat(e.target.value) / 100 || 0.0825})}
+                        value={tableEditValues.taxRate === '' ? '' : ((tableEditValues.taxRate || 0.0825) * 100).toFixed(2)}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          // ✅ FIX #4: Allow empty string, convert percentage to decimal for storage
+                          if (value === '') {
+                            setTableEditValues({...tableEditValues, taxRate: ''});
+                          } else {
+                            const percentageValue = parseFloat(value);
+                            if (!isNaN(percentageValue)) {
+                              const decimalValue = percentageValue / 100;
+                              setTableEditValues({...tableEditValues, taxRate: decimalValue});
+                            }
+                          }
+                        }}
                         style={{ width: '45px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
                         autoFocus
                       />
@@ -831,9 +867,17 @@ export default function BlindsQuoteApp() {
               
             <button
               onClick={() => {
-                // ✅ FIX #1: Parse version string correctly
-                // selectedQuote.version is "v1", "v2" etc (string with 'v' prefix)
-                const versionNumber = parseInt(selectedQuote.version.replace('v', '')) || 1;
+                // ✅ FIX #1: Parse version string safely - handles corrupted versions
+                const parseVersion = (version) => {
+                  if (typeof version === 'string') {
+                    // Extract ONLY numbers from version string
+                    const num = parseInt(version.replace(/[^0-9]/g, ''));
+                    return isNaN(num) ? 1 : num;
+                  }
+                  return parseInt(version) || 1;
+                };
+                
+                const versionNumber = parseVersion(selectedQuote.version);
                 const newVersionNumber = versionNumber + 1;
                 const newVersionString = `v${newVersionNumber}`;
                 
@@ -843,8 +887,8 @@ export default function BlindsQuoteApp() {
                 // Create new version with edited prices marked
                 const newQuote = {
                   ...selectedQuote,
-                  id: uniqueId,  // Unique ID for new version
-                  version: newVersionString,  // Correctly formatted version
+                  id: uniqueId,
+                  version: newVersionString,
                   updatedDate: new Date().toISOString(),
                   editedPrices: tableEditValues,
                   hasEditedPrices: true
@@ -854,8 +898,6 @@ export default function BlindsQuoteApp() {
                 const updatedQuotes = [...quotes, newQuote];
                 setQuotes(updatedQuotes);
                 
-                // ✅ FIX #2: Remove problematic setTimeout
-                // Just update selectedQuote directly, no double state updates
                 setSelectedQuote(newQuote);
                 
                 // Clear editing mode
@@ -866,7 +908,7 @@ export default function BlindsQuoteApp() {
                 
                 // Show success with correct version number
                 alert(`✅ Success! New version ${newVersionString} created with your edited prices`);
-              }}
+              }}}
               style={{ width: '100%', padding: '14px', marginBottom: '24px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' }}
             >
               💾 Save All Changes & Create New Version
