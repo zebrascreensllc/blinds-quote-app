@@ -104,6 +104,8 @@ export default function BlindsQuoteApp() {
   // ✅ NEW: Edit pricing table fields
   const [editingTableField, setEditingTableField] = useState(null);
   const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: 80, taxRate: 0.0825 });
+  // ✅ NEW: Profit details collapse (false = collapsed by default)
+  const [expandedProfitDetails, setExpandedProfitDetails] = useState(false);
 
   const [formData, setFormData] = useState({
     clientName: '',
@@ -957,12 +959,12 @@ export default function BlindsQuoteApp() {
             <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse', minWidth: '600px' }}>
               <thead style={{ background: '#1a1a1a', borderBottom: '1px solid #444' }}>
                 <tr>
-                  <th style={{ padding: '6px 4px', textAlign: 'left', fontWeight: 'bold', color: '#fff', fontSize: '11px' }}>Room</th>
-                  <th style={{ padding: '6px 4px', textAlign: 'center', fontWeight: 'bold', color: '#fff', fontSize: '11px' }}>Qty</th>
-                  <th style={{ padding: '6px 4px', textAlign: 'center', fontWeight: 'bold', color: '#fff', fontSize: '11px' }}>Size</th>
-                  <th style={{ padding: '6px 4px', textAlign: 'center', fontWeight: 'bold', color: '#fff', fontSize: '11px' }}>Type</th>
-                  <th style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '11px' }}>Per Window</th>
-                  <th style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '11px' }}>Total</th>
+                  <th style={{ padding: '8px', textAlign: 'left', fontWeight: 'bold', color: '#fff', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis' }}>Room</th>
+                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Qty</th>
+                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff', maxWidth: '70px' }}>Size</th>
+                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Type</th>
+                  <th style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>Per Window</th>
+                  <th style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>Total</th>
                 </tr>
               </thead>
               <tbody>
@@ -992,17 +994,17 @@ export default function BlindsQuoteApp() {
                     
                     return (
                       <tr key={`${roomIdx}-${groupIdx}`} style={{ borderBottom: '1px solid #444' }}>
-                        <td style={{ padding: '4px', color: '#fff', fontSize: '11px' }}>{room.name}</td>
-                        <td style={{ padding: '4px', textAlign: 'center', color: '#ccc', fontSize: '11px' }}>{group.quantity}</td>
-                        <td style={{ padding: '4px', textAlign: 'center', color: '#ccc', fontSize: '11px' }}>{group.width}x{group.height}</td>
-                        <td style={{ padding: '4px', textAlign: 'center', color: '#ccc', fontSize: '11px' }}>{motorType}</td>
-                        <td style={{ padding: '4px', textAlign: 'right', color: selectedQuote.editedPrices?.perWindowPrices[room.id] ? '#ffcc00' : '#d4af37', fontWeight: '600', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px', fontSize: '11px' }}>
+                        <td style={{ padding: '8px', color: '#fff', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{room.name}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.quantity}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#ccc', maxWidth: '70px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.width}x{group.height}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{motorType}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', color: selectedQuote.editedPrices?.perWindowPrices[room.id] ? '#ffcc00' : '#d4af37', fontWeight: '600', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
                           {editingTableField === `perWindow-${room.id}` ? (
                             <input
                               type="number"
                               defaultValue={displayPrice}
                               onChange={(e) => {setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [room.id]: parseFloat(e.target.value) || displayPrice}});}}
-                              style={{ width: '60px', padding: '2px', borderRadius: '4px', fontSize: '11px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                              style={{ width: '50px', padding: '2px', borderRadius: '4px', fontSize: '11px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
                             />
                           ) : (
                             <span>${displayPrice.toFixed(0)}{selectedQuote.editedPrices?.perWindowPrices[room.id] ? ' ✏️' : ''}</span>
@@ -1023,7 +1025,7 @@ export default function BlindsQuoteApp() {
                             {editingTableField === `perWindow-${room.id}` ? '✓' : '✏️'}
                           </button>
                         </td>
-                        <td style={{ padding: '4px', textAlign: 'right', fontWeight: 'bold', color: selectedQuote.editedPrices?.perWindowPrices[room.id] ? '#ffcc00' : '#fff', fontSize: '11px' }}>
+                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: selectedQuote.editedPrices?.perWindowPrices[room.id] ? '#ffcc00' : '#fff' }}>
                           ${selectedQuote.editedPrices?.perWindowPrices[room.id] 
                             ? (selectedQuote.editedPrices.perWindowPrices[room.id] * quantity).toFixed(0) 
                             : formatPrice(q.minQuote, q.maxQuote).replace(/\$|,/g, '')}
@@ -1034,12 +1036,12 @@ export default function BlindsQuoteApp() {
                   });
                 })}
                 <tr style={{ background: '#1a3a3a', borderTop: '2px solid #d4af37', fontWeight: 'bold' }}>
-                  <td colSpan="4" style={{ padding: '4px', textAlign: 'right', color: '#fff', fontSize: '11px' }}>TOTAL:</td>
-                  <td style={{ padding: '4px', textAlign: 'right', color: '#fff', fontSize: '11px' }}>{formatPrice(totalMin, totalMax)}</td>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>TOTAL:</td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>{formatPrice(totalMin, totalMax)}</td>
                 </tr>
                 {/* ✅ NEW: Total Windows Row */}
                 <tr style={{ background: '#2a3a2a' }}>
-                  <td colSpan="5" style={{ padding: '4px', textAlign: 'right', color: '#aaa', fontSize: '10px' }}>
+                  <td colSpan="5" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
                     TOTAL WINDOWS: <span style={{ color: '#fff', fontWeight: 'bold' }}>{(() => {
                       let totalWins = 0;
                       selectedQuote.rooms.forEach(room => {
@@ -1066,7 +1068,7 @@ export default function BlindsQuoteApp() {
                     const totalMotorCost = motorCount * motorCost;
                     return (
                       <tr style={{ background: '#3a2a2a' }}>
-                        <td colSpan="5" style={{ padding: '4px', textAlign: 'right', color: '#aaa', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+                        <td colSpan="5" style={{ padding: '8px', textAlign: 'right', color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '12px' }}>
                           {editingTableField === 'motorCost' ? (
                             <>
                               Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost each:
@@ -1109,7 +1111,7 @@ export default function BlindsQuoteApp() {
                   <td style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '12px' }}>Included</td>
                 </tr>
                 <tr style={{ background: '#1a3a3a' }}>
-                  <td colSpan="4" style={{ padding: '4px', textAlign: 'right', color: '#aaa', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
                     Tax (
                     {editingTableField === 'tax' ? (
                       <input
@@ -1139,19 +1141,36 @@ export default function BlindsQuoteApp() {
                       {editingTableField === 'tax' ? '✓' : '✏️'}
                     </button>
                   </td>
-                  <td style={{ padding: '4px', textAlign: 'right', color: '#aaa', fontSize: '11px' }}>{formatPrice(taxMin, taxMax)}</td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>{formatPrice(taxMin, taxMax)}</td>
                 </tr>
                 <tr style={{ background: '#2a5a2a', fontWeight: 'bold' }}>
-                  <td colSpan="4" style={{ padding: '4px', textAlign: 'right', color: '#fff', fontSize: '11px' }}>GRAND TOTAL:</td>
-                  <td style={{ padding: '4px', textAlign: 'right', color: '#fff', fontSize: '11px' }}>{formatPrice(grandMin, grandMax)}</td>
-                </tr>
-                <tr style={{ background: '#3a3a2a', fontWeight: 'bold' }}>
-                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>YOUR PROFIT:</td>
-                  <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#ffd700' }}>${totalProfit.toFixed(0)}</td>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>GRAND TOTAL:</td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>{formatPrice(grandMin, grandMax)}</td>
                 </tr>
               </tbody>
             </table>
             </div>
+            )}
+          </div>
+
+          {/* ✅ NEW: Collapsible Profit Details Section */}
+          <div style={{ background: '#3a3a2a', border: '1px solid #6a6a4a', borderRadius: '8px', marginBottom: '24px', overflow: 'hidden' }}>
+            <button 
+              onClick={() => setExpandedProfitDetails(!expandedProfitDetails)} 
+              style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '16px', color: '#ffd700' }}
+            >
+              <span>{expandedProfitDetails ? '▼' : '▶'} Profit Details</span>
+              <span style={{ fontSize: '13px', color: '#888' }}>Supplier Only</span>
+            </button>
+            
+            {expandedProfitDetails && (
+              <div style={{ background: '#2a2a1a', padding: '16px', borderTop: '1px solid #6a6a4a' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: '#1a1a1a', borderRadius: '6px', border: '1px solid #555' }}>
+                  <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff' }}>YOUR PROFIT:</p>
+                  <p style={{ fontSize: '16px', fontWeight: 'bold', color: '#ffd700' }}>${totalProfit.toFixed(0)}</p>
+                </div>
+                <p style={{ fontSize: '12px', color: '#888', marginTop: '12px', fontStyle: 'italic' }}>💡 This is your internal profit calculation. Not shown to clients.</p>
+              </div>
             )}
           </div>
 
