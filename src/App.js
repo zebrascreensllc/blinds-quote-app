@@ -956,7 +956,7 @@ export default function BlindsQuoteApp() {
             </button>
             {expandedQuoteTable && (
             <div style={{ overflowX: 'auto', marginBottom: '12px' }}>
-            <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse', minWidth: '800px' }}>
+            <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
               <thead style={{ background: '#1a1a1a', borderBottom: '1px solid #444' }}>
                 <tr>
                   <th style={{ padding: '8px', textAlign: 'left', fontWeight: 'bold', color: '#fff' }}>Room</th>
@@ -998,13 +998,13 @@ export default function BlindsQuoteApp() {
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.quantity}</td>
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.width}x{group.height}</td>
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{motorType}</td>
-                        <td style={{ padding: '8px', textAlign: 'right', color: selectedQuote.editedPrices?.perWindowPrices[room.id] ? '#ffcc00' : '#d4af37', fontWeight: '600', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
+                        <td style={{ padding: '8px', textAlign: 'right', color: selectedQuote.editedPrices?.perWindowPrices[room.id] ? '#ffcc00' : '#d4af37', fontWeight: '600' }}>
                           {editingTableField === `perWindow-${room.id}` ? (
                             <input
                               type="number"
                               defaultValue={displayPrice}
                               onChange={(e) => {setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [room.id]: parseFloat(e.target.value) || displayPrice}});}}
-                              style={{ width: '50px', padding: '2px', borderRadius: '4px', fontSize: '11px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                              style={{ width: '50px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
                             />
                           ) : (
                             <span>${displayPrice.toFixed(0)}{selectedQuote.editedPrices?.perWindowPrices[room.id] ? ' ✏️' : ''}</span>
@@ -1020,7 +1020,7 @@ export default function BlindsQuoteApp() {
                                 setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [room.id]: displayPrice}});
                               }
                             }}
-                            style={{ padding: '2px 4px', borderRadius: '2px', background: editingTableField === `perWindow-${room.id}` ? '#4ade80' : '#666', color: editingTableField === `perWindow-${room.id}` ? '#000' : '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}
+                            style={{ padding: '2px 4px', borderRadius: '2px', background: editingTableField === `perWindow-${room.id}` ? '#4ade80' : '#666', color: editingTableField === `perWindow-${room.id}` ? '#000' : '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
                           >
                             {editingTableField === `perWindow-${room.id}` ? '✓' : '✏️'}
                           </button>
@@ -1107,7 +1107,7 @@ export default function BlindsQuoteApp() {
                           setTableEditValues({...tableEditValues, taxRate: 0.0825});
                         }
                       }}
-                      style={{ marginLeft: '8px', padding: '2px 4px', borderRadius: '2px', background: editingTableField === 'tax' ? '#4ade80' : '#666', color: editingTableField === 'tax' ? '#000' : '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '9px' }}
+                      style={{ marginLeft: '8px', padding: '2px 4px', borderRadius: '2px', background: editingTableField === 'tax' ? '#4ade80' : '#666', color: editingTableField === 'tax' ? '#000' : '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
                     >
                       {editingTableField === 'tax' ? '✓' : '✏️'}
                     </button>
