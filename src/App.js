@@ -19,6 +19,10 @@ import {
 export default function BlindsQuoteApp() {
   const [currentView, setCurrentView] = useState('menu');
   const [quotes, setQuotes] = useState([]);
+  // ✅ SAFETY: guards against overwriting stored quotes before the initial load finishes
+  const [hasLoaded, setHasLoaded] = useState(false);
+  // ✅ SAFETY: holds a snapshot so the most recent delete can be undone
+  const [undoBuffer, setUndoBuffer] = useState(null);
   const [selectedQuote, setSelectedQuote] = useState(null);
   const [expandedPricingDetails, setExpandedPricingDetails] = useState(false);
   const [expandedQuoteTable, setExpandedQuoteTable] = useState(true);
@@ -34,7 +38,10 @@ export default function BlindsQuoteApp() {
   const [expandedRooms, setExpandedRooms] = useState(new Set());
   // ✅ NEW: Edit pricing table fields
   const [editingTableField, setEditingTableField] = useState(null);
-  const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: 80, taxRate: 0.0825 });
+  // ✅ FIX: Use null as sentinel for "not edited this session" (distinct from 0 or any real value)
+  // activeEditText = the RAW TEXT currently in whichever input is open (text input, not number input - avoids mobile keyboard bugs)
+  const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: null, taxRate: null });
+  const [activeEditText, setActiveEditText] = useState('');
   // ✅ NEW: Profit details collapse (false = collapsed by default)
   const [expandedProfitDetails, setExpandedProfitDetails] = useState(false);
 
@@ -61,21 +68,222 @@ export default function BlindsQuoteApp() {
     }]
   });
 
+  // ✅ SAFETY: load quotes, and if the main record is unreadable, fall back to the
+  // most recent auto-backup rather than silently starting from an empty list.
   useEffect(() => {
-    const saved = localStorage.getItem('blindsQuotes');
-    if (saved) setQuotes(JSON.parse(saved));
+    try {
+      const saved = localStorage.getItem('blindsQuotes');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setQuotes(parsed);
+          setHasLoaded(true);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('Main quote record unreadable, trying auto-backup:', e);
+    }
+
+    // Fall back to newest auto-backup
+    try {
+      const backups = JSON.parse(localStorage.getItem('blindsQuotes_autoBackups') || '[]');
+      if (Array.isArray(backups) && backups.length > 0) {
+        const newest = backups[backups.length - 1];
+        if (Array.isArray(newest?.quotes) && newest.quotes.length > 0) {
+          setQuotes(newest.quotes);
+          alert(`⚠️ Your main quote record could not be read, so the most recent automatic backup from ${new Date(newest.timestamp).toLocaleString()} was restored (${newest.quotes.length} quotes).`);
+        }
+      }
+    } catch (e) {
+      console.error('Auto-backup also unreadable:', e);
+    }
+    setHasLoaded(true);
   }, []);
 
+  // ✅ SAFETY: never overwrite saved quotes with an empty array before the initial
+  // load has finished — that race could wipe real data on a slow start.
   useEffect(() => {
-    localStorage.setItem('blindsQuotes', JSON.stringify(quotes));
-  }, [quotes]);
+    if (!hasLoaded) return;
+    try {
+      localStorage.setItem('blindsQuotes', JSON.stringify(quotes));
+    } catch (e) {
+      console.error('Failed to save quotes:', e);
+      alert('⚠️ Could not save to this device\'s storage (it may be full). Please export a backup now from Quote History → Backup.');
+    }
+  }, [quotes, hasLoaded]);
+
+  // ✅ SAFETY: keep rolling daily auto-backups (last 7), independent of the main record.
+  useEffect(() => {
+    if (!hasLoaded || quotes.length === 0) return;
+    try {
+      const backups = JSON.parse(localStorage.getItem('blindsQuotes_autoBackups') || '[]');
+      const today = new Date().toISOString().split('T')[0];
+      const alreadyToday = backups.some(b => b.date === today);
+      if (!alreadyToday) {
+        backups.push({ date: today, timestamp: new Date().toISOString(), quotes });
+        const trimmed = backups.slice(-7);
+        localStorage.setItem('blindsQuotes_autoBackups', JSON.stringify(trimmed));
+      }
+    } catch (e) {
+      console.error('Auto-backup failed:', e);
+    }
+  }, [quotes, hasLoaded]);
+
+  // ✅ SAFETY: snapshot current state so the last delete can be undone
+  const snapshotForUndo = (label) => {
+    setUndoBuffer({ quotes: JSON.parse(JSON.stringify(quotes)), label, at: new Date().toISOString() });
+  };
+
+  // ✅ SAFETY: one funnel for ALL deletions. Warns clearly, names what will be lost,
+  // requires a second confirmation if it would remove every version for a client,
+  // and always stores an undo snapshot first.
+  const safeDeleteQuotes = (idsToDelete, description) => {
+    const ids = new Set(idsToDelete);
+    const doomed = quotes.filter(q => ids.has(q.id));
+    if (doomed.length === 0) return false;
+
+    const survivors = quotes.filter(q => !ids.has(q.id));
+
+    // Which client folders would be emptied completely?
+    const clientKey = q => `${q.clientName} - ${q.location}`;
+    const doomedClients = [...new Set(doomed.map(clientKey))];
+    const survivingClients = new Set(survivors.map(clientKey));
+    const clientsBeingWiped = doomedClients.filter(c => !survivingClients.has(c));
+
+    const nameList = doomed.map(q => `  • ${q.quoteName || q.version}`).join('\n');
+    const message = `Delete ${doomed.length} quote${doomed.length > 1 ? 's' : ''}?\n\n${nameList}\n\nThis cannot be undone from another device.`;
+
+    if (!window.confirm(message)) return false;
+
+    // Second, louder confirmation when an entire client would disappear
+    if (clientsBeingWiped.length > 0) {
+      const warning =
+        `⚠️ WARNING — THIS REMOVES ENTIRE CLIENT${clientsBeingWiped.length > 1 ? 'S' : ''}\n\n` +
+        clientsBeingWiped.map(c => `  • ${c}`).join('\n') +
+        `\n\nNo versions will remain for ${clientsBeingWiped.length > 1 ? 'these clients' : 'this client'}. ` +
+        `Everything for ${clientsBeingWiped.length > 1 ? 'them' : 'them'} will be gone from this list.\n\n` +
+        `Are you absolutely sure?`;
+      if (!window.confirm(warning)) return false;
+    }
+
+    snapshotForUndo(description || `Deleted ${doomed.length} quote(s)`);
+    setQuotes(survivors);
+    return true;
+  };
+
+  // ✅ SAFETY: restore the pre-delete snapshot
+  const undoLastDelete = () => {
+    if (!undoBuffer) return;
+    setQuotes(undoBuffer.quotes);
+    setUndoBuffer(null);
+    alert('✅ Restored. Your quotes are back.');
+  };
+
+  // ✅ BACKUP: download every quote as a JSON file
+  const exportBackup = () => {
+    try {
+      const payload = {
+        app: 'Zebra Screens & Rollers - Blinds Quote App',
+        exportedAt: new Date().toISOString(),
+        quoteCount: quotes.length,
+        quotes
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `zebra-quotes-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      console.error('Export failed:', e);
+      alert('Could not download the backup file. Try "Copy Backup" instead and paste it somewhere safe.');
+    }
+  };
+
+  // ✅ BACKUP: copy backup text to clipboard (most reliable route on iPhone —
+  // paste into Notes, Mail, or Messages to keep an off-device copy)
+  const copyBackupToClipboard = async () => {
+    try {
+      const payload = {
+        app: 'Zebra Screens & Rollers - Blinds Quote App',
+        exportedAt: new Date().toISOString(),
+        quoteCount: quotes.length,
+        quotes
+      };
+      await navigator.clipboard.writeText(JSON.stringify(payload));
+      alert(`✅ Backup for ${quotes.length} quotes copied. Paste it into Notes or email it to yourself now.`);
+    } catch (e) {
+      console.error('Clipboard copy failed:', e);
+      alert('Could not copy to clipboard. Try "Download Backup" instead.');
+    }
+  };
+
+  // ✅ BACKUP: restore from a backup file, merging rather than replacing
+  const importBackup = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        const incoming = Array.isArray(parsed) ? parsed : parsed.quotes;
+        if (!Array.isArray(incoming)) {
+          alert('That file does not look like a Zebra quotes backup.');
+          return;
+        }
+        const existingIds = new Set(quotes.map(q => q.id));
+        const newOnes = incoming.filter(q => q && q.id && !existingIds.has(q.id));
+        if (newOnes.length === 0) {
+          alert(`Backup read successfully, but all ${incoming.length} quotes are already on this device. Nothing to add.`);
+          return;
+        }
+        if (!window.confirm(`Restore ${newOnes.length} quote(s) from this backup?\n\nExisting quotes will be kept — this only adds what is missing.`)) return;
+        snapshotForUndo('Imported backup');
+        setQuotes([...quotes, ...newOnes]);
+        alert(`✅ Restored ${newOnes.length} quote(s).`);
+      } catch (err) {
+        console.error('Import failed:', err);
+        alert('Could not read that backup file. Make sure it is the .json file exported from this app.');
+      }
+    };
+    reader.readAsText(file);
+  };
 
   // ✅ CRITICAL FIX: Reset editing state when viewing a different quote
   useEffect(() => {
     // Reset editing state whenever a different quote is selected
-    setTableEditValues({ perWindowPrices: {}, motorCost: 80, taxRate: 0.0825 });
+    setTableEditValues({ perWindowPrices: {}, motorCost: null, taxRate: null });
     setEditingTableField(null);
+    setActiveEditText('');
   }, [selectedQuote?.id]);
+
+  // ✅ HELPER: Filter raw text input to valid decimal number text as user types
+  // (only digits + at most one decimal point + max 2 decimal places). Using a
+  // plain text input (not type="number") avoids known mobile Safari/Chrome bugs
+  // where number inputs "stick" or revert on backspace/decimal entry.
+  const filterNumericText = (raw) => {
+    if (raw === '') return '';
+    let filtered = raw.replace(/[^0-9.]/g, '');
+    const parts = filtered.split('.');
+    if (parts.length > 2) {
+      filtered = parts[0] + '.' + parts.slice(1).join('');
+    }
+    const dotIndex = filtered.indexOf('.');
+    if (dotIndex !== -1 && filtered.length - dotIndex - 1 > 2) {
+      filtered = filtered.slice(0, dotIndex + 3);
+    }
+    return filtered;
+  };
+
+  // ✅ HELPER: Format a number for display/editing - max 2 decimals, trailing zeros trimmed
+  const formatMoney = (num) => {
+    const val = parseFloat(num);
+    if (isNaN(val)) return '0';
+    return val.toFixed(2).replace(/\.?0+$/, '');
+  };
 
   const generateQuote = () => {
     if (!formData.clientName || !formData.clientPhone) {
@@ -86,8 +294,9 @@ export default function BlindsQuoteApp() {
     // Determine quote name prefix based on ACTUAL FABRICS entered, not selected blind types
     const quoteNamePrefix = getQuoteNamePrefix(formData.rooms, PRICING_DATA);
     
-    // Calculate version ONCE
-    const newVersion = `v${getNextVersion(formData.clientName, formData.location)}`;
+    // ✅ BUGFIX: `quotes` was missing here, which threw a TypeError and silently
+    // broke quote creation entirely. Always pass the quotes array.
+    const newVersion = `v${getNextVersion(formData.clientName, formData.location, quotes)}`;
     
     // Create quote name based on fabrics
     const quoteName = `${formData.clientName}-${formData.location}-${quoteNamePrefix}-quote-${newVersion}`;
@@ -96,11 +305,21 @@ export default function BlindsQuoteApp() {
     const pricingSnapshot = getPricingSnapshot();
 
     // Create a SINGLE quote (not multiple)
+    // ✅ CRITICAL BUGFIX (data loss): previously a new version REUSED editingQuote.id,
+    // so every version of a quote shared one ID. Because delete matches on ID,
+    // deleting one version silently deleted EVERY version sharing that ID —
+    // which is how a whole client folder disappeared. Every version now gets a
+    // guaranteed-unique ID. `lineageId` preserves the "same quote" relationship
+    // for grouping/history without ever being used to match deletions.
+    const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
     const quoteData = {
-      id: editingQuote ? editingQuote.id : Date.now(),
+      ...formData,
+      // Identity fields come AFTER the spread so they can never be clobbered
+      id: uniqueId,
+      lineageId: editingQuote ? (editingQuote.lineageId || editingQuote.id) : uniqueId,
       quoteName: quoteName,
       version: newVersion,
-      ...formData,
       pricing: pricingSnapshot,
       createdDate: editingQuote ? editingQuote.createdDate : new Date().toISOString(),
       updatedDate: new Date().toISOString(),
@@ -304,12 +523,64 @@ export default function BlindsQuoteApp() {
             />
           </div>
 
+          {/* ✅ UNDO: appears right after a delete so a mistake is recoverable in one tap */}
+          {undoBuffer && (
+            <div style={{ padding: '12px', marginBottom: '16px', background: '#3a2a1a', border: '2px solid #f59e0b', borderRadius: '8px' }}>
+              <p style={{ color: '#fbbf24', fontWeight: 'bold', margin: '0 0 8px 0', fontSize: '14px' }}>
+                ↩️ {undoBuffer.label}
+              </p>
+              <button
+                onClick={undoLastDelete}
+                style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#f59e0b', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+              >
+                Undo Last Delete
+              </button>
+            </div>
+          )}
+
+          {/* ✅ BACKUP: keep an off-device copy; restore merges instead of replacing */}
+          <div style={{ padding: '12px', marginBottom: '16px', background: '#1a2a2a', border: '1px solid #2a5a5a', borderRadius: '8px' }}>
+            <p style={{ color: '#7dd3fc', fontWeight: 'bold', margin: '0 0 8px 0', fontSize: '13px' }}>
+              🛟 Backup ({quotes.length} quote{quotes.length === 1 ? '' : 's'})
+            </p>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                onClick={exportBackup}
+                style={{ flex: '1 1 45%', padding: '10px', borderRadius: '6px', background: '#0e7490', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+              >
+                ⬇️ Download
+              </button>
+              <button
+                onClick={copyBackupToClipboard}
+                style={{ flex: '1 1 45%', padding: '10px', borderRadius: '6px', background: '#0e7490', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+              >
+                📋 Copy
+              </button>
+              <label
+                style={{ flex: '1 1 100%', padding: '10px', borderRadius: '6px', background: '#334155', color: '#fff', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', textAlign: 'center', display: 'block' }}
+              >
+                ⬆️ Restore from Backup File
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={(e) => { importBackup(e.target.files?.[0]); e.target.value = ''; }}
+                  style={{ display: 'none' }}
+                />
+              </label>
+            </div>
+            <p style={{ color: '#64748b', fontSize: '11px', margin: '8px 0 0 0' }}>
+              Tip: tap Copy and paste into Notes or email it to yourself. The app also keeps 7 days of automatic backups on this device.
+            </p>
+          </div>
+
           {selectedVersions.size > 0 && (
             <button onClick={() => {
-              if (window.confirm(`Delete ${selectedVersions.size} version(s)? This cannot be undone.`)) {
-                setQuotes(quotes.filter(q => !selectedVersions.has(q.id)));
+              // ✅ Goes through the safe delete funnel: names what will be lost,
+              // double-confirms if a whole client would vanish, and saves an undo snapshot
+              const done = safeDeleteQuotes([...selectedVersions], `Deleted ${selectedVersions.size} selected version(s)`);
+              if (done) {
                 setSelectedVersions(new Set());
-                alert('✅ Versions deleted successfully!');
+                alert('✅ Deleted. If that was a mistake, use "Undo Last Delete" at the top of this screen.');
               }
             }} style={{ width: '100%', padding: '12px', marginBottom: '16px', borderRadius: '8px', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>
               Delete {selectedVersions.size} Selected
@@ -435,9 +706,16 @@ export default function BlindsQuoteApp() {
         });
       });
 
-      const taxRate = editingTableField === 'tax' 
-        ? (typeof tableEditValues.taxRate === 'number' ? tableEditValues.taxRate : (storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE))
-        : (storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE);
+      // ✅ FIX: "Effective" tax rate - checks pending edit FIRST, then saved edit, then default
+      // Works whether actively editing, just clicked Done, or viewing a saved version
+      const taxRate = (() => {
+        const pending = tableEditValues.taxRate;
+        if (typeof pending === 'number') return pending;          // Pending edit (typed a value)
+        if (pending === '') return 0;                              // Pending edit (cleared to empty)
+        const saved = selectedQuote.editedPrices?.taxRate;
+        if (typeof saved === 'number') return saved;                // Previously saved edit
+        return storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE;    // Default
+      })();
       const taxMin = totalMin * taxRate;
       const taxMax = totalMax * taxRate;
       const grandMin = totalMin + taxMin;
@@ -641,8 +919,22 @@ export default function BlindsQuoteApp() {
                     const quantity = parseInt(group.quantity) || 1;
                     const perWindowMin = q.baseMinQuote / quantity;
                     
-                    // ✅ Check if this room has an edited price from a previous version
-                    const displayPrice = selectedQuote.editedPrices?.perWindowPrices[room.id] || perWindowMin;
+                    // ✅ FIX: Composite key (room + window group) so multiple window groups
+                    // in the same room don't collide with each other's edited price
+                    const priceKey = `${room.id}_${groupIdx}`;
+                    const fieldKey = `perWindow-${priceKey}`;
+                    
+                    // Saved price (from a previously saved version)
+                    const savedPrice = selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
+                    const hasSavedPrice = typeof savedPrice === 'number';
+                    const basePrice = hasSavedPrice ? savedPrice : perWindowMin;
+                    
+                    // "Effective" price - a committed pending edit (after Done, before Save) takes priority
+                    const pendingPrice = tableEditValues.perWindowPrices[priceKey];
+                    const hasPendingPrice = typeof pendingPrice === 'number';
+                    const effectivePrice = hasPendingPrice ? pendingPrice : basePrice;
+                    const isEdited = hasPendingPrice || hasSavedPrice;
+                    const isEditingThis = editingTableField === fieldKey;
                     
                     return (
                       <tr key={`${roomIdx}-${groupIdx}`} style={{ borderBottom: '1px solid #444' }}>
@@ -650,53 +942,43 @@ export default function BlindsQuoteApp() {
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.quantity}</td>
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.width}x{group.height}</td>
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{motorType}</td>
-                        <td style={{ padding: '8px', textAlign: 'right', color: selectedQuote.editedPrices?.perWindowPrices[room.id] ? '#ffcc00' : '#d4af37', fontWeight: '600' }}>
-                          {editingTableField === `perWindow-${room.id}` ? (
+                        <td style={{ padding: '8px', textAlign: 'right', color: isEdited ? '#ffcc00' : '#d4af37', fontWeight: '600' }}>
+                          {isEditingThis ? (
                             <input
-                              type="number"
-                              value={tableEditValues.perWindowPrices[room.id] ?? displayPrice}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                // ✅ FIX #2: Allow empty string, don't revert on backspace
-                                const newValue = value === '' ? '' : parseFloat(value);
-                                setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [room.id]: newValue}});
-                              }}
-                              style={{ width: '50px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                              type="text"
+                              inputMode="decimal"
+                              value={activeEditText}
+                              onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
+                              style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
                               autoFocus
                             />
                           ) : (
-                            <span>${(() => {
-                              // ✅ FIX #5: Format display price to 2 decimal places max
-                              const val = parseFloat(displayPrice);
-                              if (isNaN(val)) return '0';
-                              // Show up to 2 decimals, remove trailing zeros
-                              return val.toFixed(2).replace(/\.?0+$/, '');
-                            })()}</span>
+                            <span>${formatMoney(effectivePrice)}</span>
                           )}
                           <button
                             onClick={() => {
-                              if (editingTableField === `perWindow-${room.id}`) {
-                                // Just toggle input off, keep editing mode open for Save button
+                              if (isEditingThis) {
+                                // ✅ FIX #5: Commit whatever was typed into the pending edit value NOW
+                                const parsed = parseFloat(activeEditText);
+                                if (activeEditText !== '' && !isNaN(parsed)) {
+                                  setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [priceKey]: parsed}});
+                                }
+                                // If left empty/invalid, just close without changing the pending value
                                 setEditingTableField(null);
+                                setActiveEditText('');
                               } else {
-                                // Start editing
-                                setEditingTableField(`perWindow-${room.id}`);
-                                setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [room.id]: displayPrice}});
+                                // Start editing - seed text box with current effective value
+                                setEditingTableField(fieldKey);
+                                setActiveEditText(formatMoney(effectivePrice));
                               }
                             }}
-                            style={{ marginLeft: '6px', padding: '2px 6px', borderRadius: '2px', background: editingTableField === `perWindow-${room.id}` ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                            style={{ marginLeft: '6px', padding: '2px 6px', borderRadius: '2px', background: isEditingThis ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
                           >
-                            {editingTableField === `perWindow-${room.id}` ? 'Done' : '✏️'}
+                            {isEditingThis ? 'Done' : '✏️'}
                           </button>
                         </td>
-                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: selectedQuote.editedPrices?.perWindowPrices[room.id] ? '#ffcc00' : '#fff' }}>
-                          ${selectedQuote.editedPrices?.perWindowPrices[room.id] 
-                            ? (() => {
-                              // ✅ FIX #5 (Total column): Format to 2 decimal places max
-                              const total = selectedQuote.editedPrices.perWindowPrices[room.id] * quantity;
-                              return total.toFixed(2).replace(/\.?0+$/, '');
-                            })()
-                            : formatPrice(q.minQuote, q.maxQuote).replace(/\$|,/g, '')}
+                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: isEdited ? '#ffcc00' : '#fff' }}>
+                          ${formatMoney(effectivePrice * quantity)}
                         </td>
                       </tr>
                     );
@@ -732,42 +1014,52 @@ export default function BlindsQuoteApp() {
                     });
                   });
                   if (motorCount > 0) {
-                    const motorCost = editingTableField === 'motorCost' 
-                      ? (typeof tableEditValues.motorCost === 'number' && tableEditValues.motorCost !== '' ? tableEditValues.motorCost : 80)
-                      : (storedPricing?.MOTOR_COST_CLIENT || 80);
+                    // "Effective" motor cost - pending edit > saved edit > default
+                    const motorCost = (() => {
+                      const pending = tableEditValues.motorCost;
+                      if (typeof pending === 'number') return pending;         // Committed pending edit
+                      const saved = selectedQuote.editedPrices?.motorCost;
+                      if (typeof saved === 'number') return saved;             // Previously saved edit
+                      return storedPricing?.MOTOR_COST_CLIENT || 80;          // Default
+                    })();
                     const totalMotorCost = motorCount * motorCost;
+                    const isEditingMotor = editingTableField === 'motorCost';
+                    const isMotorEdited = typeof tableEditValues.motorCost === 'number' || typeof selectedQuote.editedPrices?.motorCost === 'number';
                     return (
                       <tr style={{ background: '#3a2a2a' }}>
                         <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
                           Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost total: 
-                          {editingTableField === 'motorCost' ? (
+                          {isEditingMotor ? (
                             <input
-                              type="number"
-                              value={tableEditValues.motorCost ?? 80}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                // ✅ FIX #3: Allow empty string, don't revert on backspace
-                                const newValue = value === '' ? '' : parseFloat(value);
-                                setTableEditValues({...tableEditValues, motorCost: newValue});
-                              }}
-                              style={{ width: '50px', padding: '2px', borderRadius: '4px', fontSize: '12px', marginLeft: '4px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                              type="text"
+                              inputMode="decimal"
+                              value={activeEditText}
+                              onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
+                              style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', marginLeft: '4px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
                               autoFocus
                             />
                           ) : (
-                            <span style={{ color: '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${totalMotorCost}</span>
+                            <span style={{ color: isMotorEdited ? '#ffcc00' : '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${formatMoney(totalMotorCost)}</span>
                           )}
                           <button
                             onClick={() => {
-                              if (editingTableField === 'motorCost') {
+                              if (isEditingMotor) {
+                                // ✅ FIX #4: Commit whatever was typed NOW
+                                const parsed = parseFloat(activeEditText);
+                                if (activeEditText !== '' && !isNaN(parsed)) {
+                                  setTableEditValues({...tableEditValues, motorCost: parsed});
+                                }
                                 setEditingTableField(null);
+                                setActiveEditText('');
                               } else {
+                                // Start editing - seed text box with the per-motor cost (not the total)
                                 setEditingTableField('motorCost');
-                                setTableEditValues({...tableEditValues, motorCost: motorCost});
+                                setActiveEditText(formatMoney(motorCost));
                               }
                             }}
-                            style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: editingTableField === 'motorCost' ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                            style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: isEditingMotor ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
                           >
-                            {editingTableField === 'motorCost' ? 'Done' : '✏️'}
+                            {isEditingMotor ? 'Done' : '✏️'}
                           </button>
                         </td>
                         <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
@@ -785,36 +1077,40 @@ export default function BlindsQuoteApp() {
                     Tax (
                     {editingTableField === 'tax' ? (
                       <input
-                        type="number"
-                        step="0.01"
-                        value={tableEditValues.taxRate === '' ? '' : ((tableEditValues.taxRate || 0.0825) * 100).toFixed(2)}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          // ✅ FIX #4: Allow empty string, convert percentage to decimal for storage
-                          if (value === '') {
-                            setTableEditValues({...tableEditValues, taxRate: ''});
-                          } else {
-                            const percentageValue = parseFloat(value);
-                            if (!isNaN(percentageValue)) {
-                              const decimalValue = percentageValue / 100;
-                              setTableEditValues({...tableEditValues, taxRate: decimalValue});
-                            }
-                          }
-                        }}
+                        type="text"
+                        inputMode="decimal"
+                        value={activeEditText}
+                        onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
                         style={{ width: '45px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
                         autoFocus
                       />
                     ) : (
-                      <span>(8.25%)</span>
+                      <span>({(() => {
+                        // Show effective tax rate (pending edit > saved edit > default), as a percentage
+                        const pending = tableEditValues.taxRate;
+                        const effective = typeof pending === 'number' ? pending 
+                          : (typeof selectedQuote.editedPrices?.taxRate === 'number' ? selectedQuote.editedPrices.taxRate : (storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE));
+                        return formatMoney(effective * 100);
+                      })()}%)</span>
                     )}
                     %):
                     <button
                       onClick={() => {
                         if (editingTableField === 'tax') {
+                          // ✅ FIX #3: Commit whatever percentage was typed NOW
+                          const parsed = parseFloat(activeEditText);
+                          if (activeEditText !== '' && !isNaN(parsed)) {
+                            setTableEditValues({...tableEditValues, taxRate: parsed / 100});
+                          }
                           setEditingTableField(null);
+                          setActiveEditText('');
                         } else {
+                          // Start editing - seed text box with the CURRENT effective percentage
+                          const pending = tableEditValues.taxRate;
+                          const currentEffective = typeof pending === 'number' ? pending 
+                            : (typeof selectedQuote.editedPrices?.taxRate === 'number' ? selectedQuote.editedPrices.taxRate : (storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE));
                           setEditingTableField('tax');
-                          setTableEditValues({...tableEditValues, taxRate: 0.0825});
+                          setActiveEditText(formatMoney(currentEffective * 100));
                         }
                       }}
                       style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: editingTableField === 'tax' ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
@@ -855,13 +1151,13 @@ export default function BlindsQuoteApp() {
             )}
           </div>
 
-          {/* ✅ FIXED: Save All Changes Button - Show if ANY values differ from defaults */}
-          {JSON.stringify(tableEditValues) !== JSON.stringify({ perWindowPrices: {}, motorCost: 80, taxRate: 0.0825 }) && (
+          {/* ✅ FIXED: Save All Changes Button - Show if ANY values differ from "not edited" defaults */}
+          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.taxRate !== null) && (
             <>
               {/* Visual indicator of pending changes */}
               <div style={{ padding: '12px', marginBottom: '12px', background: '#2a3a1a', border: '2px solid #4ade80', borderRadius: '6px', textAlign: 'center' }}>
                 <p style={{ color: '#4ade80', fontWeight: 'bold', margin: '0' }}>
-                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== 80 ? ', motor cost' : ''}{tableEditValues.taxRate !== 0.0825 ? ', tax rate' : ''})
+                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''})
                 </p>
               </div>
               
@@ -881,16 +1177,36 @@ export default function BlindsQuoteApp() {
                 const newVersionNumber = versionNumber + 1;
                 const newVersionString = `v${newVersionNumber}`;
                 
+                // ✅ FIX #1 (continued): Update quoteName string too - it has the OLD version baked in!
+                // e.g. "John-Dallas-Roller-quote-v1" -> "John-Dallas-Roller-quote-v2"
+                const oldQuoteName = selectedQuote.quoteName || '';
+                const newQuoteName = /-v\d+$/.test(oldQuoteName)
+                  ? oldQuoteName.replace(/-v\d+$/, `-${newVersionString}`)
+                  : `${oldQuoteName}-${newVersionString}`;
+                
                 // ✅ FIX #3: Generate unique ID for new version
                 const uniqueId = `${selectedQuote.id}-${newVersionString}-${Date.now()}`;
                 
-                // Create new version with edited prices marked
+                // ✅ IMPORTANT: Merge with previously saved edits, don't overwrite them!
+                // If a prior version already had per-window prices edited, and this save
+                // only touches motor cost, we must not lose those earlier per-window edits.
+                const mergedEditedPrices = {
+                  perWindowPrices: {
+                    ...(selectedQuote.editedPrices?.perWindowPrices || {}),
+                    ...Object.fromEntries(Object.entries(tableEditValues.perWindowPrices).filter(([, v]) => typeof v === 'number'))
+                  },
+                  motorCost: typeof tableEditValues.motorCost === 'number' ? tableEditValues.motorCost : selectedQuote.editedPrices?.motorCost,
+                  taxRate: typeof tableEditValues.taxRate === 'number' ? tableEditValues.taxRate : selectedQuote.editedPrices?.taxRate
+                };
+                
+                // Create new version with merged edited prices
                 const newQuote = {
                   ...selectedQuote,
                   id: uniqueId,
+                  quoteName: newQuoteName,
                   version: newVersionString,
                   updatedDate: new Date().toISOString(),
-                  editedPrices: tableEditValues,
+                  editedPrices: mergedEditedPrices,
                   hasEditedPrices: true
                 };
                 
@@ -904,7 +1220,8 @@ export default function BlindsQuoteApp() {
                 setEditingTableField(null);
                 
                 // Reset edit values for next time
-                setTableEditValues({ perWindowPrices: {}, motorCost: 80, taxRate: 0.0825 });
+                setTableEditValues({ perWindowPrices: {}, motorCost: null, taxRate: null });
+                setActiveEditText('');
                 
                 // Show success with correct version number
                 alert(`✅ Success! New version ${newVersionString} created with your edited prices`);
@@ -939,8 +1256,10 @@ export default function BlindsQuoteApp() {
             
             <button
               onClick={() => {
-                setQuotes(quotes.filter(q => q.id !== selectedQuote.id));
-                setSelectedQuote(null);
+                // ✅ BUGFIX: this previously deleted instantly with NO confirmation.
+                // Now it warns, names the quote, and stores an undo snapshot.
+                const done = safeDeleteQuotes([selectedQuote.id], `Deleted ${selectedQuote.quoteName || 'quote'}`);
+                if (done) setSelectedQuote(null);
               }}
               style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer' }}
             >
@@ -1282,7 +1601,13 @@ export default function BlindsQuoteApp() {
           );
         })}
 
-        <button onClick={() => { const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1; setFormData({...formData, rooms: [...formData.rooms, { id: newRoomId, name: '', fabricInput: '', blindTypes: ['Roller'], windowGroups: [{ id: 1, quantity: '', width: lastWidth, height: lastHeight, controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null }] }]}); }} style={{ width: '100%', padding: '16px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '32px' }}>+ Add Room</button>
+        <button onClick={() => {
+          const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1;
+          setFormData({...formData, rooms: [...formData.rooms, { id: newRoomId, name: '', fabricInput: '', blindTypes: ['Roller'], windowGroups: [{ id: 1, quantity: '', width: lastWidth, height: lastHeight, controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null }] }]});
+          // ✅ Collapse every existing room and open only the new one, so you don't
+          // have to scroll back up to close the room you just finished.
+          setExpandedRooms(new Set([newRoomId]));
+        }} style={{ width: '100%', padding: '16px', borderRadius: '4px', color: '#888', fontWeight: 'bold', fontSize: '16px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '32px' }}>+ Add Room</button>
 
         <button onClick={generateQuote} style={{ width: '100%', padding: '16px', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>{editingQuote ? 'Save as New Version' : 'Generate Quote'}</button>
       </div>

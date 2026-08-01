@@ -282,9 +282,15 @@ export const autoDetectBlindTypes = (fabricInput, fabricData = null) => {
 };
 
 // Get next version number
-export const getNextVersion = (clientName, location, quotes) => {
-  const clientQuotes = quotes.filter(q => q.clientName === clientName && q.location === location);
+// ✅ DEFENSIVE: quotes defaults to [] so a missing argument can never crash quote creation.
+// Also parses versions safely (strips any non-digits) and ignores unparseable ones.
+export const getNextVersion = (clientName, location, quotes = []) => {
+  const list = Array.isArray(quotes) ? quotes : [];
+  const clientQuotes = list.filter(q => q && q.clientName === clientName && q.location === location);
   if (clientQuotes.length === 0) return 1;
-  const versions = clientQuotes.map(q => parseInt(q.version.replace('v', '')));
+  const versions = clientQuotes
+    .map(q => parseInt(String(q.version || '').replace(/[^0-9]/g, ''), 10))
+    .filter(n => !isNaN(n));
+  if (versions.length === 0) return 1;
   return Math.max(...versions) + 1;
 };
