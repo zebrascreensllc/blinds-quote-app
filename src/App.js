@@ -1036,12 +1036,12 @@ export default function BlindsQuoteApp() {
                   });
                 })}
                 <tr style={{ background: '#1a3a3a', borderTop: '2px solid #d4af37', fontWeight: 'bold' }}>
-                  <td colSpan="5" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>TOTAL:</td>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>TOTAL:</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>{formatPrice(totalMin, totalMax)}</td>
                 </tr>
                 {/* ✅ NEW: Total Windows Row */}
                 <tr style={{ background: '#2a3a2a' }}>
-                  <td colSpan="5" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
                     TOTAL WINDOWS: <span style={{ color: '#fff', fontWeight: 'bold' }}>{(() => {
                       let totalWins = 0;
                       selectedQuote.rooms.forEach(room => {
@@ -1052,6 +1052,7 @@ export default function BlindsQuoteApp() {
                       return totalWins;
                     })()}</span>
                   </td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
                 </tr>
                 {/* ✅ NEW: Motor Cost Breakdown Row */}
                 {(() => {
@@ -1069,10 +1070,7 @@ export default function BlindsQuoteApp() {
                     return (
                       <tr style={{ background: '#3a2a2a' }}>
                         <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
-                          Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost total:
-                        </td>
-                        <td style={{ padding: '8px', textAlign: 'right', color: '#fff', fontWeight: 'bold' }}>
-                          ${totalMotorCost}
+                          Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost total: <span style={{ color: '#fff', fontWeight: 'bold' }}>${totalMotorCost}</span>
                         </td>
                         <td style={{ padding: '8px', textAlign: 'center' }}>
                           <button
@@ -1095,17 +1093,15 @@ export default function BlindsQuoteApp() {
                   return null;
                 })()}
                 <tr style={{ background: '#2a4a2a' }}>
-                  <td colSpan="5" style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '12px' }}>Surcharges (Width + Height):</td>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '12px' }}>Surcharges (Width + Height):</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '12px' }}>Included</td>
                 </tr>
                 <tr style={{ background: '#1a3a3a' }}>
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
                     Tax (8.25%):
                   </td>
-                  <td style={{ padding: '8px', textAlign: 'right', color: '#fff', fontWeight: 'bold' }}>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
                     {formatPrice(taxMin, taxMax)}
-                  </td>
-                  <td style={{ padding: '8px', textAlign: 'center' }}>
                     <button
                       onClick={() => {
                         if (editingTableField === 'tax') {
@@ -1122,7 +1118,7 @@ export default function BlindsQuoteApp() {
                   </td>
                 </tr>
                 <tr style={{ background: '#2a5a2a', fontWeight: 'bold' }}>
-                  <td colSpan="5" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>GRAND TOTAL:</td>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>GRAND TOTAL:</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>{formatPrice(grandMin, grandMax)}</td>
                 </tr>
               </tbody>
