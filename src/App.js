@@ -956,12 +956,12 @@ export default function BlindsQuoteApp() {
             </button>
             {expandedQuoteTable && (
             <div style={{ overflowX: 'auto', marginBottom: '12px' }}>
-            <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse', minWidth: '600px' }}>
+            <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse', minWidth: '800px' }}>
               <thead style={{ background: '#1a1a1a', borderBottom: '1px solid #444' }}>
                 <tr>
-                  <th style={{ padding: '8px', textAlign: 'left', fontWeight: 'bold', color: '#fff', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis' }}>Room</th>
+                  <th style={{ padding: '8px', textAlign: 'left', fontWeight: 'bold', color: '#fff' }}>Room</th>
                   <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Qty</th>
-                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff', maxWidth: '70px' }}>Size</th>
+                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Size</th>
                   <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Type</th>
                   <th style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>Per Window</th>
                   <th style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>Total</th>
@@ -994,9 +994,9 @@ export default function BlindsQuoteApp() {
                     
                     return (
                       <tr key={`${roomIdx}-${groupIdx}`} style={{ borderBottom: '1px solid #444' }}>
-                        <td style={{ padding: '8px', color: '#fff', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{room.name}</td>
+                        <td style={{ padding: '8px', color: '#fff' }}>{room.name}</td>
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.quantity}</td>
-                        <td style={{ padding: '8px', textAlign: 'center', color: '#ccc', maxWidth: '70px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.width}x{group.height}</td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.width}x{group.height}</td>
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{motorType}</td>
                         <td style={{ padding: '8px', textAlign: 'right', color: selectedQuote.editedPrices?.perWindowPrices[room.id] ? '#ffcc00' : '#d4af37', fontWeight: '600', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
                           {editingTableField === `perWindow-${room.id}` ? (
