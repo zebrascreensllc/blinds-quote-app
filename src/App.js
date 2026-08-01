@@ -2,19 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Copy, Check, ArrowLeft, Search, BarChart3, TrendingUp, Edit2, ChevronDown, ChevronUp } from 'lucide-react';
 
 import { PRICING_DATA } from './data/pricingData';
-import { BUSINESS_NAME, SALES_TAX_RATE, getPricingSnapshot, INITIAL_FORM_STATE, INITIAL_TABLE_EDIT_VALUES } from './utils/constants';
-import { parseUnits, formatPrice, formatCurrency, formatDate, generateId, deepCopy } from './utils/formatters';
+import { BUSINESS_NAME, SALES_TAX_RATE, getPricingSnapshot } from './utils/constants';
+import { formatPrice } from './utils/formatters';
 import {
   getWidthSurcharge,
   getHeightSurcharge,
   isFabricValid,
-  getFabricPrice,
-  getMaxPriceForBlindType,
-  calculateGroupCost,
   calculateGroupQuote,
   getBlindTypeFromFabric,
-  getBlindTypesFromFabrics,
-  getQuoteNamePrefix,
   autoDetectBlindTypes,
   getNextVersion
 } from './utils/pricing';
