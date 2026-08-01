@@ -908,7 +908,7 @@ export default function BlindsQuoteApp() {
                 
                 // Show success with correct version number
                 alert(`✅ Success! New version ${newVersionString} created with your edited prices`);
-              }}}
+              }}
               style={{ width: '100%', padding: '14px', marginBottom: '24px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' }}
             >
               💾 Save All Changes & Create New Version
