@@ -10,6 +10,7 @@ import {
   isFabricValid,
   calculateGroupQuote,
   getBlindTypeFromFabric,
+  getQuoteNamePrefix,
   autoDetectBlindTypes,
   getNextVersion
 } from './utils/pricing';
