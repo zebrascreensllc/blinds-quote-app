@@ -70,6 +70,14 @@ export default function BlindsQuoteApp() {
     localStorage.setItem('blindsQuotes', JSON.stringify(quotes));
   }, [quotes]);
 
+  // ✅ CRITICAL FIX: Reset editing state when viewing a different quote
+  useEffect(() => {
+    if (selectedQuote) {
+      setTableEditValues({ perWindowPrices: {}, motorCost: 80, taxRate: 0.0825 });
+      setEditingTableField(null);
+    }
+  }, [selectedQuote?.id]);
+
   const generateQuote = () => {
     if (!formData.clientName || !formData.clientPhone) {
       alert('Please fill client name and phone');
@@ -645,9 +653,10 @@ export default function BlindsQuoteApp() {
                           {editingTableField === `perWindow-${room.id}` ? (
                             <input
                               type="number"
-                              defaultValue={displayPrice}
+                              value={tableEditValues.perWindowPrices[room.id] || displayPrice}
                               onChange={(e) => {setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [room.id]: parseFloat(e.target.value) || displayPrice}});}}
                               style={{ width: '50px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                              autoFocus
                             />
                           ) : (
                             <span>${displayPrice.toFixed(0)}</span>
@@ -716,9 +725,10 @@ export default function BlindsQuoteApp() {
                           {editingTableField === 'motorCost' ? (
                             <input
                               type="number"
-                              defaultValue={motorCost}
+                              value={tableEditValues.motorCost || 80}
                               onChange={(e) => setTableEditValues({...tableEditValues, motorCost: parseFloat(e.target.value) || 80})}
                               style={{ width: '50px', padding: '2px', borderRadius: '4px', fontSize: '12px', marginLeft: '4px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                              autoFocus
                             />
                           ) : (
                             <span style={{ color: '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${totalMotorCost}</span>
@@ -754,9 +764,10 @@ export default function BlindsQuoteApp() {
                       <input
                         type="number"
                         step="0.01"
-                        defaultValue={(tableEditValues.taxRate * 100).toFixed(2)}
+                        value={(tableEditValues.taxRate * 100).toFixed(2)}
                         onChange={(e) => setTableEditValues({...tableEditValues, taxRate: parseFloat(e.target.value) / 100 || 0.0825})}
                         style={{ width: '45px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                        autoFocus
                       />
                     ) : (
                       <span>(8.25%)</span>
@@ -809,27 +820,43 @@ export default function BlindsQuoteApp() {
             )}
           </div>
 
-          {/* ✅ NEW: Save All Changes Button - Show if any prices are edited */}
-          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== 80 || tableEditValues.taxRate !== 0.0825) && (
+          {/* ✅ FIXED: Save All Changes Button - Show if ANY values differ from defaults */}
+          {JSON.stringify(tableEditValues) !== JSON.stringify({ perWindowPrices: {}, motorCost: 80, taxRate: 0.0825 }) && (
+            <>
+              {/* Visual indicator of pending changes */}
+              <div style={{ padding: '12px', marginBottom: '12px', background: '#2a3a1a', border: '2px solid #4ade80', borderRadius: '6px', textAlign: 'center' }}>
+                <p style={{ color: '#4ade80', fontWeight: 'bold', margin: '0' }}>
+                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== 80 ? ', motor cost' : ''}{tableEditValues.taxRate !== 0.0825 ? ', tax rate' : ''})
+                </p>
+              </div>
+              
             <button
               onClick={() => {
-                // Simple fix: Mark that prices were edited and refresh the view
-                const currentVersion = selectedQuote.version || 1;
-                const newVersion = currentVersion + 1;
+                // ✅ FIX #1: Parse version string correctly
+                // selectedQuote.version is "v1", "v2" etc (string with 'v' prefix)
+                const versionNumber = parseInt(selectedQuote.version.replace('v', '')) || 1;
+                const newVersionNumber = versionNumber + 1;
+                const newVersionString = `v${newVersionNumber}`;
+                
+                // ✅ FIX #3: Generate unique ID for new version
+                const uniqueId = `${selectedQuote.id}-${newVersionString}-${Date.now()}`;
                 
                 // Create new version with edited prices marked
                 const newQuote = {
                   ...selectedQuote,
-                  version: newVersion,
+                  id: uniqueId,  // Unique ID for new version
+                  version: newVersionString,  // Correctly formatted version
                   updatedDate: new Date().toISOString(),
                   editedPrices: tableEditValues,
                   hasEditedPrices: true
                 };
                 
-                // Save as new version
-                setQuotes([...quotes, newQuote]);
+                // Save as new version to quotes array
+                const updatedQuotes = [...quotes, newQuote];
+                setQuotes(updatedQuotes);
                 
-                // Refresh display by setting selected quote to new version
+                // ✅ FIX #2: Remove problematic setTimeout
+                // Just update selectedQuote directly, no double state updates
                 setSelectedQuote(newQuote);
                 
                 // Clear editing mode
@@ -838,19 +865,14 @@ export default function BlindsQuoteApp() {
                 // Reset edit values for next time
                 setTableEditValues({ perWindowPrices: {}, motorCost: 80, taxRate: 0.0825 });
                 
-                // Show success and refresh the view
-                alert(`✅ Success! Quote v${newVersion} created with your edited prices`);
-                
-                // Force re-render by clicking view quote again
-                setTimeout(() => {
-                  setCurrentView('viewQuote');
-                  setSelectedQuote(newQuote);
-                }, 500);
+                // Show success with correct version number
+                alert(`✅ Success! New version ${newVersionString} created with your edited prices`);
               }}
               style={{ width: '100%', padding: '14px', marginBottom: '24px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' }}
             >
               💾 Save All Changes & Create New Version
             </button>
+            </>
           )}
 
           <div style={{ display: 'flex', gap: '12px' }}>
