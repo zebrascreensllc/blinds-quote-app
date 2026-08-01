@@ -101,9 +101,6 @@ export default function BlindsQuoteApp() {
   const [lastHeight, setLastHeight] = useState('');
   // ✅ NEW: Room collapse state
   const [expandedRooms, setExpandedRooms] = useState(new Set());
-  // ✅ NEW: Edit room in quote view
-  const [editingRoomInQuote, setEditingRoomInQuote] = useState(null);
-  const [editingRoomPrices, setEditingRoomPrices] = useState({});
   // ✅ NEW: Edit pricing table fields
   const [editingTableField, setEditingTableField] = useState(null);
   const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: 80, taxRate: 0.0825 });
@@ -989,7 +986,6 @@ export default function BlindsQuoteApp() {
                     const motorType = group.controlType || 'Manual';
                     const quantity = parseInt(group.quantity) || 1;
                     const perWindowMin = q.baseMinQuote / quantity;
-                    const perWindowMax = q.baseMaxQuote / quantity;
                     
                     // ✅ Check if this room has an edited price from a previous version
                     const displayPrice = selectedQuote.editedPrices?.perWindowPrices[room.id] || perWindowMin;
