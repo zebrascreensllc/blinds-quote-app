@@ -428,7 +428,7 @@ export default function BlindsQuoteApp() {
         });
       });
 
-      const taxRate = storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE;
+      const taxRate = editingTableField === 'tax' ? tableEditValues.taxRate : (storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE);
       const taxMin = totalMin * taxRate;
       const taxMax = totalMax * taxRate;
       const grandMin = totalMin + taxMin;
@@ -650,12 +650,12 @@ export default function BlindsQuoteApp() {
                               style={{ width: '50px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
                             />
                           ) : (
-                            <span>${displayPrice.toFixed(0)}{selectedQuote.editedPrices?.perWindowPrices[room.id] ? ' ✏️' : ''}</span>
+                            <span>${displayPrice.toFixed(0)}</span>
                           )}
                           <button
                             onClick={() => {
                               if (editingTableField === `perWindow-${room.id}`) {
-                                // Save
+                                // Just toggle input off, keep editing mode open for Save button
                                 setEditingTableField(null);
                               } else {
                                 // Start editing
@@ -663,9 +663,9 @@ export default function BlindsQuoteApp() {
                                 setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [room.id]: displayPrice}});
                               }
                             }}
-                            style={{ padding: '2px 4px', borderRadius: '2px', background: editingTableField === `perWindow-${room.id}` ? '#4ade80' : '#666', color: editingTableField === `perWindow-${room.id}` ? '#000' : '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                            style={{ marginLeft: '6px', padding: '2px 6px', borderRadius: '2px', background: editingTableField === `perWindow-${room.id}` ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
                           >
-                            {editingTableField === `perWindow-${room.id}` ? '✓' : '✏️'}
+                            {editingTableField === `perWindow-${room.id}` ? 'Done' : '✏️'}
                           </button>
                         </td>
                         <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: selectedQuote.editedPrices?.perWindowPrices[room.id] ? '#ffcc00' : '#fff' }}>
@@ -712,7 +712,17 @@ export default function BlindsQuoteApp() {
                     return (
                       <tr style={{ background: '#3a2a2a' }}>
                         <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
-                          Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost total: <span style={{ color: '#fff', fontWeight: 'bold' }}>${totalMotorCost}</span>
+                          Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost total: 
+                          {editingTableField === 'motorCost' ? (
+                            <input
+                              type="number"
+                              defaultValue={motorCost}
+                              onChange={(e) => setTableEditValues({...tableEditValues, motorCost: parseFloat(e.target.value) || 80})}
+                              style={{ width: '50px', padding: '2px', borderRadius: '4px', fontSize: '12px', marginLeft: '4px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                            />
+                          ) : (
+                            <span style={{ color: '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${totalMotorCost}</span>
+                          )}
                           <button
                             onClick={() => {
                               if (editingTableField === 'motorCost') {
@@ -722,9 +732,9 @@ export default function BlindsQuoteApp() {
                                 setTableEditValues({...tableEditValues, motorCost: motorCost});
                               }
                             }}
-                            style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: editingTableField === 'motorCost' ? '#4ade80' : '#666', color: editingTableField === 'motorCost' ? '#000' : '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                            style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: editingTableField === 'motorCost' ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
                           >
-                            {editingTableField === 'motorCost' ? '✓' : '✏️'}
+                            {editingTableField === 'motorCost' ? 'Done' : '✏️'}
                           </button>
                         </td>
                         <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
@@ -739,7 +749,19 @@ export default function BlindsQuoteApp() {
                 </tr>
                 <tr style={{ background: '#1a3a3a' }}>
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
-                    Tax (8.25%):
+                    Tax (
+                    {editingTableField === 'tax' ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        defaultValue={(tableEditValues.taxRate * 100).toFixed(2)}
+                        onChange={(e) => setTableEditValues({...tableEditValues, taxRate: parseFloat(e.target.value) / 100 || 0.0825})}
+                        style={{ width: '45px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                      />
+                    ) : (
+                      <span>(8.25%)</span>
+                    )}
+                    %):
                     <button
                       onClick={() => {
                         if (editingTableField === 'tax') {
@@ -749,9 +771,9 @@ export default function BlindsQuoteApp() {
                           setTableEditValues({...tableEditValues, taxRate: 0.0825});
                         }
                       }}
-                      style={{ marginLeft: '8px', padding: '2px 4px', borderRadius: '2px', background: editingTableField === 'tax' ? '#4ade80' : '#666', color: editingTableField === 'tax' ? '#000' : '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                      style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: editingTableField === 'tax' ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
                     >
-                      {editingTableField === 'tax' ? '✓' : '✏️'}
+                      {editingTableField === 'tax' ? 'Done' : '✏️'}
                     </button>
                   </td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>{formatPrice(taxMin, taxMax)}</td>
@@ -787,8 +809,8 @@ export default function BlindsQuoteApp() {
             )}
           </div>
 
-          {/* ✅ NEW: Save All Changes Button */}
-          {editingTableField && (
+          {/* ✅ NEW: Save All Changes Button - Show if any prices are edited */}
+          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== 80 || tableEditValues.taxRate !== 0.0825) && (
             <button
               onClick={() => {
                 // Simple fix: Mark that prices were edited and refresh the view
