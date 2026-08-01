@@ -72,10 +72,9 @@ export default function BlindsQuoteApp() {
 
   // ✅ CRITICAL FIX: Reset editing state when viewing a different quote
   useEffect(() => {
-    if (selectedQuote) {
-      setTableEditValues({ perWindowPrices: {}, motorCost: 80, taxRate: 0.0825 });
-      setEditingTableField(null);
-    }
+    // Reset editing state whenever a different quote is selected
+    setTableEditValues({ perWindowPrices: {}, motorCost: 80, taxRate: 0.0825 });
+    setEditingTableField(null);
   }, [selectedQuote?.id]);
 
   const generateQuote = () => {
