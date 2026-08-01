@@ -1036,12 +1036,12 @@ export default function BlindsQuoteApp() {
                   });
                 })}
                 <tr style={{ background: '#1a3a3a', borderTop: '2px solid #d4af37', fontWeight: 'bold' }}>
-                  <td colSpan="4" style={{ padding: '8px', textAlign: 'left', color: '#fff' }}>TOTAL:</td>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>TOTAL:</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>{formatPrice(totalMin, totalMax)}</td>
                 </tr>
                 {/* ✅ NEW: Total Windows Row */}
                 <tr style={{ background: '#2a3a2a' }}>
-                  <td colSpan="4" style={{ padding: '8px', textAlign: 'left', color: '#aaa' }}>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
                     TOTAL WINDOWS: <span style={{ color: '#fff', fontWeight: 'bold' }}>{(() => {
                       let totalWins = 0;
                       selectedQuote.rooms.forEach(room => {
@@ -1069,8 +1069,8 @@ export default function BlindsQuoteApp() {
                     const totalMotorCost = motorCount * motorCost;
                     return (
                       <tr style={{ background: '#3a2a2a' }}>
-                        <td colSpan="4" style={{ padding: '8px', textAlign: 'left', color: '#aaa' }}>Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost total: <span style={{ color: '#fff', fontWeight: 'bold' }}>${totalMotorCost}</span></td>
-                        <td style={{ padding: '8px', textAlign: 'right' }}>
+                        <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
+                          Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost total: <span style={{ color: '#fff', fontWeight: 'bold' }}>${totalMotorCost}</span>
                           <button
                             onClick={() => {
                               if (editingTableField === 'motorCost') {
@@ -1080,43 +1080,42 @@ export default function BlindsQuoteApp() {
                                 setTableEditValues({...tableEditValues, motorCost: motorCost});
                               }
                             }}
-                            style={{ padding: '2px 6px', borderRadius: '3px', background: editingTableField === 'motorCost' ? '#4ade80' : '#666', color: editingTableField === 'motorCost' ? '#000' : '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                            style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: editingTableField === 'motorCost' ? '#4ade80' : '#666', color: editingTableField === 'motorCost' ? '#000' : '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
                           >
                             {editingTableField === 'motorCost' ? '✓' : '✏️'}
                           </button>
                         </td>
+                        <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
                       </tr>
                     );
                   }
                   return null;
                 })()}
                 <tr style={{ background: '#2a4a2a' }}>
-                  <td colSpan="4" style={{ padding: '8px', textAlign: 'left', color: '#aaa', fontSize: '12px' }}>Surcharges (Width + Height):</td>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '12px' }}>Surcharges (Width + Height):</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '12px' }}>Included</td>
                 </tr>
                 <tr style={{ background: '#1a3a3a' }}>
-                  <td colSpan="4" style={{ padding: '8px', textAlign: 'left', color: '#aaa' }}>Tax (8.25%):</td>
-                  <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
-                      {formatPrice(taxMin, taxMax)}
-                      <button
-                        onClick={() => {
-                          if (editingTableField === 'tax') {
-                            setEditingTableField(null);
-                          } else {
-                            setEditingTableField('tax');
-                            setTableEditValues({...tableEditValues, taxRate: 0.0825});
-                          }
-                        }}
-                        style={{ padding: '2px 4px', borderRadius: '2px', background: editingTableField === 'tax' ? '#4ade80' : '#666', color: editingTableField === 'tax' ? '#000' : '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '9px' }}
-                      >
-                        {editingTableField === 'tax' ? '✓' : '✏️'}
-                      </button>
-                    </div>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
+                    Tax (8.25%):
+                    <button
+                      onClick={() => {
+                        if (editingTableField === 'tax') {
+                          setEditingTableField(null);
+                        } else {
+                          setEditingTableField('tax');
+                          setTableEditValues({...tableEditValues, taxRate: 0.0825});
+                        }
+                      }}
+                      style={{ marginLeft: '8px', padding: '2px 4px', borderRadius: '2px', background: editingTableField === 'tax' ? '#4ade80' : '#666', color: editingTableField === 'tax' ? '#000' : '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '9px' }}
+                    >
+                      {editingTableField === 'tax' ? '✓' : '✏️'}
+                    </button>
                   </td>
+                  <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>{formatPrice(taxMin, taxMax)}</td>
                 </tr>
                 <tr style={{ background: '#2a5a2a', fontWeight: 'bold' }}>
-                  <td colSpan="4" style={{ padding: '8px', textAlign: 'left', color: '#fff' }}>GRAND TOTAL:</td>
+                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>GRAND TOTAL:</td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>{formatPrice(grandMin, grandMax)}</td>
                 </tr>
               </tbody>
