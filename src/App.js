@@ -1068,10 +1068,6 @@ export default function BlindsQuoteApp() {
                   }
                   return null;
                 })()}
-                <tr style={{ background: '#2a4a2a' }}>
-                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '12px' }}>Surcharges (Width + Height):</td>
-                  <td style={{ padding: '8px', textAlign: 'right', color: '#aaa', fontSize: '12px' }}>Included</td>
-                </tr>
                 <tr style={{ background: '#1a3a3a' }}>
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
                     Tax (
