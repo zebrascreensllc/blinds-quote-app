@@ -658,6 +658,20 @@ export default function BlindsQuoteApp() {
       const rooms = selectedQuote.rooms;
       const storedPricing = selectedQuote.pricing || null; // Use stored pricing or null (fallback to defaults)
       let totalMin = 0, totalMax = 0, totalProfit = 0;
+
+      // ✅ BUGFIX: Motor cost edits updated the "Motor total" row but never reached
+      // Grand Total or Profit - same class of bug as the per-window price issue.
+      // Computed ONCE here (single source of truth) and reused everywhere below,
+      // so the displayed motor total and Grand Total can never drift apart again.
+      const defaultMotorCostClient = storedPricing?.MOTOR_COST_CLIENT || 80;
+      const effectiveMotorCost = (() => {
+        const pending = tableEditValues.motorCost;
+        if (typeof pending === 'number') return pending;
+        const saved = selectedQuote.editedPrices?.motorCost;
+        if (typeof saved === 'number') return saved;
+        return defaultMotorCostClient;
+      })();
+      const motorCostDelta = effectiveMotorCost - defaultMotorCostClient;
       
       // Check for invalid fabrics
       const invalidFabrics = [];
@@ -690,7 +704,7 @@ export default function BlindsQuoteApp() {
           }
         }
         
-        room.windowGroups.forEach(group => {
+        room.windowGroups.forEach((group, groupIdx) => {
           const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
           const q = calculateGroupQuote(group, fabricNumbers, actualBlindType, motorizedCount, storedPricing);
           
@@ -700,9 +714,35 @@ export default function BlindsQuoteApp() {
             return;
           }
           
-          totalMin += q.minQuote;
-          totalMax += q.maxQuote;
-          totalProfit += q.profit;
+          // ✅ BUGFIX: Grand Total / Tax / Profit previously always used the raw
+          // calculated price and ignored any edited per-window price, so a saved
+          // edit changed the per-window row but not the totals. Now: if this
+          // window group has an edited price (pending or already saved), the
+          // totals use that instead.
+          const priceKey = `${room.id}_${groupIdx}`;
+          const pendingPrice = tableEditValues.perWindowPrices[priceKey];
+          const savedPrice = selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
+          const overridePrice = typeof pendingPrice === 'number' ? pendingPrice
+            : (typeof savedPrice === 'number' ? savedPrice : null);
+
+          if (overridePrice !== null) {
+            const quantity = parseInt(group.quantity) || 1;
+            const overrideTotal = overridePrice * quantity;
+            const avgCost = (q.minCost + q.maxCost) / 2;
+            totalMin += overrideTotal;
+            totalMax += overrideTotal;
+            totalProfit += (overrideTotal - avgCost);
+          } else {
+            // ✅ BUGFIX: apply the motor cost delta to motorized groups so an edited
+            // motor cost actually changes Grand Total / Profit, not just its own row.
+            // (Only when there's no per-window override on this group - an explicit
+            // price override already sets the group's full revenue directly.)
+            const quantity = parseInt(group.quantity) || 1;
+            const motorAdjustment = (group.controlType === 'Motor' && motorCostDelta !== 0) ? motorCostDelta * quantity : 0;
+            totalMin += q.minQuote + motorAdjustment;
+            totalMax += q.maxQuote + motorAdjustment;
+            totalProfit += q.profit + motorAdjustment;
+          }
         });
       });
 
@@ -1005,23 +1045,27 @@ export default function BlindsQuoteApp() {
                 </tr>
                 {/* ✅ NEW: Motor Cost Breakdown Row */}
                 {(() => {
+                  // ✅ CONSISTENCY: if a motorized window also has its own per-window
+                  // price override, that window's full price (motor included) is already
+                  // manually set - don't count it here too, or this row and Grand Total
+                  // would imply two different motor amounts for the same window.
                   let motorCount = 0;
                   selectedQuote.rooms.forEach(room => {
-                    room.windowGroups.forEach(group => {
+                    room.windowGroups.forEach((group, groupIdx) => {
                       if (group.controlType === 'Motor') {
-                        motorCount += parseInt(group.quantity) || 0;
+                        const priceKey = `${room.id}_${groupIdx}`;
+                        const hasOwnOverride = typeof tableEditValues.perWindowPrices[priceKey] === 'number'
+                          || typeof selectedQuote.editedPrices?.perWindowPrices?.[priceKey] === 'number';
+                        if (!hasOwnOverride) {
+                          motorCount += parseInt(group.quantity) || 0;
+                        }
                       }
                     });
                   });
                   if (motorCount > 0) {
-                    // "Effective" motor cost - pending edit > saved edit > default
-                    const motorCost = (() => {
-                      const pending = tableEditValues.motorCost;
-                      if (typeof pending === 'number') return pending;         // Committed pending edit
-                      const saved = selectedQuote.editedPrices?.motorCost;
-                      if (typeof saved === 'number') return saved;             // Previously saved edit
-                      return storedPricing?.MOTOR_COST_CLIENT || 80;          // Default
-                    })();
+                    // ✅ Reuses the SAME effectiveMotorCost computed once above (for Grand Total),
+                    // so this row and Grand Total can never show different numbers again.
+                    const motorCost = effectiveMotorCost;
                     const totalMotorCost = motorCount * motorCost;
                     const isEditingMotor = editingTableField === 'motorCost';
                     const isMotorEdited = typeof tableEditValues.motorCost === 'number' || typeof selectedQuote.editedPrices?.motorCost === 'number';
@@ -1350,6 +1394,12 @@ export default function BlindsQuoteApp() {
       stats.totalQuotes += 1;
 
       let quoteProfit = 0;
+      // ✅ BUGFIX: same motor-cost gap as the quote detail screen - a saved motor
+      // cost edit changed the "Motor total" row but never reached profit stats.
+      const dashDefaultMotorCost = quote.pricing?.MOTOR_COST_CLIENT || 80;
+      const dashSavedMotorCost = quote.editedPrices?.motorCost;
+      const dashEffectiveMotorCost = typeof dashSavedMotorCost === 'number' ? dashSavedMotorCost : dashDefaultMotorCost;
+      const dashMotorCostDelta = dashEffectiveMotorCost - dashDefaultMotorCost;
       quote.rooms.forEach(room => {
         const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
         const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
@@ -1366,9 +1416,22 @@ export default function BlindsQuoteApp() {
           }
         }
         
-        room.windowGroups.forEach(group => {
+        room.windowGroups.forEach((group, groupIdx) => {
           const q = calculateGroupQuote(group, fabricNumbers, actualBlindType, motorizedCount, quote.pricing || null);
-          quoteProfit += q.profit;
+          // ✅ BUGFIX: same fix as the quote detail screen - use the edited
+          // per-window price (if one was saved) for profit, not the raw calculated price.
+          const priceKey = `${room.id}_${groupIdx}`;
+          const savedPrice = quote.editedPrices?.perWindowPrices?.[priceKey];
+          if (typeof savedPrice === 'number') {
+            const quantity = parseInt(group.quantity) || 1;
+            const overrideTotal = savedPrice * quantity;
+            const avgCost = (q.minCost + q.maxCost) / 2;
+            quoteProfit += (overrideTotal - avgCost);
+          } else {
+            const quantity = parseInt(group.quantity) || 1;
+            const motorAdjustment = (group.controlType === 'Motor' && dashMotorCostDelta !== 0) ? dashMotorCostDelta * quantity : 0;
+            quoteProfit += q.profit + motorAdjustment;
+          }
         });
       });
 
