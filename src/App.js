@@ -656,7 +656,7 @@ export default function BlindsQuoteApp() {
     try {
       const rooms = selectedQuote.rooms;
       const storedPricing = selectedQuote.pricing || null; // Use stored pricing or null (fallback to defaults)
-      let totalMin = 0, totalMax = 0, totalProfit = 0;
+      let totalMin = 0, totalMax = 0;
       // ✅ NEW: Supplier-side cost breakdown for the Pricing Comparison section.
       // Computed from the physical specs of each window (fabric, size, motor, solar) -
       // NOT from any price override, since what you charge the client doesn't change
@@ -747,10 +747,8 @@ export default function BlindsQuoteApp() {
           if (overridePrice !== null) {
             const quantity = parseInt(group.quantity) || 1;
             const overrideTotal = overridePrice * quantity;
-            const avgCost = (q.minCost + q.maxCost) / 2;
             totalMin += overrideTotal;
             totalMax += overrideTotal;
-            totalProfit += (overrideTotal - avgCost);
           } else {
             // ✅ BUGFIX: apply the motor cost delta to motorized groups so an edited
             // motor cost actually changes Grand Total / Profit, not just its own row.
@@ -760,7 +758,6 @@ export default function BlindsQuoteApp() {
             const motorAdjustment = (group.controlType === 'Motor' && motorCostDelta !== 0) ? motorCostDelta * quantity : 0;
             totalMin += q.minQuote + motorAdjustment;
             totalMax += q.maxQuote + motorAdjustment;
-            totalProfit += q.profit + motorAdjustment;
           }
         });
       });
