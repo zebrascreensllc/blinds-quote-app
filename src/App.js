@@ -36,6 +36,12 @@ export default function BlindsQuoteApp() {
   const [lastHeight, setLastHeight] = useState('');
   // ✅ NEW: Room collapse state
   const [expandedRooms, setExpandedRooms] = useState(new Set());
+  // ✅ NEW: Bulk-assign fabric OR blind-type-only (client hasn't picked exact fabric yet) to multiple rooms
+  const [showBulkAssign, setShowBulkAssign] = useState(false);
+  const [bulkMode, setBulkMode] = useState('fabric'); // 'fabric' | 'blindType'
+  const [bulkFabricInput, setBulkFabricInput] = useState('');
+  const [bulkBlindTypes, setBulkBlindTypes] = useState([]);
+  const [bulkSelectedRoomIds, setBulkSelectedRoomIds] = useState(new Set());
   // ✅ NEW: Edit pricing table fields
   const [editingTableField, setEditingTableField] = useState(null);
   // ✅ FIX: Use null as sentinel for "not edited this session" (distinct from 0 or any real value)
@@ -1079,26 +1085,30 @@ export default function BlindsQuoteApp() {
                 </tr>
                 {/* ✅ NEW: Motor Cost Breakdown Row */}
                 {(() => {
-                  // ✅ CONSISTENCY: if a motorized window also has its own per-window
-                  // price override, that window's full price (motor included) is already
-                  // manually set - don't count it here too, or this row and Grand Total
-                  // would imply two different motor amounts for the same window.
+                  // ✅ BUGFIX: previously excluded motorized windows that also had their
+                  // own per-window price override, to avoid double-counting. But when
+                  // EVERY motorized window has an override (a common real workflow -
+                  // manually pricing each row), that made this whole row vanish, which
+                  // looked like "motor cost is missing." Now: always count every
+                  // motorized window here (informational), and just note separately
+                  // when some of them are individually repriced.
                   let motorCount = 0;
+                  let motorCountWithOwnOverride = 0;
                   selectedQuote.rooms.forEach(room => {
                     room.windowGroups.forEach((group, groupIdx) => {
                       if (group.controlType === 'Motor') {
+                        const qty = parseInt(group.quantity) || 0;
+                        motorCount += qty;
                         const priceKey = `${room.id}_${groupIdx}`;
                         const hasOwnOverride = typeof tableEditValues.perWindowPrices[priceKey] === 'number'
                           || typeof selectedQuote.editedPrices?.perWindowPrices?.[priceKey] === 'number';
-                        if (!hasOwnOverride) {
-                          motorCount += parseInt(group.quantity) || 0;
-                        }
+                        if (hasOwnOverride) motorCountWithOwnOverride += qty;
                       }
                     });
                   });
                   if (motorCount > 0) {
                     // ✅ Reuses the SAME effectiveMotorCost computed once above (for Grand Total),
-                    // so this row and Grand Total can never show different numbers again.
+                    // so this row and Grand Total can never drift apart for non-overridden windows.
                     const motorCost = effectiveMotorCost;
                     const totalMotorCost = motorCount * motorCost;
                     const isEditingMotor = editingTableField === 'motorCost';
@@ -1139,6 +1149,11 @@ export default function BlindsQuoteApp() {
                           >
                             {isEditingMotor ? 'Done' : '✏️'}
                           </button>
+                          {motorCountWithOwnOverride > 0 && (
+                            <p style={{ fontSize: '10px', color: '#888', marginTop: '4px', fontStyle: 'italic' }}>
+                              ({motorCountWithOwnOverride} of these {motorCount} motorized windows already have a manually-set price above - this row is an estimate at ${formatMoney(motorCost)}/motor and is not double-counted in the Total)
+                            </p>
+                          )}
                         </td>
                         <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
                       </tr>
@@ -1204,18 +1219,39 @@ export default function BlindsQuoteApp() {
             )}
           </div>
 
-          {/* ✅ FIXED: Save All Changes Button - Show if ANY values differ from "not edited" defaults */}
-          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.taxRate !== null) && (
+          {/* ✅ FIXED: Save All Changes Button - Show if ANY values differ from "not edited" defaults, OR you're actively typing a not-yet-committed edit */}
+          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.taxRate !== null || (editingTableField && activeEditText !== '')) && (
             <>
               {/* Visual indicator of pending changes */}
               <div style={{ padding: '12px', marginBottom: '12px', background: '#2a3a1a', border: '2px solid #4ade80', borderRadius: '6px', textAlign: 'center' }}>
                 <p style={{ color: '#4ade80', fontWeight: 'bold', margin: '0' }}>
-                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''})
+                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''}{editingTableField && activeEditText !== '' ? ' (still typing...)' : ''})
                 </p>
               </div>
               
             <button
               onClick={() => {
+                // ✅ BUGFIX: if you're still typing in an input (e.g. edited Motor Cost
+                // but clicked "Save All Changes" instead of that field's own "Done"
+                // button first), the typed value never made it into tableEditValues and
+                // was silently dropped - the new version saved with the OLD motor cost,
+                // which is exactly what looked like "motor cost missing" after saving.
+                // Auto-commit whatever's currently open before saving, so nothing is lost.
+                let effectiveTableEditValues = tableEditValues;
+                if (editingTableField && activeEditText !== '') {
+                  const parsed = parseFloat(activeEditText);
+                  if (!isNaN(parsed)) {
+                    if (editingTableField === 'motorCost') {
+                      effectiveTableEditValues = { ...tableEditValues, motorCost: parsed };
+                    } else if (editingTableField === 'tax') {
+                      effectiveTableEditValues = { ...tableEditValues, taxRate: parsed / 100 };
+                    } else if (editingTableField.startsWith('perWindow-')) {
+                      const key = editingTableField.replace('perWindow-', '');
+                      effectiveTableEditValues = { ...tableEditValues, perWindowPrices: { ...tableEditValues.perWindowPrices, [key]: parsed } };
+                    }
+                  }
+                }
+
                 // ✅ FIX #1: Parse version string safely - handles corrupted versions
                 const parseVersion = (version) => {
                   if (typeof version === 'string') {
@@ -1246,10 +1282,10 @@ export default function BlindsQuoteApp() {
                 const mergedEditedPrices = {
                   perWindowPrices: {
                     ...(selectedQuote.editedPrices?.perWindowPrices || {}),
-                    ...Object.fromEntries(Object.entries(tableEditValues.perWindowPrices).filter(([, v]) => typeof v === 'number'))
+                    ...Object.fromEntries(Object.entries(effectiveTableEditValues.perWindowPrices).filter(([, v]) => typeof v === 'number'))
                   },
-                  motorCost: typeof tableEditValues.motorCost === 'number' ? tableEditValues.motorCost : selectedQuote.editedPrices?.motorCost,
-                  taxRate: typeof tableEditValues.taxRate === 'number' ? tableEditValues.taxRate : selectedQuote.editedPrices?.taxRate
+                  motorCost: typeof effectiveTableEditValues.motorCost === 'number' ? effectiveTableEditValues.motorCost : selectedQuote.editedPrices?.motorCost,
+                  taxRate: typeof effectiveTableEditValues.taxRate === 'number' ? effectiveTableEditValues.taxRate : selectedQuote.editedPrices?.taxRate
                 };
                 
                 // Create new version with merged edited prices
@@ -1354,6 +1390,52 @@ export default function BlindsQuoteApp() {
       fabric: room.fabricInput || blindType,
       motorCount
     };
+  };
+
+  // ✅ NEW: Applies either a specific fabric number OR a blind-type-only estimate
+  // (when the client hasn't picked exact fabric yet) to every selected room's OWN
+  // fields - the same fields the per-room inputs already use, so there's never a
+  // second place that could hold a different value for the same room.
+  const applyBulkAssignment = () => {
+    if (bulkSelectedRoomIds.size === 0) {
+      alert('Select at least one room to apply it to.');
+      return;
+    }
+
+    let newRooms;
+    let appliedLabel;
+
+    if (bulkMode === 'fabric') {
+      const fabricValue = bulkFabricInput.trim();
+      if (!fabricValue) {
+        alert('Enter a fabric number first.');
+        return;
+      }
+      const detectedTypes = autoDetectBlindTypes(fabricValue);
+      newRooms = formData.rooms.map(room =>
+        bulkSelectedRoomIds.has(room.id) ? { ...room, fabricInput: fabricValue, blindTypes: detectedTypes } : room
+      );
+      appliedLabel = `fabric "${fabricValue}"`;
+    } else {
+      if (bulkBlindTypes.length === 0) {
+        alert('Select at least one blind type first.');
+        return;
+      }
+      // Blind-type-only: matches the per-room fallback behavior exactly - leave
+      // fabricInput blank so pricing uses a Min/Max range for these types instead
+      // of one exact fabric price.
+      newRooms = formData.rooms.map(room =>
+        bulkSelectedRoomIds.has(room.id) ? { ...room, fabricInput: '', blindTypes: [...bulkBlindTypes] } : room
+      );
+      appliedLabel = `blind type "${bulkBlindTypes.join(', ')}" (Min/Max estimate, no exact fabric)`;
+    }
+
+    const appliedCount = bulkSelectedRoomIds.size;
+    setFormData({ ...formData, rooms: newRooms });
+    setBulkFabricInput('');
+    setBulkBlindTypes([]);
+    setBulkSelectedRoomIds(new Set());
+    alert(`✅ Applied ${appliedLabel} to ${appliedCount} room${appliedCount > 1 ? 's' : ''}. You can still fine-tune any individual room below.`);
   };
 
   // ✅ NEW HELPER: Toggle room expanded/collapsed
@@ -1554,6 +1636,116 @@ export default function BlindsQuoteApp() {
         </div>
 
         <h3 style={{ fontWeight: 'bold', fontSize: '20px', color: '#fff', marginBottom: '24px', fontFamily: 'Georgia, serif' }}>Rooms & Windows</h3>
+
+        {/* ✅ NEW: Bulk Assign Fabric - types one fabric number, applies it into the
+            SAME fabricInput field each room already uses, for as many rooms as picked.
+            No separate data path, so this can never disagree with the room cards below. */}
+        <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#1a2a3a', border: '1px solid #4a6a8a', overflow: 'hidden' }}>
+          <button onClick={() => setShowBulkAssign(!showBulkAssign)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#7dd3fc' }}>🧵 Bulk Assign Fabric to Multiple Rooms</span>
+            <span style={{ color: '#888', fontSize: '14px' }}>{showBulkAssign ? '▼' : '▶'}</span>
+          </button>
+          {showBulkAssign && (
+            <div style={{ padding: '0 16px 16px 16px' }}>
+              <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '12px' }}>
+                Pick rooms, choose fabric OR blind type below, and apply. Each room's own field gets updated - you can still fine-tune any single room afterward.
+              </p>
+
+              {/* Mode toggle: exact fabric vs. blind-type-only estimate */}
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                <button
+                  onClick={() => setBulkMode('fabric')}
+                  style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkMode === 'fabric' ? '#0e7490' : '#0a0a0a', color: bulkMode === 'fabric' ? '#fff' : '#888', border: bulkMode === 'fabric' ? '1px solid #0e7490' : '1px solid #444' }}
+                >
+                  Fabric Number
+                </button>
+                <button
+                  onClick={() => setBulkMode('blindType')}
+                  style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkMode === 'blindType' ? '#0e7490' : '#0a0a0a', color: bulkMode === 'blindType' ? '#fff' : '#888', border: bulkMode === 'blindType' ? '1px solid #0e7490' : '1px solid #444' }}
+                >
+                  Blind Type (no fabric yet)
+                </button>
+              </div>
+
+              {bulkMode === 'fabric' ? (
+                <input
+                  type="text"
+                  placeholder="e.g., 82086K, 82067E"
+                  value={bulkFabricInput}
+                  onChange={(e) => setBulkFabricInput(e.target.value)}
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '12px', fontSize: '14px', background: '#0a0a0a', border: '1px solid #4a6a8a', color: 'white' }}
+                />
+              ) : (
+                <div style={{ marginBottom: '12px' }}>
+                  <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '8px' }}>For a Min/Max price range instead of an exact price - select one or more:</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    {['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'].map(type => {
+                      const checked = bulkBlindTypes.includes(type);
+                      return (
+                        <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', borderRadius: '6px', background: checked ? '#1a3a4a' : '#0a0a0a', border: checked ? '1px solid #4ade80' : '1px solid #444', cursor: 'pointer', fontSize: '13px', color: checked ? '#4ade80' : '#ccc' }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setBulkBlindTypes([...new Set([...bulkBlindTypes, type])]);
+                              } else {
+                                setBulkBlindTypes(bulkBlindTypes.filter(t => t !== type));
+                              }
+                            }}
+                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                          />
+                          {type}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {formData.rooms.length === 0 ? (
+                <p style={{ fontSize: '13px', color: '#888', fontStyle: 'italic' }}>Add a room below first, then come back here to bulk-assign.</p>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
+                    <button onClick={() => setBulkSelectedRoomIds(new Set(formData.rooms.map(r => r.id)))} style={{ fontSize: '12px', color: '#7dd3fc', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Select All</button>
+                    <button onClick={() => setBulkSelectedRoomIds(new Set())} style={{ fontSize: '12px', color: '#888', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear</button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px', maxHeight: '260px', overflowY: 'auto' }}>
+                    {formData.rooms.map((room, idx) => {
+                      const summary = getRoomSummary(room);
+                      const checked = bulkSelectedRoomIds.has(room.id);
+                      return (
+                        <label key={room.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', borderRadius: '6px', background: checked ? '#1a3a4a' : '#0a0a0a', border: checked ? '1px solid #4ade80' : '1px solid #333', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              const newSet = new Set(bulkSelectedRoomIds);
+                              if (newSet.has(room.id)) newSet.delete(room.id); else newSet.add(room.id);
+                              setBulkSelectedRoomIds(newSet);
+                            }}
+                            style={{ width: '16px', height: '16px', cursor: 'pointer', flexShrink: 0 }}
+                          />
+                          <span style={{ fontSize: '13px', color: checked ? '#4ade80' : '#ccc' }}>
+                            {room.name || `Room ${idx + 1}`}
+                            <span style={{ color: '#888' }}> — {summary.windows} windows, {summary.dimensions}{room.fabricInput ? `, currently: ${room.fabricInput}` : ''}</span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={applyBulkAssignment}
+                    style={{ width: '100%', padding: '12px', borderRadius: '8px', background: '#0e7490', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}
+                  >
+                    Apply to {bulkSelectedRoomIds.size || 0} Selected Room{bulkSelectedRoomIds.size === 1 ? '' : 's'}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
         {formData.rooms.map((room, roomIndex) => {
           const isExpanded = expandedRooms.has(room.id);
