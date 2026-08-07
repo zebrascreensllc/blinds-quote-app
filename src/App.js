@@ -42,8 +42,7 @@ export default function BlindsQuoteApp() {
   // activeEditText = the RAW TEXT currently in whichever input is open (text input, not number input - avoids mobile keyboard bugs)
   const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: null, taxRate: null });
   const [activeEditText, setActiveEditText] = useState('');
-  // ✅ NEW: Profit details collapse (false = collapsed by default)
-  const [expandedProfitDetails, setExpandedProfitDetails] = useState(false);
+  // (Profit Details section merged into PRICING COMPARISON above - uses expandedPricingComparison)
 
   const [formData, setFormData] = useState({
     clientName: '',
@@ -658,6 +657,11 @@ export default function BlindsQuoteApp() {
       const rooms = selectedQuote.rooms;
       const storedPricing = selectedQuote.pricing || null; // Use stored pricing or null (fallback to defaults)
       let totalMin = 0, totalMax = 0, totalProfit = 0;
+      // ✅ NEW: Supplier-side cost breakdown for the Pricing Comparison section.
+      // Computed from the physical specs of each window (fabric, size, motor, solar) -
+      // NOT from any price override, since what you charge the client doesn't change
+      // what the supplier actually costs you.
+      let overallFabricCost = 0, overallShippingCost = 0, overallMotorSupplierCost = 0, overallSolarSupplierCost = 0;
 
       // ✅ BUGFIX: Motor cost edits updated the "Motor total" row but never reached
       // Grand Total or Profit - same class of bug as the per-window price issue.
@@ -714,6 +718,21 @@ export default function BlindsQuoteApp() {
             return;
           }
           
+          // ✅ NEW: Supplier cost breakdown (fabric/shipping/motor/solar), independent
+          // of any price override - this reflects actual physical cost, not what's charged.
+          const quantityForCost = parseInt(group.quantity) || 1;
+          const avgGroupCost = (q.minCost + q.maxCost) / 2;
+          const shippingForGroup = (storedPricing?.SHIPPING_COST ?? 42) * quantityForCost;
+          overallShippingCost += shippingForGroup;
+          overallFabricCost += (avgGroupCost - shippingForGroup); // fabric price + wrap + misc
+          if (group.controlType === 'Motor') {
+            const remoteType = motorizedCount > 6 ? (storedPricing?.REMOTE_16CH ?? 10) : (storedPricing?.REMOTE_6CH ?? 7);
+            overallMotorSupplierCost += ((storedPricing?.MOTOR_COST_SUPPLIER ?? 50) + (remoteType / motorizedCount)) * quantityForCost;
+          }
+          if (group.solar) {
+            overallSolarSupplierCost += (storedPricing?.SOLAR_COST_SUPPLIER ?? 22) * quantityForCost;
+          }
+
           // ✅ BUGFIX: Grand Total / Tax / Profit previously always used the raw
           // calculated price and ignored any edited per-window price, so a saved
           // edit changed the per-window row but not the totals. Now: if this
@@ -745,6 +764,15 @@ export default function BlindsQuoteApp() {
           }
         });
       });
+
+      // ✅ NEW: Overall expected supplier-side cost = sum of the 4 buckets above (no profit).
+      const overallSupplierCost = overallFabricCost + overallShippingCost + overallMotorSupplierCost + overallSolarSupplierCost;
+      // ✅ NEW: True profit = revenue (totalMin, reflects any price overrides) minus the FULL
+      // supplier cost above. This is more complete than the old profit figure, which netted
+      // motor/solar supplier cost invisibly into the margin instead of showing it as its own
+      // line - so for quotes with motorized or solar windows, this number will read lower
+      // than the profit shown elsewhere in the app. Kept isolated to this section for now.
+      const pricingComparisonProfit = totalMin - overallSupplierCost;
 
       // ✅ FIX: "Effective" tax rate - checks pending edit FIRST, then saved edit, then default
       // Works whether actively editing, just clicked Done, or viewing a saved version
@@ -884,38 +912,47 @@ export default function BlindsQuoteApp() {
             </div>
           )}
 
-          {/* Current Pricing Comparison */}
-          {storedPricing && storedPricing.WIDTH_SURCHARGES && (
-            <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#2a2a1a', border: '1px solid #6a6a4a' }}>
-              <button onClick={() => setExpandedPricingComparison(!expandedPricingComparison)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '16px' }}>
-                <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#f4e4c1', marginBottom: '0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>⚠️ CURRENT PRICING (For comparison)</span>
-                  <span style={{ color: '#888', fontSize: '12px' }}>{expandedPricingComparison ? '▼' : '▶'}</span>
-                </p>
-              </button>
-              {expandedPricingComparison && (
-              <div style={{ padding: '0 16px 16px 16px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', fontSize: '11px' }}>
+          {/* ✅ PRICING COMPARISON - same structure as "📋 PRICING DETAILS" above */}
+          <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#1a3a3a', border: '1px solid #4a7a6a', padding: '16px' }}>
+            <button onClick={() => setExpandedPricingComparison(!expandedPricingComparison)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '0', marginBottom: expandedPricingComparison ? '12px' : '0' }}>
+              <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#d4af37', marginBottom: '0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>📊 PRICING COMPARISON (Supplier Only)</span>
+                <span style={{ color: '#888', fontSize: '14px' }}>{expandedPricingComparison ? '▼' : '▶'}</span>
+              </p>
+            </button>
+
+            {expandedPricingComparison && (
+              <>
+                <p style={{ fontSize: '11px', color: '#aaa', marginBottom: '12px', fontStyle: 'italic' }}>💡 Internal cost/profit breakdown. Not shown to clients.</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '12px' }}>
                   <div>
-                    <p style={{ color: '#888', marginBottom: '4px' }}>Profit Per Window:</p>
-                    <p style={{ color: storedPricing.PROFIT_PER_WINDOW === 60 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${60}</p>
-                    {storedPricing.PROFIT_PER_WINDOW !== 60 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.PROFIT_PER_WINDOW} → $60</p>}
+                    <p style={{ color: '#888', marginBottom: '4px' }}>Fabric Cost (Supplier Cost):</p>
+                    <p style={{ color: '#fff', fontWeight: 'bold' }}>${formatMoney(overallFabricCost)}</p>
                   </div>
                   <div>
-                    <p style={{ color: '#888', marginBottom: '4px' }}>Width Surcharge (41-55"):</p>
-                    <p style={{ color: (storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45) === 45 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${45}</p>
-                    {(storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45) !== 45 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45} → $45</p>}
+                    <p style={{ color: '#888', marginBottom: '4px' }}>Shipping Cost:</p>
+                    <p style={{ color: '#fff', fontWeight: 'bold' }}>${formatMoney(overallShippingCost)}</p>
                   </div>
                   <div>
-                    <p style={{ color: '#888', marginBottom: '4px' }}>Height Surcharge (&gt;90"):</p>
-                    <p style={{ color: (storedPricing.HEIGHT_SURCHARGE ?? 37) === 37 ? '#aaa' : '#ffaa00', fontWeight: 'bold' }}>${37}</p>
-                    {(storedPricing.HEIGHT_SURCHARGE ?? 37) !== 37 && <p style={{ color: '#ff6666', fontSize: '10px' }}>Changed: ${storedPricing.HEIGHT_SURCHARGE ?? 37} → $37</p>}
+                    <p style={{ color: '#888', marginBottom: '4px' }}>Motor Cost (Supplier Cost):</p>
+                    <p style={{ color: '#fff', fontWeight: 'bold' }}>${formatMoney(overallMotorSupplierCost)}</p>
+                  </div>
+                  <div>
+                    <p style={{ color: '#888', marginBottom: '4px' }}>Solar Cost (Supplier Cost):</p>
+                    <p style={{ color: '#fff', fontWeight: 'bold' }}>${formatMoney(overallSolarSupplierCost)}</p>
+                  </div>
+                  <div style={{ gridColumn: '1 / -1', paddingTop: '8px', borderTop: '1px solid #4a7a6a' }}>
+                    <p style={{ color: '#888', marginBottom: '4px' }}>Overall Expected Cost (Supplier Side, no profit):</p>
+                    <p style={{ color: '#ffaa00', fontWeight: 'bold', fontSize: '13px' }}>${formatMoney(overallSupplierCost)}</p>
+                  </div>
+                  <div style={{ gridColumn: '1 / -1', paddingTop: '8px', borderTop: '1px solid #4a7a6a' }}>
+                    <p style={{ color: '#d4af37', fontSize: '11px', fontWeight: 'bold' }}>💰 PROFIT: ${formatMoney(pricingComparisonProfit)}</p>
+                    <p style={{ color: '#888', fontSize: '11px', marginTop: '4px' }}>Total price to client minus the overall supplier cost above</p>
                   </div>
                 </div>
-              </div>
-              )}
-            </div>
-          )}
+              </>
+            )}
+          </div>
 
           <div style={{ borderRadius: '8px', marginBottom: '32px', background: '#2a2a2a', border: '1px solid #444' }}>
             <button onClick={() => setExpandedQuoteTable(!expandedQuoteTable)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '12px 16px', marginBottom: expandedQuoteTable ? '0' : '0' }}>
@@ -1167,27 +1204,6 @@ export default function BlindsQuoteApp() {
               </tbody>
             </table>
             </div>
-            )}
-          </div>
-
-          {/* ✅ NEW: Collapsible Profit Details Section */}
-          <div style={{ background: '#3a3a2a', border: '1px solid #6a6a4a', borderRadius: '8px', marginBottom: '24px', overflow: 'hidden' }}>
-            <button 
-              onClick={() => setExpandedProfitDetails(!expandedProfitDetails)} 
-              style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '16px', color: '#ffd700' }}
-            >
-              <span>{expandedProfitDetails ? '▼' : '▶'} Profit Details</span>
-              <span style={{ fontSize: '13px', color: '#888' }}>Supplier Only</span>
-            </button>
-            
-            {expandedProfitDetails && (
-              <div style={{ background: '#2a2a1a', padding: '16px', borderTop: '1px solid #6a6a4a' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: '#1a1a1a', borderRadius: '6px', border: '1px solid #555' }}>
-                  <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff' }}>YOUR PROFIT:</p>
-                  <p style={{ fontSize: '16px', fontWeight: 'bold', color: '#ffd700' }}>${totalProfit.toFixed(0)}</p>
-                </div>
-                <p style={{ fontSize: '12px', color: '#888', marginTop: '12px', fontStyle: 'italic' }}>💡 This is your internal profit calculation. Not shown to clients.</p>
-              </div>
             )}
           </div>
 
