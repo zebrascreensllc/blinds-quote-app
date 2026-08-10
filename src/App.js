@@ -705,11 +705,6 @@ export default function BlindsQuoteApp() {
         if (typeof saved === 'number') return saved;
         return defaultMotorCostClient;
       })();
-      const motorCostDelta = effectiveMotorCost - defaultMotorCostClient;
-
-      // ✅ NEW: same pattern as motor - solar was baked directly into the
-      // per-window base price with no way to edit it separately, so editing a
-      // window's price silently overrode/ignored the solar markup too.
       const defaultSolarCostClient = storedPricing?.SOLAR_COST_CLIENT || 40;
       const effectiveSolarCost = (() => {
         const pending = tableEditValues.solarCost;
@@ -718,7 +713,27 @@ export default function BlindsQuoteApp() {
         if (typeof saved === 'number') return saved;
         return defaultSolarCostClient;
       })();
-      const solarCostDelta = effectiveSolarCost - defaultSolarCostClient;
+
+      // ✅ BUGFIX (major): Motor/Solar cost totals were shown as their own rows
+      // but NEVER actually added into Tax or Grand Total - those rows were
+      // purely informational displays floating separately from the real math.
+      // Motor and Solar are now genuinely additive line items: computed ONCE
+      // here as motorCount/solarCount (single source of truth, also reused by
+      // the breakdown rows below so they can never disagree), multiplied by
+      // the effective per-unit rate, and added directly into the taxable base
+      // and Grand Total. No more delta-tracking needed - the full amount is
+      // simply added once, cleanly.
+      let motorCount = 0;
+      let solarCount = 0;
+      rooms.forEach(room => {
+        room.windowGroups.forEach(group => {
+          const qty = parseInt(group.quantity) || 0;
+          if (group.controlType === 'Motor') motorCount += qty;
+          if (group.solar) solarCount += qty;
+        });
+      });
+      const motorGrandTotal = motorCount * effectiveMotorCost;
+      const solarGrandTotal = solarCount * effectiveSolarCost;
       
       // Check for invalid fabrics
       const invalidFabrics = [];
@@ -793,27 +808,26 @@ export default function BlindsQuoteApp() {
             totalMin += overrideTotal;
             totalMax += overrideTotal;
           } else {
-            // ✅ BUGFIX: apply the motor cost delta to motorized groups so an edited
-            // motor cost actually changes Grand Total / Profit, not just its own row.
-            // (Only when there's no per-window override on this group - an explicit
-            // price override already sets the group's full revenue directly.)
-            const quantity = parseInt(group.quantity) || 1;
-            const motorAdjustment = (group.controlType === 'Motor' && motorCostDelta !== 0) ? motorCostDelta * quantity : 0;
-            const solarAdjustment = (group.solar && solarCostDelta !== 0) ? solarCostDelta * quantity : 0;
-            totalMin += q.minQuote + motorAdjustment + solarAdjustment;
-            totalMax += q.maxQuote + motorAdjustment + solarAdjustment;
+            // ✅ BUGFIX: use baseMinQuote/baseMaxQuote (window/fabric cost only -
+            // the same number shown in the "Per Window" column) instead of
+            // minQuote/maxQuote, which had a NET motor/solar margin baked in.
+            // Motor and Solar are now added exactly once, globally, via
+            // motorGrandTotal/solarGrandTotal below - using minQuote here too
+            // would double-count them for every non-overridden motorized or
+            // solar window.
+            totalMin += q.baseMinQuote;
+            totalMax += q.baseMaxQuote;
           }
         });
       });
 
       // ✅ NEW: Overall expected supplier-side cost = sum of the 4 buckets above (no profit).
       const overallSupplierCost = overallFabricCost + overallShippingCost + overallMotorSupplierCost + overallSolarSupplierCost;
-      // ✅ NEW: True profit = revenue (totalMin, reflects any price overrides) minus the FULL
-      // supplier cost above. This is more complete than the old profit figure, which netted
-      // motor/solar supplier cost invisibly into the margin instead of showing it as its own
-      // line - so for quotes with motorized or solar windows, this number will read lower
-      // than the profit shown elsewhere in the app. Kept isolated to this section for now.
-      const pricingComparisonProfit = totalMin - overallSupplierCost;
+      // ✅ BUGFIX: profit must be measured against the FULL revenue (window +
+      // motor + solar, all client-facing amounts) - previously used totalMin
+      // alone, which understated revenue by the entire motor/solar amount and
+      // therefore understated profit too.
+      const pricingComparisonProfit = (totalMin + motorGrandTotal + solarGrandTotal) - overallSupplierCost;
 
       // ✅ FIX: "Effective" tax rate - checks pending edit FIRST, then saved edit, then default
       // Works whether actively editing, just clicked Done, or viewing a saved version
@@ -825,10 +839,17 @@ export default function BlindsQuoteApp() {
         if (typeof saved === 'number') return saved;                // Previously saved edit
         return storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE;    // Default
       })();
-      const taxMin = totalMin * taxRate;
-      const taxMax = totalMax * taxRate;
-      const grandMin = totalMin + taxMin;
-      const grandMax = totalMax + taxMax;
+      // ✅ BUGFIX (the main issue reported): Motor and Solar totals were never
+      // actually added into the taxable base or Grand Total before - they were
+      // just informational rows sitting next to numbers that didn't include them.
+      // Tax now applies to Window + Motor + Solar together, and Grand Total
+      // reflects that same combined amount, not just the window cost.
+      const subtotalMin = totalMin + motorGrandTotal + solarGrandTotal;
+      const subtotalMax = totalMax + motorGrandTotal + solarGrandTotal;
+      const taxMin = subtotalMin * taxRate;
+      const taxMax = subtotalMax * taxRate;
+      const grandMin = subtotalMin + taxMin;
+      const grandMax = subtotalMax + taxMax;
 
     const copyText = (() => {
       let text = `QUOTE - ${BUSINESS_NAME}\n\nClient: ${selectedQuote.clientName}\nPhone: ${selectedQuote.clientPhone}\nLocation: ${selectedQuote.location}\nDate: ${selectedQuote.date}\n\n`;
@@ -1121,121 +1142,102 @@ export default function BlindsQuoteApp() {
                   </td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
                 </tr>
-                {/* ✅ Motor Cost Breakdown Row */}
-                {(() => {
-                  let motorCount = 0;
-                  selectedQuote.rooms.forEach(room => {
-                    room.windowGroups.forEach(group => {
-                      if (group.controlType === 'Motor') {
-                        motorCount += parseInt(group.quantity) || 0;
-                      }
-                    });
-                  });
-                  if (motorCount > 0) {
-                    // ✅ Reuses the SAME effectiveMotorCost computed once above (for Grand Total),
-                    // so this row and Grand Total can never drift apart for non-overridden windows.
-                    const motorCost = effectiveMotorCost;
-                    const totalMotorCost = motorCount * motorCost;
-                    const isEditingMotor = editingTableField === 'motorCost';
-                    const isMotorEdited = typeof tableEditValues.motorCost === 'number' || typeof selectedQuote.editedPrices?.motorCost === 'number';
-                    return (
-                      <tr style={{ background: '#3a2a2a' }}>
-                        <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
-                          Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost total: 
-                          {isEditingMotor ? (
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={activeEditText}
-                              onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
-                              style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', marginLeft: '4px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
-                              autoFocus
-                            />
-                          ) : (
-                            <span style={{ color: isMotorEdited ? '#ffcc00' : '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${formatMoney(totalMotorCost)}</span>
-                          )}
-                          <button
-                            onClick={() => {
-                              if (isEditingMotor) {
-                                const parsed = parseFloat(activeEditText);
-                                if (activeEditText !== '' && !isNaN(parsed)) {
-                                  setTableEditValues({...tableEditValues, motorCost: parsed});
-                                }
-                                setEditingTableField(null);
-                                setActiveEditText('');
-                              } else {
-                                setEditingTableField('motorCost');
-                                setActiveEditText(formatMoney(motorCost));
+                {/* ✅ Motor Cost Breakdown Row - uses the SAME motorCount/motorGrandTotal
+                    computed once above for Grand Total, so this row and Grand Total can
+                    never show different numbers again. */}
+                {motorCount > 0 && (() => {
+                  const isEditingMotor = editingTableField === 'motorCost';
+                  const isMotorEdited = typeof tableEditValues.motorCost === 'number' || typeof selectedQuote.editedPrices?.motorCost === 'number';
+                  return (
+                    <tr style={{ background: '#3a2a2a' }}>
+                      <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
+                        Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost total: 
+                        {isEditingMotor ? (
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={activeEditText}
+                            onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
+                            style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', marginLeft: '4px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                            autoFocus
+                          />
+                        ) : (
+                          <span style={{ color: isMotorEdited ? '#ffcc00' : '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${formatMoney(motorGrandTotal)}</span>
+                        )}
+                        <button
+                          onClick={() => {
+                            if (isEditingMotor) {
+                              const parsed = parseFloat(activeEditText);
+                              if (activeEditText !== '' && !isNaN(parsed)) {
+                                setTableEditValues({...tableEditValues, motorCost: parsed});
                               }
-                            }}
-                            style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: isEditingMotor ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
-                          >
-                            {isEditingMotor ? 'Done' : '✏️'}
-                          </button>
-                        </td>
-                        <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
-                      </tr>
-                    );
-                  }
-                  return null;
+                              setEditingTableField(null);
+                              setActiveEditText('');
+                            } else {
+                              setEditingTableField('motorCost');
+                              setActiveEditText(formatMoney(effectiveMotorCost));
+                            }
+                          }}
+                          style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: isEditingMotor ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                        >
+                          {isEditingMotor ? 'Done' : '✏️'}
+                        </button>
+                      </td>
+                      <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
+                    </tr>
+                  );
                 })()}
-                {/* ✅ NEW: Solar Cost Breakdown Row - mirrors Motor exactly, so editing
-                    window price no longer silently swallows the solar amount too. */}
-                {(() => {
-                  let solarCount = 0;
-                  selectedQuote.rooms.forEach(room => {
-                    room.windowGroups.forEach(group => {
-                      if (group.solar) {
-                        solarCount += parseInt(group.quantity) || 0;
-                      }
-                    });
-                  });
-                  if (solarCount > 0) {
-                    const solarCost = effectiveSolarCost;
-                    const totalSolarCost = solarCount * solarCost;
-                    const isEditingSolar = editingTableField === 'solarCost';
-                    const isSolarEdited = typeof tableEditValues.solarCost === 'number' || typeof selectedQuote.editedPrices?.solarCost === 'number';
-                    return (
-                      <tr style={{ background: '#2a3a2a' }}>
-                        <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
-                          Solar <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{solarCount}</span> cost total: 
-                          {isEditingSolar ? (
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={activeEditText}
-                              onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
-                              style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', marginLeft: '4px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
-                              autoFocus
-                            />
-                          ) : (
-                            <span style={{ color: isSolarEdited ? '#ffcc00' : '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${formatMoney(totalSolarCost)}</span>
-                          )}
-                          <button
-                            onClick={() => {
-                              if (isEditingSolar) {
-                                const parsed = parseFloat(activeEditText);
-                                if (activeEditText !== '' && !isNaN(parsed)) {
-                                  setTableEditValues({...tableEditValues, solarCost: parsed});
-                                }
-                                setEditingTableField(null);
-                                setActiveEditText('');
-                              } else {
-                                setEditingTableField('solarCost');
-                                setActiveEditText(formatMoney(solarCost));
+                {/* ✅ Solar Cost Breakdown Row - same shared-source-of-truth pattern as Motor */}
+                {solarCount > 0 && (() => {
+                  const isEditingSolar = editingTableField === 'solarCost';
+                  const isSolarEdited = typeof tableEditValues.solarCost === 'number' || typeof selectedQuote.editedPrices?.solarCost === 'number';
+                  return (
+                    <tr style={{ background: '#2a3a2a' }}>
+                      <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
+                        Solar <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{solarCount}</span> cost total: 
+                        {isEditingSolar ? (
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={activeEditText}
+                            onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
+                            style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', marginLeft: '4px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                            autoFocus
+                          />
+                        ) : (
+                          <span style={{ color: isSolarEdited ? '#ffcc00' : '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${formatMoney(solarGrandTotal)}</span>
+                        )}
+                        <button
+                          onClick={() => {
+                            if (isEditingSolar) {
+                              const parsed = parseFloat(activeEditText);
+                              if (activeEditText !== '' && !isNaN(parsed)) {
+                                setTableEditValues({...tableEditValues, solarCost: parsed});
                               }
-                            }}
-                            style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: isEditingSolar ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
-                          >
-                            {isEditingSolar ? 'Done' : '✏️'}
-                          </button>
-                        </td>
-                        <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
-                      </tr>
-                    );
-                  }
-                  return null;
+                              setEditingTableField(null);
+                              setActiveEditText('');
+                            } else {
+                              setEditingTableField('solarCost');
+                              setActiveEditText(formatMoney(effectiveSolarCost));
+                            }
+                          }}
+                          style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: isEditingSolar ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                        >
+                          {isEditingSolar ? 'Done' : '✏️'}
+                        </button>
+                      </td>
+                      <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
+                    </tr>
+                  );
                 })()}
+                {/* ✅ NEW: Subtotal row - makes it explicit that Tax applies to
+                    Window + Motor + Solar together, not just the window cost. */}
+                {(motorCount > 0 || solarCount > 0) && (
+                  <tr style={{ background: '#2a2a3a' }}>
+                    <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#ccc', fontWeight: 'bold' }}>Subtotal (before tax):</td>
+                    <td style={{ padding: '8px', textAlign: 'right', color: '#ccc', fontWeight: 'bold' }}>{formatPrice(subtotalMin, subtotalMax)}</td>
+                  </tr>
+                )}
                 <tr style={{ background: '#1a3a3a' }}>
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
                     Tax (
