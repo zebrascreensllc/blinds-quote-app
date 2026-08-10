@@ -15,6 +15,17 @@ import {
   getNextVersion
 } from './utils/pricing';
 
+// ✅ NEW (Phase 2): Supplier Measurements - fully isolated feature, own files,
+// own storage key. Only reads the `quotes` array (never writes it) to build
+// sheets from - never touches quote pricing/calculation state.
+import SupplierMeasurements from './components/SupplierMeasurements';
+// ✅ NEW: reuses the same, already-tested row-expansion + CSV logic for a quick
+// "send to supplier for quote confirmation" export directly from a quote.
+// One-way only: App.js may read from measurementUtils.js, but nothing in
+// measurementUtils.js or SupplierMeasurements.js ever imports from App.js or
+// the pricing engine - the isolation guarantee from Phase 2 is unchanged.
+import { expandQuoteIntoRows, sheetToCSV } from './utils/measurementUtils';
+
 
 export default function BlindsQuoteApp() {
   const [currentView, setCurrentView] = useState('menu');
@@ -453,6 +464,19 @@ export default function BlindsQuoteApp() {
               <div style={{ flex: 1 }}>
                 <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>Pull Existing Quote</h3>
                 <p style={{ color: '#aaa', fontSize: '14px' }}>Search & view past quotes ({quotes.filter(q => !q.archived).length})</p>
+              </div>
+              <div style={{ fontSize: '24px', color: '#666' }}>→</div>
+            </div>
+          </button>
+
+          <button onClick={() => setCurrentView('measurements')} style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }} onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'} onMouseLeave={e => e.target.style.boxShadow = 'none'}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ padding: '16px', borderRadius: '50%', background: '#d4af37', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Edit2 size={28} color="#000" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>Supplier Measurements</h3>
+                <p style={{ color: '#aaa', fontSize: '14px' }}>Precise measurements & supplier detail sheets</p>
               </div>
               <div style={{ fontSize: '24px', color: '#666' }}>→</div>
             </div>
@@ -1322,6 +1346,30 @@ export default function BlindsQuoteApp() {
             </>
           )}
 
+          <button
+            onClick={() => {
+              // ✅ NEW: quick "send to supplier for quote confirmation" export.
+              // Reuses the same tested row-expansion + CSV logic as the Supplier
+              // Measurements tool, but carries over the quote's own rough
+              // width/height as-is (prefillMeasurements: true) since the point
+              // here is a fast confirmation pass, not precise measurements.
+              const rows = expandQuoteIntoRows(selectedQuote, { prefillMeasurements: true });
+              const csv = sheetToCSV({ address: selectedQuote.location }, rows);
+              const blob = new Blob([csv], { type: 'text/csv' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `${(selectedQuote.quoteName || 'quote').replace(/[^a-z0-9]/gi, '_')}_supplier_confirmation.csv`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }}
+            style={{ width: '100%', padding: '12px', marginBottom: '12px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#0e7490', color: '#fff', border: 'none', cursor: 'pointer' }}
+          >
+            📤 Export Supplier CSV (Quote Confirmation)
+          </button>
+
           <div style={{ display: 'flex', gap: '12px' }}>
             <button
               onClick={() => {
@@ -1884,6 +1932,7 @@ export default function BlindsQuoteApp() {
       {currentView === 'quote' && renderQuoteForm()}
       {currentView === 'history' && renderHistory()}
       {currentView === 'statistics' && renderStatistics()}
+      {currentView === 'measurements' && <SupplierMeasurements quotes={quotes} onBack={() => setCurrentView('menu')} />}
     </div>
   );
 }
