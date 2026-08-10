@@ -189,11 +189,15 @@ export const calculateGroupQuote = (group, fabricNumbers, blindType, totalMotori
     profitPerWindow += p.SOLAR_COST_CLIENT - p.SOLAR_COST_SUPPLIER;
   }
   
+  // ✅ BUGFIX: baseProfitPerWindow previously included solar markup, so the
+  // per-window price shown in the table had solar baked in with no way to
+  // edit it separately - editing a window's price silently swallowed the
+  // solar amount too. Motor was already excluded from baseProfitPerWindow
+  // for exactly this reason; solar now gets the same treatment. Grand Total
+  // (which uses profitPerWindow, not baseProfitPerWindow) is unaffected -
+  // solar is still fully counted there, just via its own line instead of
+  // being hidden inside the per-window number.
   let baseProfitPerWindow = p.PROFIT_PER_WINDOW;
-  if (group.solar) {
-    baseProfitPerWindow += p.SOLAR_COST_CLIENT - p.SOLAR_COST_SUPPLIER;
-  }
-  
   const baseMinQuote = cost.minCost + (baseProfitPerWindow * quantity) + (surchargePerWindow * quantity);
   const baseMaxQuote = cost.maxCost + (baseProfitPerWindow * quantity) + (surchargePerWindow * quantity);
   const safeBaseMinQuote = isNaN(baseMinQuote) ? 0 : baseMinQuote;

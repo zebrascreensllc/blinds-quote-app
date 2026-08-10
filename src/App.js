@@ -57,7 +57,7 @@ export default function BlindsQuoteApp() {
   const [editingTableField, setEditingTableField] = useState(null);
   // ✅ FIX: Use null as sentinel for "not edited this session" (distinct from 0 or any real value)
   // activeEditText = the RAW TEXT currently in whichever input is open (text input, not number input - avoids mobile keyboard bugs)
-  const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: null, taxRate: null });
+  const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null });
   const [activeEditText, setActiveEditText] = useState('');
   // (Profit Details section merged into PRICING COMPARISON above - uses expandedPricingComparison)
 
@@ -271,7 +271,7 @@ export default function BlindsQuoteApp() {
   // ✅ CRITICAL FIX: Reset editing state when viewing a different quote
   useEffect(() => {
     // Reset editing state whenever a different quote is selected
-    setTableEditValues({ perWindowPrices: {}, motorCost: null, taxRate: null });
+    setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null });
     setEditingTableField(null);
     setActiveEditText('');
   }, [selectedQuote?.id]);
@@ -706,6 +706,19 @@ export default function BlindsQuoteApp() {
         return defaultMotorCostClient;
       })();
       const motorCostDelta = effectiveMotorCost - defaultMotorCostClient;
+
+      // ✅ NEW: same pattern as motor - solar was baked directly into the
+      // per-window base price with no way to edit it separately, so editing a
+      // window's price silently overrode/ignored the solar markup too.
+      const defaultSolarCostClient = storedPricing?.SOLAR_COST_CLIENT || 40;
+      const effectiveSolarCost = (() => {
+        const pending = tableEditValues.solarCost;
+        if (typeof pending === 'number') return pending;
+        const saved = selectedQuote.editedPrices?.solarCost;
+        if (typeof saved === 'number') return saved;
+        return defaultSolarCostClient;
+      })();
+      const solarCostDelta = effectiveSolarCost - defaultSolarCostClient;
       
       // Check for invalid fabrics
       const invalidFabrics = [];
@@ -786,8 +799,9 @@ export default function BlindsQuoteApp() {
             // price override already sets the group's full revenue directly.)
             const quantity = parseInt(group.quantity) || 1;
             const motorAdjustment = (group.controlType === 'Motor' && motorCostDelta !== 0) ? motorCostDelta * quantity : 0;
-            totalMin += q.minQuote + motorAdjustment;
-            totalMax += q.maxQuote + motorAdjustment;
+            const solarAdjustment = (group.solar && solarCostDelta !== 0) ? solarCostDelta * quantity : 0;
+            totalMin += q.minQuote + motorAdjustment + solarAdjustment;
+            totalMax += q.maxQuote + motorAdjustment + solarAdjustment;
           }
         });
       });
@@ -1107,26 +1121,13 @@ export default function BlindsQuoteApp() {
                   </td>
                   <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
                 </tr>
-                {/* ✅ NEW: Motor Cost Breakdown Row */}
+                {/* ✅ Motor Cost Breakdown Row */}
                 {(() => {
-                  // ✅ BUGFIX: previously excluded motorized windows that also had their
-                  // own per-window price override, to avoid double-counting. But when
-                  // EVERY motorized window has an override (a common real workflow -
-                  // manually pricing each row), that made this whole row vanish, which
-                  // looked like "motor cost is missing." Now: always count every
-                  // motorized window here (informational), and just note separately
-                  // when some of them are individually repriced.
                   let motorCount = 0;
-                  let motorCountWithOwnOverride = 0;
                   selectedQuote.rooms.forEach(room => {
-                    room.windowGroups.forEach((group, groupIdx) => {
+                    room.windowGroups.forEach(group => {
                       if (group.controlType === 'Motor') {
-                        const qty = parseInt(group.quantity) || 0;
-                        motorCount += qty;
-                        const priceKey = `${room.id}_${groupIdx}`;
-                        const hasOwnOverride = typeof tableEditValues.perWindowPrices[priceKey] === 'number'
-                          || typeof selectedQuote.editedPrices?.perWindowPrices?.[priceKey] === 'number';
-                        if (hasOwnOverride) motorCountWithOwnOverride += qty;
+                        motorCount += parseInt(group.quantity) || 0;
                       }
                     });
                   });
@@ -1156,7 +1157,6 @@ export default function BlindsQuoteApp() {
                           <button
                             onClick={() => {
                               if (isEditingMotor) {
-                                // ✅ FIX #4: Commit whatever was typed NOW
                                 const parsed = parseFloat(activeEditText);
                                 if (activeEditText !== '' && !isNaN(parsed)) {
                                   setTableEditValues({...tableEditValues, motorCost: parsed});
@@ -1164,7 +1164,6 @@ export default function BlindsQuoteApp() {
                                 setEditingTableField(null);
                                 setActiveEditText('');
                               } else {
-                                // Start editing - seed text box with the per-motor cost (not the total)
                                 setEditingTableField('motorCost');
                                 setActiveEditText(formatMoney(motorCost));
                               }
@@ -1173,11 +1172,63 @@ export default function BlindsQuoteApp() {
                           >
                             {isEditingMotor ? 'Done' : '✏️'}
                           </button>
-                          {motorCountWithOwnOverride > 0 && (
-                            <p style={{ fontSize: '10px', color: '#888', marginTop: '4px', fontStyle: 'italic' }}>
-                              ({motorCountWithOwnOverride} of these {motorCount} motorized windows already have a manually-set price above - this row is an estimate at ${formatMoney(motorCost)}/motor and is not double-counted in the Total)
-                            </p>
+                        </td>
+                        <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
+                      </tr>
+                    );
+                  }
+                  return null;
+                })()}
+                {/* ✅ NEW: Solar Cost Breakdown Row - mirrors Motor exactly, so editing
+                    window price no longer silently swallows the solar amount too. */}
+                {(() => {
+                  let solarCount = 0;
+                  selectedQuote.rooms.forEach(room => {
+                    room.windowGroups.forEach(group => {
+                      if (group.solar) {
+                        solarCount += parseInt(group.quantity) || 0;
+                      }
+                    });
+                  });
+                  if (solarCount > 0) {
+                    const solarCost = effectiveSolarCost;
+                    const totalSolarCost = solarCount * solarCost;
+                    const isEditingSolar = editingTableField === 'solarCost';
+                    const isSolarEdited = typeof tableEditValues.solarCost === 'number' || typeof selectedQuote.editedPrices?.solarCost === 'number';
+                    return (
+                      <tr style={{ background: '#2a3a2a' }}>
+                        <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
+                          Solar <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{solarCount}</span> cost total: 
+                          {isEditingSolar ? (
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={activeEditText}
+                              onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
+                              style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', marginLeft: '4px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                              autoFocus
+                            />
+                          ) : (
+                            <span style={{ color: isSolarEdited ? '#ffcc00' : '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${formatMoney(totalSolarCost)}</span>
                           )}
+                          <button
+                            onClick={() => {
+                              if (isEditingSolar) {
+                                const parsed = parseFloat(activeEditText);
+                                if (activeEditText !== '' && !isNaN(parsed)) {
+                                  setTableEditValues({...tableEditValues, solarCost: parsed});
+                                }
+                                setEditingTableField(null);
+                                setActiveEditText('');
+                              } else {
+                                setEditingTableField('solarCost');
+                                setActiveEditText(formatMoney(solarCost));
+                              }
+                            }}
+                            style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: isEditingSolar ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                          >
+                            {isEditingSolar ? 'Done' : '✏️'}
+                          </button>
                         </td>
                         <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
                       </tr>
@@ -1244,12 +1295,12 @@ export default function BlindsQuoteApp() {
           </div>
 
           {/* ✅ FIXED: Save All Changes Button - Show if ANY values differ from "not edited" defaults, OR you're actively typing a not-yet-committed edit */}
-          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.taxRate !== null || (editingTableField && activeEditText !== '')) && (
+          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null || (editingTableField && activeEditText !== '')) && (
             <>
               {/* Visual indicator of pending changes */}
               <div style={{ padding: '12px', marginBottom: '12px', background: '#2a3a1a', border: '2px solid #4ade80', borderRadius: '6px', textAlign: 'center' }}>
                 <p style={{ color: '#4ade80', fontWeight: 'bold', margin: '0' }}>
-                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''}{editingTableField && activeEditText !== '' ? ' (still typing...)' : ''})
+                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.solarCost !== null ? ', solar cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''}{editingTableField && activeEditText !== '' ? ' (still typing...)' : ''})
                 </p>
               </div>
               
@@ -1267,6 +1318,8 @@ export default function BlindsQuoteApp() {
                   if (!isNaN(parsed)) {
                     if (editingTableField === 'motorCost') {
                       effectiveTableEditValues = { ...tableEditValues, motorCost: parsed };
+                    } else if (editingTableField === 'solarCost') {
+                      effectiveTableEditValues = { ...tableEditValues, solarCost: parsed };
                     } else if (editingTableField === 'tax') {
                       effectiveTableEditValues = { ...tableEditValues, taxRate: parsed / 100 };
                     } else if (editingTableField.startsWith('perWindow-')) {
@@ -1309,6 +1362,7 @@ export default function BlindsQuoteApp() {
                     ...Object.fromEntries(Object.entries(effectiveTableEditValues.perWindowPrices).filter(([, v]) => typeof v === 'number'))
                   },
                   motorCost: typeof effectiveTableEditValues.motorCost === 'number' ? effectiveTableEditValues.motorCost : selectedQuote.editedPrices?.motorCost,
+                  solarCost: typeof effectiveTableEditValues.solarCost === 'number' ? effectiveTableEditValues.solarCost : selectedQuote.editedPrices?.solarCost,
                   taxRate: typeof effectiveTableEditValues.taxRate === 'number' ? effectiveTableEditValues.taxRate : selectedQuote.editedPrices?.taxRate
                 };
                 
@@ -1333,7 +1387,7 @@ export default function BlindsQuoteApp() {
                 setEditingTableField(null);
                 
                 // Reset edit values for next time
-                setTableEditValues({ perWindowPrices: {}, motorCost: null, taxRate: null });
+                setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null });
                 setActiveEditText('');
                 
                 // Show success with correct version number
@@ -1543,6 +1597,12 @@ export default function BlindsQuoteApp() {
       const dashSavedMotorCost = quote.editedPrices?.motorCost;
       const dashEffectiveMotorCost = typeof dashSavedMotorCost === 'number' ? dashSavedMotorCost : dashDefaultMotorCost;
       const dashMotorCostDelta = dashEffectiveMotorCost - dashDefaultMotorCost;
+      // ✅ Same fix as motor, mirrored for solar - a saved solar cost edit
+      // previously never reached profit stats either.
+      const dashDefaultSolarCost = quote.pricing?.SOLAR_COST_CLIENT || 40;
+      const dashSavedSolarCost = quote.editedPrices?.solarCost;
+      const dashEffectiveSolarCost = typeof dashSavedSolarCost === 'number' ? dashSavedSolarCost : dashDefaultSolarCost;
+      const dashSolarCostDelta = dashEffectiveSolarCost - dashDefaultSolarCost;
       quote.rooms.forEach(room => {
         const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
         const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
@@ -1573,7 +1633,8 @@ export default function BlindsQuoteApp() {
           } else {
             const quantity = parseInt(group.quantity) || 1;
             const motorAdjustment = (group.controlType === 'Motor' && dashMotorCostDelta !== 0) ? dashMotorCostDelta * quantity : 0;
-            quoteProfit += q.profit + motorAdjustment;
+            const solarAdjustment = (group.solar && dashSolarCostDelta !== 0) ? dashSolarCostDelta * quantity : 0;
+            quoteProfit += q.profit + motorAdjustment + solarAdjustment;
           }
         });
       });
