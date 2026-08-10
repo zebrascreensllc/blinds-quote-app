@@ -110,13 +110,13 @@ export default function SupplierMeasurements({ quotes, onBack }) {
     setSheets(prev => [...prev, newSheet]);
     setActiveSheetId(newSheet.id);
     setSelectedQuoteIds(new Set());
-    setFlaggedRows(new Set());
+    setAcknowledgedWarnings(new Set());
     setScreen('editor');
   };
 
   const openSheet = (id) => {
     setActiveSheetId(id);
-    setFlaggedRows(new Set());
+    setAcknowledgedWarnings(new Set());
     setScreen('editor');
   };
 
