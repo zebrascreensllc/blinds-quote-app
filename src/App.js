@@ -47,6 +47,10 @@ export default function BlindsQuoteApp() {
   const [lastHeight, setLastHeight] = useState('');
   // ✅ NEW: Room collapse state
   const [expandedRooms, setExpandedRooms] = useState(new Set());
+  // ✅ NEW: per-room Fabric Numbers / Blind Type section, collapsed by default -
+  // Bulk Assign Fabric handles the common case now, this stays available for
+  // the rare per-room exception without taking up space during normal entry.
+  const [expandedFabricSection, setExpandedFabricSection] = useState(new Set());
   // ✅ NEW: Bulk-assign fabric OR blind-type-only (client hasn't picked exact fabric yet) to multiple rooms
   const [showBulkAssign, setShowBulkAssign] = useState(false);
   const [bulkMode, setBulkMode] = useState('fabric'); // 'fabric' | 'blindType'
@@ -858,19 +862,32 @@ export default function BlindsQuoteApp() {
       
       text += `ROOMS:\n`;
       rooms.forEach(room => {
-        let roomWindowCount = 0;
-        const controlTypes = new Set();
-        
-        room.windowGroups.forEach(group => {
+        // ✅ BUGFIX (2 issues):
+        // 1. Only group.controlType was used to build the label, so a
+        //    Motor+Solar group showed as just "Motor" - solar was silently dropped.
+        // 2. All window groups in a room were merged into ONE line (summed
+        //    quantity, a merged set of control types), so a room with two
+        //    differently-configured groups (different size and/or Motor vs
+        //    Motor+Solar) collapsed into a single misleading line showing
+        //    only one of the sizes.
+        // Now: each group gets its own correct "Motor+Solar"-style label, and
+        // rooms with more than one group get one line PER group (with size,
+        // so they're distinguishable) instead of being merged together.
+        if (room.windowGroups.length === 1) {
+          const group = room.windowGroups[0];
           const qty = parseInt(group.quantity) || 1;
-          roomWindowCount += qty;
           totalWindows += qty;
-          const controlLabel = group.controlType || 'Manual';
-          controlTypes.add(controlLabel);
-        });
-        
-        const controlList = Array.from(controlTypes).join(', ');
-        text += `${room.name} (${roomWindowCount} windows) - ${controlList}\n`;
+          const controlLabel = (group.controlType || 'Manual') + (group.solar ? '+Solar' : '');
+          text += `${room.name} (${qty} windows) - ${controlLabel}\n`;
+        } else {
+          room.windowGroups.forEach(group => {
+            const qty = parseInt(group.quantity) || 1;
+            totalWindows += qty;
+            const controlLabel = (group.controlType || 'Manual') + (group.solar ? '+Solar' : '');
+            const size = `${group.width}x${group.height}`;
+            text += `${room.name} (${qty} windows, ${size}) - ${controlLabel}\n`;
+          });
+        }
       });
       
       text += `\nTOTAL WINDOWS: ${totalWindows}\n\n`;
@@ -1882,50 +1899,76 @@ export default function BlindsQuoteApp() {
                 <div style={{ background: '#1a1a1a', padding: '24px', borderTop: '1px solid #444' }}>
                   <input type="text" placeholder="Room Name (e.g., Living Room)" value={room.name} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].name = e.target.value; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontWeight: 'bold', fontSize: '16px', background: '#0a0a0a', border: '1px solid #d4af37', color: 'white' }} />
 
-                  <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff', marginBottom: '8px' }}>Fabric Numbers (comma-separated, or leave blank for Min/Max):</p>
-                  <input type="text" placeholder="e.g., 82086K, 82067E (or leave blank)" value={room.fabricInput} onChange={(e) => { 
-                    const newRooms = [...formData.rooms]; 
-                    newRooms[roomIndex].fabricInput = e.target.value; 
-                    
-                    if (e.target.value.trim()) {
-                      const detectedTypes = autoDetectBlindTypes(e.target.value);
-                      newRooms[roomIndex].blindTypes = detectedTypes;
-                    }
-                    
-                    setFormData({...formData, rooms: newRooms}); 
-                  }} style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '14px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }} />
-
-                  <div style={{ marginBottom: '16px' }}>
-                    <p style={{ fontSize: '12px', fontWeight: 'bold', color: room.fabricInput.trim() ? '#4ade80' : '#888', marginBottom: '8px' }}>
-                      {room.fabricInput.trim() 
-                        ? `✅ Auto-Detected: ${(room.blindTypes || ['Roller']).join(', ')} (Click to change)`
-                        : 'Blind Type (for Min/Max calculation) - Select one or more:'
-                      }
-                    </p>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                      {['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'].map(type => (
-                        <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', borderRadius: '6px', background: (room.blindTypes || ['Roller']).includes(type) ? '#1a3a1a' : '#0a0a0a', border: (room.blindTypes || ['Roller']).includes(type) ? '1px solid #4ade80' : '1px solid #444', cursor: 'pointer', fontSize: '14px', color: (room.blindTypes || ['Roller']).includes(type) ? '#4ade80' : '#ccc', transition: 'all 0.2s' }}>
-                          <input 
-                            type="checkbox" 
-                            checked={(room.blindTypes || ['Roller']).includes(type)}
-                            onChange={(e) => { 
-                              const newRooms = [...formData.rooms];
-                              let types = room.blindTypes || ['Roller'];
-                              if (e.target.checked) {
-                                types = [...new Set([...types, type])];
-                              } else {
-                                types = types.filter(t => t !== type);
+                  {/* ✅ NEW: Fabric Numbers + Blind Type - collapsed by default.
+                      Bulk Assign Fabric (top of page) handles most rooms now;
+                      this stays here for the rare single-room exception. */}
+                  {(() => {
+                    const isFabricExpanded = expandedFabricSection.has(room.id);
+                    const toggleFabricSection = () => {
+                      const s = new Set(expandedFabricSection);
+                      if (s.has(room.id)) s.delete(room.id); else s.add(room.id);
+                      setExpandedFabricSection(s);
+                    };
+                    const summaryLabel = room.fabricInput.trim()
+                      ? `Fabric: ${room.fabricInput.trim()}`
+                      : `Blind Type: ${(room.blindTypes || ['Roller']).join(', ')} (no fabric set)`;
+                    return (
+                      <div style={{ marginBottom: '16px', border: '1px solid #444', borderRadius: '8px', overflow: 'hidden' }}>
+                        <button onClick={toggleFabricSection} style={{ width: '100%', textAlign: 'left', background: '#0a0a0a', border: 'none', cursor: 'pointer', padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: '13px', color: '#aaa' }}>{summaryLabel}</span>
+                          <span style={{ color: '#888', fontSize: '13px' }}>{isFabricExpanded ? '▼ Hide' : '▶ Edit'}</span>
+                        </button>
+                        {isFabricExpanded && (
+                          <div style={{ padding: '16px', background: '#1a1a1a' }}>
+                            <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#fff', marginBottom: '8px' }}>Fabric Numbers (comma-separated, or leave blank for Min/Max):</p>
+                            <input type="text" placeholder="e.g., 82086K, 82067E (or leave blank)" value={room.fabricInput} onChange={(e) => { 
+                              const newRooms = [...formData.rooms]; 
+                              newRooms[roomIndex].fabricInput = e.target.value; 
+                              
+                              if (e.target.value.trim()) {
+                                const detectedTypes = autoDetectBlindTypes(e.target.value);
+                                newRooms[roomIndex].blindTypes = detectedTypes;
                               }
-                              newRooms[roomIndex].blindTypes = types.length > 0 ? types : ['Roller'];
+                              
                               setFormData({...formData, rooms: newRooms}); 
-                            }}
-                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                          />
-                          {type}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
+                            }} style={{ width: '100%', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '14px', background: '#0a0a0a', border: '1px solid #666', color: 'white' }} />
+
+                            <div>
+                              <p style={{ fontSize: '12px', fontWeight: 'bold', color: room.fabricInput.trim() ? '#4ade80' : '#888', marginBottom: '8px' }}>
+                                {room.fabricInput.trim() 
+                                  ? `✅ Auto-Detected: ${(room.blindTypes || ['Roller']).join(', ')} (Click to change)`
+                                  : 'Blind Type (for Min/Max calculation) - Select one or more:'
+                                }
+                              </p>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                {['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'].map(type => (
+                                  <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', borderRadius: '6px', background: (room.blindTypes || ['Roller']).includes(type) ? '#1a3a1a' : '#0a0a0a', border: (room.blindTypes || ['Roller']).includes(type) ? '1px solid #4ade80' : '1px solid #444', cursor: 'pointer', fontSize: '14px', color: (room.blindTypes || ['Roller']).includes(type) ? '#4ade80' : '#ccc', transition: 'all 0.2s' }}>
+                                    <input 
+                                      type="checkbox" 
+                                      checked={(room.blindTypes || ['Roller']).includes(type)}
+                                      onChange={(e) => { 
+                                        const newRooms = [...formData.rooms];
+                                        let types = room.blindTypes || ['Roller'];
+                                        if (e.target.checked) {
+                                          types = [...new Set([...types, type])];
+                                        } else {
+                                          types = types.filter(t => t !== type);
+                                        }
+                                        newRooms[roomIndex].blindTypes = types.length > 0 ? types : ['Roller'];
+                                        setFormData({...formData, rooms: newRooms}); 
+                                      }}
+                                      style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                    />
+                                    {type}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#ccc', marginBottom: '12px' }}>Window Groups:</p>
 
