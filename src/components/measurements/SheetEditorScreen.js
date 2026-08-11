@@ -5,7 +5,10 @@ import {
   MOUNT_OPTIONS,
   validateMeasurementFormat,
   getLocationLabel,
-  getIncompleteFields
+  getIncompleteFields,
+  getNextRemoteChannel,
+  countInRemoteGroup,
+  MAX_REMOTE_CHANNELS
 } from '../../utils/measurementUtils';
 
 const inputStyle = { width: '100%', padding: '10px', borderRadius: '6px', fontSize: '13px', background: '#1a1a1a', border: '1px solid #444', color: 'white', boxSizing: 'border-box' };
@@ -265,7 +268,28 @@ export default function SheetEditorScreen({
                         <label style={labelStyle}>Remote</label>
                         <select
                           value={row.remoteGroup || ''}
-                          onChange={(e) => updateRow(row.id, { remoteGroup: e.target.value ? parseInt(e.target.value, 10) : null })}
+                          onChange={(e) => {
+                            if (e.target.value === '') {
+                              // Unassigning - clear both group and channel
+                              updateRow(row.id, { remoteGroup: null, remoteChannel: null });
+                              return;
+                            }
+                            const groupNumber = parseInt(e.target.value, 10);
+                            // ✅ BUGFIX: this dropdown previously only set remoteGroup and
+                            // never set remoteChannel at all, so a manually-assigned window
+                            // had no channel number until it also went through the bulk tool.
+                            // Now assigns the next available channel in that group directly,
+                            // same 16-channel cap as the bulk tool.
+                            if (row.remoteGroup !== groupNumber) {
+                              const alreadyInGroup = countInRemoteGroup(activeSheet.rows, groupNumber);
+                              if (alreadyInGroup >= MAX_REMOTE_CHANNELS) {
+                                alert(`Remote Group ${groupNumber} already has ${alreadyInGroup} windows - a remote only supports ${MAX_REMOTE_CHANNELS} channels. Use a different group.`);
+                                return;
+                              }
+                              const nextChannel = getNextRemoteChannel(activeSheet.rows, groupNumber);
+                              updateRow(row.id, { remoteGroup: groupNumber, remoteChannel: nextChannel });
+                            }
+                          }}
                           style={selectStyle}
                         >
                           <option value="">Not assigned</option>

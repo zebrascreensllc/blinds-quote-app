@@ -142,19 +142,51 @@ export function getLocationLabel(row) {
  * store, it's recalculated fresh every time.
  * Returns a Map from row.id -> label string ('' if no group assigned).
  */
+/**
+ * ✅ BUGFIX: previously derived "Remote {group}#{channel}" purely from each
+ * row's POSITION in the table, recalculated fresh every render. That seemed
+ * elegant (nothing to store, nothing to go stale) - but it meant channel
+ * order always followed table order (which comes from quote-generation room
+ * order) and completely ignored the order you actually selected windows in
+ * inside the Bulk Assign Remote Group tool. Selecting Living 1→2→3 then
+ * Bf nook 1→2 could assign Bf nook the FIRST channels instead of the last,
+ * because Bf nook simply appeared earlier in the underlying row list.
+ *
+ * Channel numbers are now explicitly STORED per row (row.remoteChannel),
+ * assigned once at the moment a group is set - see getNextRemoteChannel.
+ * This function just reads them back and formats the label.
+ */
 export function computeRemoteLabels(rows) {
-  const groupCounters = {};
   const labels = {};
   rows.forEach(row => {
-    if (row.remoteGroup) {
-      groupCounters[row.remoteGroup] = (groupCounters[row.remoteGroup] || 0) + 1;
-      labels[row.id] = `Remote ${row.remoteGroup}#${groupCounters[row.remoteGroup]}`;
+    if (row.remoteGroup && typeof row.remoteChannel === 'number') {
+      labels[row.id] = `Remote ${row.remoteGroup}#${row.remoteChannel}`;
     } else {
       labels[row.id] = '';
     }
   });
   return labels;
 }
+
+// Max channels a single physical remote supports.
+export const MAX_REMOTE_CHANNELS = 16;
+
+/** Returns the next available channel number for a group - i.e. one past
+ * whatever the highest currently-assigned channel in that group is (0 if the
+ * group is empty so far). Shared by both the bulk tool and the single-row
+ * dropdown, so channel assignment can never drift between the two paths. */
+export function getNextRemoteChannel(rows, groupNumber) {
+  const existing = rows
+    .filter(r => r.remoteGroup === groupNumber && typeof r.remoteChannel === 'number')
+    .map(r => r.remoteChannel);
+  return (existing.length > 0 ? Math.max(...existing) : 0) + 1;
+}
+
+/** How many channels a group currently has in use. */
+export function countInRemoteGroup(rows, groupNumber) {
+  return rows.filter(r => r.remoteGroup === groupNumber && typeof r.remoteChannel === 'number').length;
+}
+
 
 // ---- Building rows from a quote --------------------------------------------
 
@@ -205,6 +237,7 @@ export function expandQuoteIntoRows(quote, options = {}) {
           motorSide: '', // '' = Right (default, not written to export), 'Left' = the exception
           solar: !!group.solar,
           remoteGroup: null,
+          remoteChannel: null, // explicit channel number, assigned at the moment a group is set (see getNextRemoteChannel) - NOT derived from table position
           cassette: cassetteDefault,
           cassetteCustomText: '',
           mount: DEFAULT_MOUNT,

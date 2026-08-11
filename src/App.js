@@ -1100,16 +1100,37 @@ export default function BlindsQuoteApp() {
                         <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{motorType}</td>
                         <td style={{ padding: '8px', textAlign: 'right', color: isEdited ? '#ffcc00' : '#d4af37', fontWeight: '600' }}>
                           {isEditingThis ? (
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={activeEditText}
-                              onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
-                              style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
-                              autoFocus
-                            />
+                            <>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={activeEditText}
+                                onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
+                                style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                                autoFocus
+                              />
+                              {/* ✅ BUGFIX: when no specific fabric is entered (blind-type-only,
+                                  "estimate" pricing), this window's cost is a real min-max RANGE,
+                                  not one fixed number. The edit box only ever showed/seeded the
+                                  MIN with no way to see the MAX - you had no way to know what
+                                  you were actually choosing a price between. Now shown right here. */}
+                              {q.isRange && (
+                                <p style={{ fontSize: '10px', color: '#888', marginTop: '2px' }}>
+                                  Range: {formatPrice(q.baseMinQuote / quantity, q.baseMaxQuote / quantity)}
+                                </p>
+                              )}
+                            </>
                           ) : (
-                            <span>${formatMoney(effectivePrice)}</span>
+                            <span>
+                              {/* ✅ Same fix for the resting (non-editing) display - a genuine
+                                  range now shows as a range (e.g. "$100-$150") instead of
+                                  silently collapsing to just the minimum with no indication
+                                  a range even existed. Once you set a specific price, it always
+                                  shows as one fixed number from then on. */}
+                              {q.isRange && !isEdited
+                                ? formatPrice(q.baseMinQuote / quantity, q.baseMaxQuote / quantity)
+                                : `$${formatMoney(effectivePrice)}`}
+                            </span>
                           )}
                           <button
                             onClick={() => {
@@ -1124,6 +1145,7 @@ export default function BlindsQuoteApp() {
                                 setActiveEditText('');
                               } else {
                                 // Start editing - seed text box with current effective value
+                                // (the MIN of the range, as a starting point to adjust from)
                                 setEditingTableField(fieldKey);
                                 setActiveEditText(formatMoney(effectivePrice));
                               }
@@ -1134,7 +1156,9 @@ export default function BlindsQuoteApp() {
                           </button>
                         </td>
                         <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: isEdited ? '#ffcc00' : '#fff' }}>
-                          ${formatMoney(effectivePrice * quantity)}
+                          {q.isRange && !isEdited
+                            ? formatPrice(q.baseMinQuote, q.baseMaxQuote)
+                            : `$${formatMoney(effectivePrice * quantity)}`}
                         </td>
                       </tr>
                     );

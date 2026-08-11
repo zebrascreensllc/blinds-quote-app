@@ -6,6 +6,9 @@ import {
   computeRemoteLabels,
   expandQuoteIntoRows,
   getIncompleteFields,
+  getNextRemoteChannel,
+  countInRemoteGroup,
+  MAX_REMOTE_CHANNELS,
   sheetToCSV
 } from '../utils/measurementUtils';
 import SheetListScreen from './measurements/SheetListScreen';
@@ -159,6 +162,7 @@ export default function SupplierMeasurements({ quotes, onBack }) {
       // Solar and remote only make sense for motorized windows
       patch.solar = false;
       patch.remoteGroup = null;
+      patch.remoteChannel = null;
       patch.motorCustomText = '';
     }
     updateRow(rowId, patch);
@@ -195,7 +199,43 @@ export default function SupplierMeasurements({ quotes, onBack }) {
   const applyBulkRemoteGroup = (groupNumber) => {
     if (!activeSheet) return;
     if (remoteSelectedRowIds.size === 0) { alert('Select at least one motorized window first.'); return; }
-    const newRows = activeSheet.rows.map(r => (remoteSelectedRowIds.has(r.id) ? { ...r, remoteGroup: groupNumber } : r));
+
+    // ✅ NEW: max 16 channels per physical remote. Check BEFORE applying -
+    // existing windows already in this group plus the new selection.
+    const alreadyInGroup = countInRemoteGroup(activeSheet.rows, groupNumber);
+    const wouldBeSelectedButNotAlreadyInGroup = [...remoteSelectedRowIds].filter(id => {
+      const row = activeSheet.rows.find(r => r.id === id);
+      return row && row.remoteGroup !== groupNumber;
+    }).length;
+    const totalAfter = alreadyInGroup + wouldBeSelectedButNotAlreadyInGroup;
+    if (totalAfter > MAX_REMOTE_CHANNELS) {
+      alert(`Remote Group ${groupNumber} would have ${totalAfter} windows, but a remote only supports ${MAX_REMOTE_CHANNELS} channels.\n\nCurrently in this group: ${alreadyInGroup}\nSelected to add: ${wouldBeSelectedButNotAlreadyInGroup}\n\nSelect fewer windows, or use a different group.`);
+      return;
+    }
+
+    // ✅ BUGFIX: assign channels in the order windows were SELECTED (the Set
+    // preserves insertion/click order), not table order - this is the actual
+    // fix for the "channels assigned in the wrong order" bug. Continues
+    // numbering after whatever's already in the group, rather than restarting.
+    const selectionInOrder = [...remoteSelectedRowIds];
+    let nextChannel = getNextRemoteChannel(activeSheet.rows, groupNumber);
+    const channelById = {};
+    selectionInOrder.forEach(id => {
+      const row = activeSheet.rows.find(r => r.id === id);
+      // A row already in this exact group keeps its existing channel rather
+      // than being reassigned to the end - only genuinely new additions to
+      // this group consume a new channel number.
+      if (row && row.remoteGroup === groupNumber && typeof row.remoteChannel === 'number') {
+        channelById[id] = row.remoteChannel;
+      } else {
+        channelById[id] = nextChannel;
+        nextChannel += 1;
+      }
+    });
+
+    const newRows = activeSheet.rows.map(r =>
+      remoteSelectedRowIds.has(r.id) ? { ...r, remoteGroup: groupNumber, remoteChannel: channelById[r.id] } : r
+    );
     updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
     const count = remoteSelectedRowIds.size;
     setRemoteSelectedRowIds(new Set());
