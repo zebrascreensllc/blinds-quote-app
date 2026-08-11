@@ -168,6 +168,17 @@ export const calculateGroupQuote = (group, fabricNumbers, blindType, totalMotori
     REMOTE_16CH: 10,
     MISC_EXPENSE: 4.50,
     SHIPPING_COST: 42,
+    // ✅ BUGFIX: these two were missing. getWidthSurcharge/getHeightSurcharge
+    // each have their own independent default fallback for these values, but
+    // that fallback only triggers when the pricing argument passed to THEM is
+    // itself null/undefined. Since this object is truthy and gets passed
+    // straight through as that argument, their fallbacks never ran - so any
+    // quote with no pricing snapshot (pricing=null, e.g. legacy quotes from
+    // before that feature existed) crashed the moment a window's width
+    // exceeded 35in, which is nearly every real quote. Values here match
+    // getWidthSurcharge/getHeightSurcharge's own fallbacks exactly.
+    WIDTH_SURCHARGES: { "36-40": 10, "41-55": 20, "56-70": 40, "71-88": 60 },
+    HEIGHT_SURCHARGE: 37,
     PRICING_DATA: PRICING_DATA
   };
   
@@ -178,7 +189,15 @@ export const calculateGroupQuote = (group, fabricNumbers, blindType, totalMotori
   const widthSurcharge = getWidthSurcharge(group.width, p);
   const heightSurcharge = getHeightSurcharge(group.height, p);
   const calculatedSurcharge = widthSurcharge + heightSurcharge;
-  const surchargePerWindow = group.surchargeOverride !== null ? group.surchargeOverride : calculatedSurcharge;
+  // ✅ BUGFIX: was `group.surchargeOverride !== null`, which treats `undefined`
+  // as "yes there's an override" (undefined !== null is true in JS!) and then
+  // uses `undefined` as the surcharge value - cascading to NaN, silently
+  // reduced to $0 for that window by the isNaN safety net below. Reachable
+  // for any quote saved before surchargeOverride existed as a field, or any
+  // group object missing the key. loadQuoteForEdit already defensively
+  // normalizes this when editing, but viewing a quote reads rooms directly
+  // and skips that normalization - so the fix belongs here, at the source.
+  const surchargePerWindow = typeof group.surchargeOverride === 'number' ? group.surchargeOverride : calculatedSurcharge;
   
   if (group.controlType === 'Motor') {
     const remoteType = totalMotorizedInRoom > 6 ? p.REMOTE_16CH : p.REMOTE_6CH;
@@ -220,7 +239,7 @@ export const calculateGroupQuote = (group, fabricNumbers, blindType, totalMotori
     heightSurcharge: heightSurcharge,
     calculatedSurcharge: calculatedSurcharge,
     actualSurcharge: surchargePerWindow,
-    isOverridden: group.surchargeOverride !== null,
+    isOverridden: typeof group.surchargeOverride === 'number',
     baseMinQuote: safeBaseMinQuote,
     baseMaxQuote: safeBaseMaxQuote
   };

@@ -14,13 +14,18 @@
 export const MOTOR_OPTIONS = ['Manual', 'motor-recharge', 'motor-Zigbee', 'motor-wire-zigbee', 'Custom'];
 export const DEFAULT_MOTOR_TYPE = 'motor-Zigbee';
 
+const CASSETTE_S1 = 'Fabric inserted top (S1) and Type C Fabric wrapped';
+const CASSETTE_S3 = 'Fabric inserted top (S3 PLUS) and Type C Fabric wrapped';
 export const CASSETTE_OPTIONS = [
   'Fabric Wrapped (V3) and Type C Fabric wrapped',
-  'Fabric inserted top (S1) and Type C Fabric wrapped',
-  'Fabric inserted top (S3 PLUS) and Type C Fabric wrapped',
+  CASSETTE_S1,
+  CASSETTE_S3,
   'Custom'
 ];
-export const DEFAULT_CASSETTE = 'Fabric inserted top (S1) and Type C Fabric wrapped';
+export const DEFAULT_CASSETTE = CASSETTE_S1;
+// Height threshold (inches) above which a window needs the bigger S3 PLUS
+// cassette by default instead of the standard S1.
+export const CASSETTE_S3_HEIGHT_THRESHOLD = 90;
 
 export const MOUNT_OPTIONS = [
   'Inside',
@@ -181,6 +186,12 @@ export function expandQuoteIntoRows(quote, options = {}) {
     (room.windowGroups || []).forEach((group, groupIdx) => {
       const qty = parseInt(group.quantity) || 0;
       const isMotor = group.controlType === 'Motor';
+      // ✅ NEW: windows over the S3 threshold default to the bigger S3 PLUS
+      // cassette instead of S1 - based on the quote's own rough height, since
+      // this row's own height field starts blank (see note above) and won't
+      // have a precise measurement yet at creation time.
+      const heightNum = parseFloat(group.height) || 0;
+      const cassetteDefault = heightNum > CASSETTE_S3_HEIGHT_THRESHOLD ? CASSETTE_S3 : CASSETTE_S1;
       for (let i = 0; i < qty; i++) {
         windowCounter += 1;
         rows.push({
@@ -194,7 +205,7 @@ export function expandQuoteIntoRows(quote, options = {}) {
           motorSide: '', // '' = Right (default, not written to export), 'Left' = the exception
           solar: !!group.solar,
           remoteGroup: null,
-          cassette: DEFAULT_CASSETTE,
+          cassette: cassetteDefault,
           cassetteCustomText: '',
           mount: DEFAULT_MOUNT,
           fabricNumber: singleFabric,
@@ -226,6 +237,21 @@ export function findRoomsWithMixedFabric(rows) {
     byRoom[row.locationBase].add(fabric);
   });
   return Object.entries(byRoom).filter(([, set]) => set.size > 1).map(([room]) => room);
+}
+
+// ---- Completeness check (required before Copy/Download) -------------------
+
+/** Returns a list of missing required fields for a single window row, e.g.
+ * ['width', 'height', 'fabric']. Remote group is only required for motorized
+ * windows. Used to hard-block Copy/Download until every window is filled in,
+ * and to highlight exactly which windows and fields still need attention. */
+export function getIncompleteFields(row) {
+  const missing = [];
+  if (!row.width.trim()) missing.push('width');
+  if (!row.height.trim()) missing.push('height');
+  if (!row.fabricNumber.trim()) missing.push('fabric');
+  if (row.motor !== 'Manual' && !row.remoteGroup) missing.push('remote group');
+  return missing;
 }
 
 // ---- CSV export (opens directly in Excel; no new build dependency needed) -
