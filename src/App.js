@@ -19,6 +19,7 @@ import {
 // own storage key. Only reads the `quotes` array (never writes it) to build
 // sheets from - never touches quote pricing/calculation state.
 import SupplierMeasurements from './components/SupplierMeasurements';
+import { subscribeToQuotes, saveQuoteRemote, deleteQuoteRemote } from './services/quoteSync';
 // ✅ NEW: reuses the same, already-tested row-expansion + CSV logic for a quick
 // "send to supplier for quote confirmation" export directly from a quote.
 // One-way only: App.js may read from measurementUtils.js, but nothing in
@@ -27,7 +28,7 @@ import SupplierMeasurements from './components/SupplierMeasurements';
 import { expandQuoteIntoRows, sheetToCSV } from './utils/measurementUtils';
 
 
-export default function BlindsQuoteApp() {
+export default function BlindsQuoteApp({ uid, onLogout }) {
   const [currentView, setCurrentView] = useState('menu');
   const [quotes, setQuotes] = useState([]);
   // ✅ SAFETY: guards against overwriting stored quotes before the initial load finishes
@@ -63,6 +64,11 @@ export default function BlindsQuoteApp() {
   // activeEditText = the RAW TEXT currently in whichever input is open (text input, not number input - avoids mobile keyboard bugs)
   const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null });
   const [activeEditText, setActiveEditText] = useState('');
+  // ✅ NEW: for range-priced windows, editing uses two separate Min/Max boxes
+  // instead of one text field with a typed hyphen - simpler and fully
+  // reliable regardless of what keyboard the phone shows.
+  const [activeEditTextMax, setActiveEditTextMax] = useState('');
+  const [priceEditMode, setPriceEditMode] = useState('fixed'); // 'fixed' | 'range'
   // (Profit Details section merged into PRICING COMPARISON above - uses expandedPricingComparison)
 
   const [formData, setFormData] = useState({
@@ -88,67 +94,99 @@ export default function BlindsQuoteApp() {
     }]
   });
 
-  // ✅ SAFETY: load quotes, and if the main record is unreadable, fall back to the
-  // most recent auto-backup rather than silently starting from an empty list.
+  // ✅ CLOUD SYNC: quotes now come from Firestore in real time, not localStorage.
+  // This ONE listener replaces the old load-on-mount + save-on-change +
+  // rolling-backup effects entirely - Firestore's own durability and offline
+  // cache take over that role. Fires immediately with whatever's cached
+  // locally (works with zero signal), then again every time anything
+  // changes - on THIS device or any other device signed into this account.
   useEffect(() => {
+    if (!uid) return;
+    const unsubscribe = subscribeToQuotes(
+      uid,
+      (remoteQuotes) => {
+        setQuotes(remoteQuotes);
+        setHasLoaded(true);
+      },
+      (error) => {
+        console.error('Quote sync error:', error);
+        setHasLoaded(true);
+      }
+    );
+    return () => unsubscribe();
+  }, [uid]);
+
+  // ✅ ONE-TIME MIGRATION: if this device has quotes sitting in the OLD
+  // localStorage record from before cloud sync existed, offer to upload them
+  // rather than silently leaving them behind. Scoped per-uid so switching
+  // accounts on the same device re-checks cleanly.
+  const [migrationQuotes, setMigrationQuotes] = useState(null); // null = nothing pending; array = pending upload
+  const [migrationBusy, setMigrationBusy] = useState(false);
+  useEffect(() => {
+    if (!uid) return;
+    if (localStorage.getItem(`migratedToFirebase_${uid}`)) return;
     try {
       const saved = localStorage.getItem('blindsQuotes');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setQuotes(parsed);
-          setHasLoaded(true);
-          return;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMigrationQuotes(parsed);
         }
       }
     } catch (e) {
-      console.error('Main quote record unreadable, trying auto-backup:', e);
+      console.error('Could not read old local quotes for migration:', e);
     }
+  }, [uid]);
 
-    // Fall back to newest auto-backup
+  const runMigration = async () => {
+    if (!migrationQuotes) return;
+    setMigrationBusy(true);
     try {
-      const backups = JSON.parse(localStorage.getItem('blindsQuotes_autoBackups') || '[]');
-      if (Array.isArray(backups) && backups.length > 0) {
-        const newest = backups[backups.length - 1];
-        if (Array.isArray(newest?.quotes) && newest.quotes.length > 0) {
-          setQuotes(newest.quotes);
-          alert(`⚠️ Your main quote record could not be read, so the most recent automatic backup from ${new Date(newest.timestamp).toLocaleString()} was restored (${newest.quotes.length} quotes).`);
-        }
+      for (const q of migrationQuotes) {
+        await saveQuoteRemote(uid, q);
       }
+      localStorage.setItem(`migratedToFirebase_${uid}`, 'true');
+      const count = migrationQuotes.length;
+      setMigrationQuotes(null);
+      alert(`✅ Uploaded ${count} quote${count > 1 ? 's' : ''} to your account.`);
     } catch (e) {
-      console.error('Auto-backup also unreadable:', e);
+      console.error('Migration failed:', e);
+      alert('Could not upload your existing quotes - please check your connection and try again. Nothing on this device has been lost.');
+    } finally {
+      setMigrationBusy(false);
     }
-    setHasLoaded(true);
-  }, []);
+  };
 
-  // ✅ SAFETY: never overwrite saved quotes with an empty array before the initial
-  // load has finished — that race could wipe real data on a slow start.
-  useEffect(() => {
-    if (!hasLoaded) return;
-    try {
-      localStorage.setItem('blindsQuotes', JSON.stringify(quotes));
-    } catch (e) {
-      console.error('Failed to save quotes:', e);
-      alert('⚠️ Could not save to this device\'s storage (it may be full). Please export a backup now from Quote History → Backup.');
-    }
-  }, [quotes, hasLoaded]);
+  const skipMigration = () => {
+    localStorage.setItem(`migratedToFirebase_${uid}`, 'true');
+    setMigrationQuotes(null);
+  };
 
-  // ✅ SAFETY: keep rolling daily auto-backups (last 7), independent of the main record.
-  useEffect(() => {
-    if (!hasLoaded || quotes.length === 0) return;
-    try {
-      const backups = JSON.parse(localStorage.getItem('blindsQuotes_autoBackups') || '[]');
-      const today = new Date().toISOString().split('T')[0];
-      const alreadyToday = backups.some(b => b.date === today);
-      if (!alreadyToday) {
-        backups.push({ date: today, timestamp: new Date().toISOString(), quotes });
-        const trimmed = backups.slice(-7);
-        localStorage.setItem('blindsQuotes_autoBackups', JSON.stringify(trimmed));
+  // ✅ Diffing write-through wrapper - a drop-in replacement for the old
+  // `setQuotes(newArray)` calls used throughout this file. Every existing
+  // call site below keeps its EXACT same logic for building the new array;
+  // only the function name changes. Internally, this figures out which
+  // quotes were added/changed/removed and pushes exactly those writes or
+  // deletes to Firestore. `quotes` state itself is only ever updated by the
+  // listener above - one source of truth, no risk of local state drifting
+  // from what's actually saved.
+  const updateQuotes = (newQuotesOrUpdater) => {
+    const newQuotes = typeof newQuotesOrUpdater === 'function' ? newQuotesOrUpdater(quotes) : newQuotesOrUpdater;
+    const oldById = new Map(quotes.map(q => [q.id, q]));
+    const newIds = new Set(newQuotes.map(q => q.id));
+
+    newQuotes.forEach(q => {
+      const old = oldById.get(q.id);
+      if (!old || JSON.stringify(old) !== JSON.stringify(q)) {
+        saveQuoteRemote(uid, q).catch(err => console.error('Failed to save quote', q.id, err));
       }
-    } catch (e) {
-      console.error('Auto-backup failed:', e);
-    }
-  }, [quotes, hasLoaded]);
+    });
+    oldById.forEach((q, id) => {
+      if (!newIds.has(id)) {
+        deleteQuoteRemote(uid, id).catch(err => console.error('Failed to delete quote', id, err));
+      }
+    });
+  };
 
   // ✅ SAFETY: snapshot current state so the last delete can be undone
   const snapshotForUndo = (label) => {
@@ -188,14 +226,14 @@ export default function BlindsQuoteApp() {
     }
 
     snapshotForUndo(description || `Deleted ${doomed.length} quote(s)`);
-    setQuotes(survivors);
+    updateQuotes(survivors);
     return true;
   };
 
   // ✅ SAFETY: restore the pre-delete snapshot
   const undoLastDelete = () => {
     if (!undoBuffer) return;
-    setQuotes(undoBuffer.quotes);
+    updateQuotes(undoBuffer.quotes);
     setUndoBuffer(null);
     alert('✅ Restored. Your quotes are back.');
   };
@@ -262,7 +300,7 @@ export default function BlindsQuoteApp() {
         }
         if (!window.confirm(`Restore ${newOnes.length} quote(s) from this backup?\n\nExisting quotes will be kept — this only adds what is missing.`)) return;
         snapshotForUndo('Imported backup');
-        setQuotes([...quotes, ...newOnes]);
+        updateQuotes([...quotes, ...newOnes]);
         alert(`✅ Restored ${newOnes.length} quote(s).`);
       } catch (err) {
         console.error('Import failed:', err);
@@ -278,6 +316,8 @@ export default function BlindsQuoteApp() {
     setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null });
     setEditingTableField(null);
     setActiveEditText('');
+    setActiveEditTextMax('');
+    setPriceEditMode('fixed');
   }, [selectedQuote?.id]);
 
   // ✅ HELPER: Filter raw text input to valid decimal number text as user types
@@ -304,6 +344,12 @@ export default function BlindsQuoteApp() {
     if (isNaN(val)) return '0';
     return val.toFixed(2).replace(/\.?0+$/, '');
   };
+
+  // Returns true if v is a valid {min, max} custom range override.
+  const isRangeOverride = (v) => v !== null && typeof v === 'object' && typeof v.min === 'number' && typeof v.max === 'number';
+
+  // Formats either shape for display, fully including the "$" sign.
+  const formatPriceOverride = (v) => isRangeOverride(v) ? formatPrice(v.min, v.max) : `$${formatMoney(v)}`;
 
   const generateQuote = () => {
     if (!formData.clientName || !formData.clientPhone) {
@@ -348,10 +394,10 @@ export default function BlindsQuoteApp() {
 
     if (editingQuote) {
       // Create new version without archiving - keep all versions visible
-      setQuotes([...quotes, quoteData]);
+      updateQuotes([...quotes, quoteData]);
       alert(`✅ Quote updated successfully! New version created (${quoteNamePrefix}-${newVersion})`);
     } else {
-      setQuotes([...quotes, quoteData]);
+      updateQuotes([...quotes, quoteData]);
       alert(`✅ Quote created successfully!\n\n${quoteNamePrefix.toUpperCase()}`);
     }
 
@@ -440,6 +486,16 @@ export default function BlindsQuoteApp() {
   const renderMenu = () => (
     <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+        {onLogout && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
+            <button
+              onClick={() => { if (window.confirm('Log out?')) onLogout(); }}
+              style={{ background: 'none', border: 'none', color: '#666', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              Log Out
+            </button>
+          </div>
+        )}
         <div style={{ textAlign: 'center', marginBottom: '48px' }}>
           <h1 style={{ fontSize: '36px', fontWeight: 'bold', color: '#fff', marginBottom: '8px', fontFamily: 'Georgia, serif' }}>ZEBRA</h1>
           <p style={{ color: '#888', letterSpacing: '4px', fontSize: '12px', marginBottom: '16px' }}>SCREENS & ROLLERS</p>
@@ -803,14 +859,21 @@ export default function BlindsQuoteApp() {
           const priceKey = `${room.id}_${groupIdx}`;
           const pendingPrice = tableEditValues.perWindowPrices[priceKey];
           const savedPrice = selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
-          const overridePrice = typeof pendingPrice === 'number' ? pendingPrice
-            : (typeof savedPrice === 'number' ? savedPrice : null);
+          const overridePrice = (typeof pendingPrice === 'number' || isRangeOverride(pendingPrice)) ? pendingPrice
+            : ((typeof savedPrice === 'number' || isRangeOverride(savedPrice)) ? savedPrice : null);
 
           if (overridePrice !== null) {
             const quantity = parseInt(group.quantity) || 1;
-            const overrideTotal = overridePrice * quantity;
-            totalMin += overrideTotal;
-            totalMax += overrideTotal;
+            if (isRangeOverride(overridePrice)) {
+              // ✅ NEW: a custom range override (e.g. "125-140") contributes its
+              // own min/max separately, instead of collapsing to one point.
+              totalMin += overridePrice.min * quantity;
+              totalMax += overridePrice.max * quantity;
+            } else {
+              const overrideTotal = overridePrice * quantity;
+              totalMin += overrideTotal;
+              totalMax += overrideTotal;
+            }
           } else {
             // ✅ BUGFIX: use baseMinQuote/baseMaxQuote (window/fabric cost only -
             // the same number shown in the "Per Window" column) instead of
@@ -1080,14 +1143,15 @@ export default function BlindsQuoteApp() {
                     const priceKey = `${room.id}_${groupIdx}`;
                     const fieldKey = `perWindow-${priceKey}`;
                     
-                    // Saved price (from a previously saved version)
+                    // Saved price (from a previously saved version) - now either a
+                    // plain number OR a {min,max} custom range override
                     const savedPrice = selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
-                    const hasSavedPrice = typeof savedPrice === 'number';
+                    const hasSavedPrice = typeof savedPrice === 'number' || isRangeOverride(savedPrice);
                     const basePrice = hasSavedPrice ? savedPrice : perWindowMin;
                     
                     // "Effective" price - a committed pending edit (after Done, before Save) takes priority
                     const pendingPrice = tableEditValues.perWindowPrices[priceKey];
-                    const hasPendingPrice = typeof pendingPrice === 'number';
+                    const hasPendingPrice = typeof pendingPrice === 'number' || isRangeOverride(pendingPrice);
                     const effectivePrice = hasPendingPrice ? pendingPrice : basePrice;
                     const isEdited = hasPendingPrice || hasSavedPrice;
                     const isEditingThis = editingTableField === fieldKey;
@@ -1101,53 +1165,117 @@ export default function BlindsQuoteApp() {
                         <td style={{ padding: '8px', textAlign: 'right', color: isEdited ? '#ffcc00' : '#d4af37', fontWeight: '600' }}>
                           {isEditingThis ? (
                             <>
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                value={activeEditText}
-                                onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
-                                style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
-                                autoFocus
-                              />
-                              {/* ✅ BUGFIX: when no specific fabric is entered (blind-type-only,
-                                  "estimate" pricing), this window's cost is a real min-max RANGE,
-                                  not one fixed number. The edit box only ever showed/seeded the
-                                  MIN with no way to see the MAX - you had no way to know what
-                                  you were actually choosing a price between. Now shown right here. */}
+                              {/* ✅ Range-priced windows get a Fixed/Range toggle. Range mode
+                                  shows two separate Min/Max boxes instead of one field with a
+                                  typed hyphen - the mobile numeric keypad has no hyphen key at
+                                  all, so a single combined field had no reliable way to enter one. */}
+                              {q.isRange && (
+                                <div style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
+                                  <button
+                                    onClick={() => setPriceEditMode('fixed')}
+                                    style={{ flex: 1, padding: '3px 6px', borderRadius: '3px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', background: priceEditMode === 'fixed' ? '#0e7490' : '#333', color: priceEditMode === 'fixed' ? '#fff' : '#999', border: 'none' }}
+                                  >
+                                    Fixed
+                                  </button>
+                                  <button
+                                    onClick={() => setPriceEditMode('range')}
+                                    style={{ flex: 1, padding: '3px 6px', borderRadius: '3px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', background: priceEditMode === 'range' ? '#0e7490' : '#333', color: priceEditMode === 'range' ? '#fff' : '#999', border: 'none' }}
+                                  >
+                                    Range
+                                  </button>
+                                </div>
+                              )}
+                              {q.isRange && priceEditMode === 'range' ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    placeholder="Min"
+                                    value={activeEditText}
+                                    onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
+                                    style={{ width: '48px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                                    autoFocus
+                                  />
+                                  <span style={{ color: '#888' }}>–</span>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    placeholder="Max"
+                                    value={activeEditTextMax}
+                                    onChange={(e) => setActiveEditTextMax(filterNumericText(e.target.value))}
+                                    style={{ width: '48px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                                  />
+                                </div>
+                              ) : (
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={activeEditText}
+                                  onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
+                                  style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                                  autoFocus={!q.isRange}
+                                />
+                              )}
                               {q.isRange && (
                                 <p style={{ fontSize: '10px', color: '#888', marginTop: '2px' }}>
-                                  Range: {formatPrice(q.baseMinQuote / quantity, q.baseMaxQuote / quantity)}
+                                  Estimated range: {formatPrice(q.baseMinQuote / quantity, q.baseMaxQuote / quantity)}
                                 </p>
                               )}
                             </>
                           ) : (
                             <span>
-                              {/* ✅ Same fix for the resting (non-editing) display - a genuine
-                                  range now shows as a range (e.g. "$100-$150") instead of
-                                  silently collapsing to just the minimum with no indication
-                                  a range even existed. Once you set a specific price, it always
-                                  shows as one fixed number from then on. */}
-                              {q.isRange && !isEdited
-                                ? formatPrice(q.baseMinQuote / quantity, q.baseMaxQuote / quantity)
-                                : `$${formatMoney(effectivePrice)}`}
+                              {/* A genuine, not-yet-priced range shows as a range (e.g.
+                                  "$100-$150"); once you set either a fixed price or your
+                                  own custom range, it shows exactly what you set. */}
+                              {isEdited ? formatPriceOverride(effectivePrice) : (
+                                q.isRange
+                                  ? formatPrice(q.baseMinQuote / quantity, q.baseMaxQuote / quantity)
+                                  : `$${formatMoney(effectivePrice)}`
+                              )}
                             </span>
                           )}
                           <button
                             onClick={() => {
                               if (isEditingThis) {
-                                // ✅ FIX #5: Commit whatever was typed into the pending edit value NOW
-                                const parsed = parseFloat(activeEditText);
-                                if (activeEditText !== '' && !isNaN(parsed)) {
-                                  setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [priceKey]: parsed}});
+                                // ✅ Commit whatever was entered - Range mode reads BOTH boxes
+                                // (each a plain, always-valid number - no parsing ambiguity),
+                                // Fixed mode reads the one box as before.
+                                if (q.isRange && priceEditMode === 'range') {
+                                  const min = parseFloat(activeEditText);
+                                  const max = parseFloat(activeEditTextMax);
+                                  if (!isNaN(min) && !isNaN(max) && min >= 0 && max >= 0) {
+                                    setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [priceKey]: { min: Math.min(min, max), max: Math.max(min, max) }}});
+                                  }
+                                  // If either box is empty/invalid, leave unchanged - same as
+                                  // the existing "invalid input, don't commit" pattern.
+                                } else {
+                                  const parsed = parseFloat(activeEditText);
+                                  if (activeEditText !== '' && !isNaN(parsed) && parsed >= 0) {
+                                    setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [priceKey]: parsed}});
+                                  }
                                 }
-                                // If left empty/invalid, just close without changing the pending value
                                 setEditingTableField(null);
                                 setActiveEditText('');
+                                setActiveEditTextMax('');
                               } else {
-                                // Start editing - seed text box with current effective value
-                                // (the MIN of the range, as a starting point to adjust from)
+                                // Start editing - seed the box(es) with current effective value.
+                                // Already a custom range -> range mode, seeded with its min/max.
+                                // A genuine unpriced range -> range mode, seeded with the estimate.
+                                // A plain fixed price (or single-fabric window) -> fixed mode.
                                 setEditingTableField(fieldKey);
-                                setActiveEditText(formatMoney(effectivePrice));
+                                if (isRangeOverride(effectivePrice)) {
+                                  setPriceEditMode('range');
+                                  setActiveEditText(formatMoney(effectivePrice.min));
+                                  setActiveEditTextMax(formatMoney(effectivePrice.max));
+                                } else if (q.isRange && !isEdited) {
+                                  setPriceEditMode('range');
+                                  setActiveEditText(formatMoney(q.baseMinQuote / quantity));
+                                  setActiveEditTextMax(formatMoney(q.baseMaxQuote / quantity));
+                                } else {
+                                  setPriceEditMode('fixed');
+                                  setActiveEditText(formatMoney(effectivePrice));
+                                  setActiveEditTextMax('');
+                                }
                               }
                             }}
                             style={{ marginLeft: '6px', padding: '2px 6px', borderRadius: '2px', background: isEditingThis ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
@@ -1156,9 +1284,9 @@ export default function BlindsQuoteApp() {
                           </button>
                         </td>
                         <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: isEdited ? '#ffcc00' : '#fff' }}>
-                          {q.isRange && !isEdited
-                            ? formatPrice(q.baseMinQuote, q.baseMaxQuote)
-                            : `$${formatMoney(effectivePrice * quantity)}`}
+                          {isEdited
+                            ? (isRangeOverride(effectivePrice) ? formatPrice(effectivePrice.min * quantity, effectivePrice.max * quantity) : `$${formatMoney(effectivePrice * quantity)}`)
+                            : (q.isRange ? formatPrice(q.baseMinQuote, q.baseMaxQuote) : `$${formatMoney(effectivePrice * quantity)}`)}
                         </td>
                       </tr>
                     );
@@ -1214,6 +1342,8 @@ export default function BlindsQuoteApp() {
                               }
                               setEditingTableField(null);
                               setActiveEditText('');
+                              setActiveEditTextMax('');
+                              setPriceEditMode('fixed');
                             } else {
                               setEditingTableField('motorCost');
                               setActiveEditText(formatMoney(effectiveMotorCost));
@@ -1257,6 +1387,8 @@ export default function BlindsQuoteApp() {
                               }
                               setEditingTableField(null);
                               setActiveEditText('');
+                              setActiveEditTextMax('');
+                              setPriceEditMode('fixed');
                             } else {
                               setEditingTableField('solarCost');
                               setActiveEditText(formatMoney(effectiveSolarCost));
@@ -1311,6 +1443,8 @@ export default function BlindsQuoteApp() {
                           }
                           setEditingTableField(null);
                           setActiveEditText('');
+                          setActiveEditTextMax('');
+                          setPriceEditMode('fixed');
                         } else {
                           // Start editing - seed text box with the CURRENT effective percentage
                           const pending = tableEditValues.taxRate;
@@ -1356,7 +1490,14 @@ export default function BlindsQuoteApp() {
                 // which is exactly what looked like "motor cost missing" after saving.
                 // Auto-commit whatever's currently open before saving, so nothing is lost.
                 let effectiveTableEditValues = tableEditValues;
-                if (editingTableField && activeEditText !== '') {
+                if (editingTableField && editingTableField.startsWith('perWindow-') && priceEditMode === 'range' && activeEditText !== '' && activeEditTextMax !== '') {
+                  const min = parseFloat(activeEditText);
+                  const max = parseFloat(activeEditTextMax);
+                  if (!isNaN(min) && !isNaN(max) && min >= 0 && max >= 0) {
+                    const key = editingTableField.replace('perWindow-', '');
+                    effectiveTableEditValues = { ...tableEditValues, perWindowPrices: { ...tableEditValues.perWindowPrices, [key]: { min: Math.min(min, max), max: Math.max(min, max) } } };
+                  }
+                } else if (editingTableField && activeEditText !== '') {
                   const parsed = parseFloat(activeEditText);
                   if (!isNaN(parsed)) {
                     if (editingTableField === 'motorCost') {
@@ -1365,7 +1506,7 @@ export default function BlindsQuoteApp() {
                       effectiveTableEditValues = { ...tableEditValues, solarCost: parsed };
                     } else if (editingTableField === 'tax') {
                       effectiveTableEditValues = { ...tableEditValues, taxRate: parsed / 100 };
-                    } else if (editingTableField.startsWith('perWindow-')) {
+                    } else if (editingTableField.startsWith('perWindow-') && parsed >= 0) {
                       const key = editingTableField.replace('perWindow-', '');
                       effectiveTableEditValues = { ...tableEditValues, perWindowPrices: { ...tableEditValues.perWindowPrices, [key]: parsed } };
                     }
@@ -1402,7 +1543,7 @@ export default function BlindsQuoteApp() {
                 const mergedEditedPrices = {
                   perWindowPrices: {
                     ...(selectedQuote.editedPrices?.perWindowPrices || {}),
-                    ...Object.fromEntries(Object.entries(effectiveTableEditValues.perWindowPrices).filter(([, v]) => typeof v === 'number'))
+                    ...Object.fromEntries(Object.entries(effectiveTableEditValues.perWindowPrices).filter(([, v]) => typeof v === 'number' || isRangeOverride(v)))
                   },
                   motorCost: typeof effectiveTableEditValues.motorCost === 'number' ? effectiveTableEditValues.motorCost : selectedQuote.editedPrices?.motorCost,
                   solarCost: typeof effectiveTableEditValues.solarCost === 'number' ? effectiveTableEditValues.solarCost : selectedQuote.editedPrices?.solarCost,
@@ -1422,7 +1563,7 @@ export default function BlindsQuoteApp() {
                 
                 // Save as new version to quotes array
                 const updatedQuotes = [...quotes, newQuote];
-                setQuotes(updatedQuotes);
+                updateQuotes(updatedQuotes);
                 
                 setSelectedQuote(newQuote);
                 
@@ -1432,6 +1573,8 @@ export default function BlindsQuoteApp() {
                 // Reset edit values for next time
                 setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null });
                 setActiveEditText('');
+                setActiveEditTextMax('');
+                setPriceEditMode('fixed');
                 
                 // Show success with correct version number
                 alert(`✅ Success! New version ${newVersionString} created with your edited prices`);
@@ -1668,9 +1811,12 @@ export default function BlindsQuoteApp() {
           // per-window price (if one was saved) for profit, not the raw calculated price.
           const priceKey = `${room.id}_${groupIdx}`;
           const savedPrice = quote.editedPrices?.perWindowPrices?.[priceKey];
-          if (typeof savedPrice === 'number') {
+          if (typeof savedPrice === 'number' || isRangeOverride(savedPrice)) {
             const quantity = parseInt(group.quantity) || 1;
-            const overrideTotal = savedPrice * quantity;
+            // A custom range override's revenue estimate uses its midpoint,
+            // consistent with how ranges are estimated elsewhere in the app.
+            const revenuePerWindow = isRangeOverride(savedPrice) ? (savedPrice.min + savedPrice.max) / 2 : savedPrice;
+            const overrideTotal = revenuePerWindow * quantity;
             const avgCost = (q.minCost + q.maxCost) / 2;
             quoteProfit += (overrideTotal - avgCost);
           } else {
@@ -2056,13 +2202,43 @@ export default function BlindsQuoteApp() {
     </div>
   );
 
+  // ✅ MIGRATION GATE: if quotes were found sitting in this device's old
+  // localStorage record, offer to upload them before showing the normal app -
+  // makes sure nothing from before cloud sync gets silently left behind.
+  if (migrationQuotes) {
+    return (
+      <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 16px' }}>
+        <div style={{ maxWidth: '400px', width: '100%', background: '#2a2a2a', border: '1px solid #d4af37', borderRadius: '12px', padding: '28px' }}>
+          <h2 style={{ color: '#d4af37', fontSize: '18px', fontWeight: 'bold', marginBottom: '12px' }}>Found quotes on this device</h2>
+          <p style={{ color: '#ccc', fontSize: '14px', marginBottom: '20px', lineHeight: '1.5' }}>
+            This device has <strong>{migrationQuotes.length}</strong> quote{migrationQuotes.length > 1 ? 's' : ''} saved from before cloud sync. Upload {migrationQuotes.length > 1 ? 'them' : 'it'} to your account now so {migrationQuotes.length > 1 ? "they're" : "it's"} available on every device?
+          </p>
+          <button
+            onClick={runMigration}
+            disabled={migrationBusy}
+            style={{ width: '100%', padding: '14px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '15px', cursor: migrationBusy ? 'default' : 'pointer', opacity: migrationBusy ? 0.6 : 1, marginBottom: '10px' }}
+          >
+            {migrationBusy ? 'Uploading...' : `Upload ${migrationQuotes.length} Quote${migrationQuotes.length > 1 ? 's' : ''}`}
+          </button>
+          <button
+            onClick={skipMigration}
+            disabled={migrationBusy}
+            style={{ width: '100%', padding: '12px', borderRadius: '8px', background: 'none', color: '#888', border: '1px solid #555', fontWeight: 'bold', fontSize: '14px', cursor: migrationBusy ? 'default' : 'pointer' }}
+          >
+            Skip (don't ask again on this device)
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       {currentView === 'menu' && renderMenu()}
       {currentView === 'quote' && renderQuoteForm()}
       {currentView === 'history' && renderHistory()}
       {currentView === 'statistics' && renderStatistics()}
-      {currentView === 'measurements' && <SupplierMeasurements quotes={quotes} onBack={() => setCurrentView('menu')} />}
+      {currentView === 'measurements' && <SupplierMeasurements quotes={quotes} onBack={() => setCurrentView('menu')} uid={uid} />}
     </div>
   );
 }

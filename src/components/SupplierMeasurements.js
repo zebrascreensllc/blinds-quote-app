@@ -12,19 +12,18 @@ import {
   sheetToCSV
 } from '../utils/measurementUtils';
 import SheetListScreen from './measurements/SheetListScreen';
+import { subscribeToSheets, saveSheetRemote, deleteSheetRemote } from '../services/measurementSync';
 import QuoteSelectScreen from './measurements/QuoteSelectScreen';
 import SheetEditorScreen from './measurements/SheetEditorScreen';
 
 // Deliberately separate from the quote app's 'blindsQuotes' key - a bug in this
 // feature's storage can never corrupt or collide with quote data, and vice versa.
-const STORAGE_KEY = 'zebraSupplierMeasurementSheets';
-
 // Split into 3 files (list / select / editor screens), same idea as the
 // quote generator's utils split - all STATE and LOGIC still live in this one
 // container (single source of truth, unchanged behavior), only the JSX for
 // each screen moved out. Screens receive the exact same variable names they
 // used to close over as props, so this stays a relocation, not a rewrite.
-export default function SupplierMeasurements({ quotes, onBack }) {
+export default function SupplierMeasurements({ quotes, onBack, uid }) {
   const [sheets, setSheets] = useState([]);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [screen, setScreen] = useState('list'); // 'list' | 'select' | 'editor'
@@ -49,33 +48,52 @@ export default function SupplierMeasurements({ quotes, onBack }) {
   // working through many windows in sequence doesn't mean endless scrolling.
   const [expandedRowId, setExpandedRowId] = useState(null);
 
-  // ---- Load / save (own storage key, own effect, untouched by the quote app) ----
+  // ✅ CLOUD SYNC: sheets now come from Firestore in real time, same pattern
+  // as quotes in App.js. This one listener replaces the old localStorage
+  // load/save effects entirely.
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) setSheets(parsed);
+    if (!uid) return;
+    const unsubscribe = subscribeToSheets(
+      uid,
+      (remoteSheets) => {
+        setSheets(remoteSheets);
+        setHasLoaded(true);
+      },
+      (error) => {
+        console.error('Measurement sheet sync error:', error);
+        setHasLoaded(true);
       }
-    } catch (e) {
-      console.error('Measurement sheets could not be read:', e);
-    }
-    setHasLoaded(true);
-  }, []);
-
-  useEffect(() => {
-    if (!hasLoaded) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sheets));
-    } catch (e) {
-      console.error('Measurement sheets could not be saved:', e);
-    }
-  }, [sheets, hasLoaded]);
+    );
+    return () => unsubscribe();
+  }, [uid]);
 
   const activeSheet = sheets.find(s => s.id === activeSheetId) || null;
 
+  // ✅ Diffing write-through wrapper - same pattern as updateQuotes in App.js.
+  // Every existing call site below keeps calling this exactly like it used
+  // to call setSheets (including the functional-updater form used by
+  // updateActiveSheet just below), only the name changes. `sheets` state
+  // itself is only ever updated by the listener above.
+  const updateSheets = (newSheetsOrUpdater) => {
+    const newSheets = typeof newSheetsOrUpdater === 'function' ? newSheetsOrUpdater(sheets) : newSheetsOrUpdater;
+    const oldById = new Map(sheets.map(s => [s.id, s]));
+    const newIds = new Set(newSheets.map(s => s.id));
+
+    newSheets.forEach(s => {
+      const old = oldById.get(s.id);
+      if (!old || JSON.stringify(old) !== JSON.stringify(s)) {
+        saveSheetRemote(uid, s).catch(err => console.error('Failed to save sheet', s.id, err));
+      }
+    });
+    oldById.forEach((s, id) => {
+      if (!newIds.has(id)) {
+        deleteSheetRemote(uid, id).catch(err => console.error('Failed to delete sheet', id, err));
+      }
+    });
+  };
+
   const updateActiveSheet = (updater) => {
-    setSheets(prev => prev.map(s => (s.id === activeSheetId ? updater(s) : s)));
+    updateSheets(prev => prev.map(s => (s.id === activeSheetId ? updater(s) : s)));
   };
 
   const updateRow = (rowId, patch) => {
@@ -121,7 +139,7 @@ export default function SupplierMeasurements({ quotes, onBack }) {
       sourceQuoteNames: selected.map(q => q.quoteName || q.clientName),
       rows: allRows
     };
-    setSheets(prev => [...prev, newSheet]);
+    updateSheets(prev => [...prev, newSheet]);
     setActiveSheetId(newSheet.id);
     setSelectedQuoteIds(new Set());
     setAcknowledgedWarnings(new Set());
@@ -141,7 +159,7 @@ export default function SupplierMeasurements({ quotes, onBack }) {
     const sheet = sheets.find(s => s.id === id);
     if (!sheet) return;
     if (!window.confirm(`Delete this measurement sheet (${sheet.address || 'untitled'}, ${sheet.rows.length} windows)? This cannot be undone.`)) return;
-    setSheets(prev => prev.filter(s => s.id !== id));
+    updateSheets(prev => prev.filter(s => s.id !== id));
     if (activeSheetId === id) {
       setActiveSheetId(null);
       setScreen('list');
