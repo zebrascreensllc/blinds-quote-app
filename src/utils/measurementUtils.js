@@ -242,6 +242,7 @@ export function expandQuoteIntoRows(quote, options = {}) {
           cassetteCustomText: '',
           mount: DEFAULT_MOUNT,
           fabricNumber: singleFabric,
+          comment: '', // free-text note per window (e.g. "Side-by-side") - exported to its own CSV/Excel column
           width: prefillMeasurements ? String(group.width ?? '') : '',
           height: prefillMeasurements ? String(group.height ?? '') : '',
           blindType,
@@ -297,30 +298,56 @@ function escapeCsv(val) {
   return str;
 }
 
+/**
+ * Computes the export-ready field values for one row, shared by BOTH
+ * sheetToCSV and the Excel export - a single source of truth so the two
+ * export formats can never drift out of sync with each other (which is
+ * exactly how the Solar column went missing from CSV in the first place:
+ * the underlying data existed, but only one code path read it).
+ */
+export function buildRowExportFields(row, idx, remoteLabels) {
+  const isMotor = row.motor !== 'Manual';
+  const variants = [];
+  if (row.motorSide === 'Left') variants.push('Left side');
+  if (row.solar) variants.push('Solar');
+  const manualSmart = (isMotor ? 'Smart' : 'Manual') + (variants.length ? ' - ' + variants.join(' - ') : '');
+  const motorType = isMotor ? (row.motor === 'Custom' ? row.motorCustomText : row.motor) : '';
+  const cassette = row.cassette === 'Custom' ? row.cassetteCustomText : row.cassette;
+  return {
+    sNo: idx + 1,
+    clientName: row.clientName,
+    location: getLocationLabel(row),
+    comment: row.comment || '',
+    manualSmart,
+    motorType,
+    remote: remoteLabels[row.id] || '',
+    cassette,
+    mount: row.mount,
+    fabricNumber: row.fabricNumber,
+    width: row.width,
+    height: row.height,
+    blindType: row.blindType || '',
+    // Flags for anything the export should visually highlight - kept here,
+    // next to the values themselves, so the two stay consistent by
+    // construction rather than by two people remembering the same rule.
+    hasComment: !!(row.comment && row.comment.trim()),
+    hasMotorVariant: variants.length > 0,
+    hasNonDefaultMount: row.mount !== DEFAULT_MOUNT
+  };
+}
+
 export function sheetToCSV(sheet, rows) {
   const remoteLabels = computeRemoteLabels(rows);
-  const headers = ['S No', 'Client name', 'LOCATION', 'Motor/Smart', 'Motor-type', 'Remote', 'CASSETTE', 'MOUNT', 'FABRIC MODEL', 'Width (Inches)', 'Height (Inches)', 'Blind Type'];
+  // ✅ BUGFIX: header renamed 'Motor/Smart' -> 'Manual/Smart' and a Comment
+  // column added, both to match the supplier's actual reference format exactly.
+  const headers = ['S No', 'Client name', 'LOCATION', 'Comment', 'Manual/Smart', 'Motor-type', 'Remote', 'CASSETTE', 'MOUNT', 'FABRIC MODEL', 'Width (Inches)', 'Height (Inches)', 'Blind Type'];
   const lines = [headers.map(escapeCsv).join(',')];
 
   rows.forEach((row, idx) => {
-    const isMotor = row.motor !== 'Manual';
-    const sideNote = row.motorSide === 'Left' ? ' - Left side' : '';
-    const motorSmart = (isMotor ? 'Smart' : 'Manual') + sideNote;
-    const motorType = isMotor ? (row.motor === 'Custom' ? row.motorCustomText : row.motor) : '';
-    const cassette = row.cassette === 'Custom' ? row.cassetteCustomText : row.cassette;
+    const f = buildRowExportFields(row, idx, remoteLabels);
     lines.push([
-      idx + 1,
-      row.clientName,
-      getLocationLabel(row),
-      motorSmart,
-      motorType,
-      remoteLabels[row.id] || '',
-      cassette,
-      row.mount,
-      row.fabricNumber,
-      row.width,
-      row.height,
-      row.blindType || ''
+      f.sNo, f.clientName, f.location, f.comment, f.manualSmart, f.motorType,
+      f.remote, f.cassette, f.mount, f.fabricNumber, f.width, f.height, f.blindType
     ].map(escapeCsv).join(','));
   });
 

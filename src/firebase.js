@@ -19,8 +19,15 @@ const app = initializeApp(firebaseConfig);
 // step anywhere in the app. persistentMultipleTabManager means it also
 // behaves correctly if this business ever has the app open in more than one
 // browser tab on the same device at once.
+// ✅ Two independent layers of defense against Firestore's hard rejection of
+// literal `undefined` values (the root cause of the migration failure this
+// business hit): every write already gets explicitly sanitized in
+// firestoreCollectionSync.js, and ignoreUndefinedProperties here is a second,
+// independent safety net in case any future write path is ever added that
+// bypasses that sanitization.
 export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  ignoreUndefinedProperties: true
 });
 
 export const auth = getAuth(app);

@@ -3,7 +3,7 @@ import React from 'react';
 // The "list of saved sheets" screen. Purely presentational - all state
 // (sheets array) and mutations (open/delete/create) live in the parent
 // container; this component only renders and calls back up.
-export default function SheetListScreen({ sheets, onBack, onNewSheet, onOpenSheet, onDeleteSheet }) {
+export default function SheetListScreen({ sheets, hasLoaded, loadError, syncStatus, onBack, onNewSheet, onOpenSheet, onDeleteSheet }) {
   return (
     <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '24px 16px' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
@@ -20,7 +20,24 @@ export default function SheetListScreen({ sheets, onBack, onNewSheet, onOpenShee
           + New Measurement Sheet
         </button>
 
-        {sheets.length === 0 ? (
+        {syncStatus && !syncStatus.ok && (
+          <div style={{ padding: '12px', marginBottom: '16px', background: '#3a1a1a', border: '1px solid #ef4444', borderRadius: '8px' }}>
+            <p style={{ color: '#f87171', fontWeight: 'bold', fontSize: '13px', marginBottom: '4px' }}>
+              ⚠️ {syncStatus.failedCount} change{syncStatus.failedCount > 1 ? 's' : ''} not yet saved to the cloud
+            </p>
+            <p style={{ color: '#ccc', fontSize: '12px' }}>{syncStatus.lastError} — your local copy is safe, and this keeps retrying automatically.</p>
+          </div>
+        )}
+
+        {loadError ? (
+          <div style={{ textAlign: 'center', padding: '32px 16px' }}>
+            <p style={{ color: '#f87171', fontSize: '15px', fontWeight: 'bold', marginBottom: '8px' }}>⚠️ Could not load your sheets</p>
+            <p style={{ color: '#888', fontSize: '13px' }}>{loadError}</p>
+            <p style={{ color: '#666', fontSize: '12px', marginTop: '8px' }}>This is a sync problem, not missing data - check your connection and reopen the app.</p>
+          </div>
+        ) : !hasLoaded ? (
+          <p style={{ color: '#888', textAlign: 'center', fontSize: '14px' }}>Loading your measurement sheets...</p>
+        ) : sheets.length === 0 ? (
           <p style={{ color: '#888', textAlign: 'center', fontSize: '14px' }}>No measurement sheets yet.</p>
         ) : (
           sheets.slice().sort((a, b) => new Date(b.updatedDate) - new Date(a.updatedDate)).map(sheet => (

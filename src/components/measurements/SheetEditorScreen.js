@@ -25,6 +25,7 @@ const errorTextStyle = { fontSize: '11px', color: '#ef4444', marginTop: '4px' };
 export default function SheetEditorScreen({
   activeSheet,
   onBack,
+  syncStatus,
   updateActiveSheet,
   updateRow,
   handleMotorChange,
@@ -52,7 +53,8 @@ export default function SheetEditorScreen({
   warningKey,
   acknowledgeWarning,
   copyCSV,
-  exportCSV
+  exportCSV,
+  exportExcel
 }) {
   if (!activeSheet) {
     return (
@@ -70,6 +72,19 @@ export default function SheetEditorScreen({
           <button onClick={onBack} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(100,100,100,0.3)', border: 'none', cursor: 'pointer', color: '#fff' }}>← Back</button>
           <div style={{ width: '60px' }} />
         </div>
+
+        {/* ✅ NEW: persistent, non-blocking sync status - a popup on every
+            keystroke would be unusable here, but silent failure is exactly
+            what caused the earlier data-loss incident. This stays visible
+            until the next successful sync clears it. */}
+        {syncStatus && !syncStatus.ok && (
+          <div style={{ padding: '12px', marginBottom: '16px', background: '#3a1a1a', border: '1px solid #ef4444', borderRadius: '8px' }}>
+            <p style={{ color: '#f87171', fontWeight: 'bold', fontSize: '13px', marginBottom: '4px' }}>
+              ⚠️ {syncStatus.failedCount} change{syncStatus.failedCount > 1 ? 's' : ''} not yet saved to the cloud
+            </p>
+            <p style={{ color: '#ccc', fontSize: '12px' }}>{syncStatus.lastError} — your local copy is safe, and this keeps retrying automatically.</p>
+          </div>
+        )}
 
         <input
           type="text"
@@ -217,6 +232,7 @@ export default function SheetEditorScreen({
                     {locationLabel}
                     {isIncomplete && <span style={{ marginLeft: '8px', fontSize: '13px' }}>🔴</span>}
                     {!isIncomplete && hasAnyWarning && <span style={{ marginLeft: '8px', fontSize: '13px' }}>⚠️</span>}
+                    {row.comment && row.comment.trim() && <span style={{ marginLeft: '8px', fontSize: '13px' }} title={row.comment}>💬</span>}
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {!isExpanded && <span style={{ fontSize: '12px', color: isIncomplete ? '#ef4444' : '#4ade80' }}>{measuredStatus}</span>}
@@ -336,6 +352,21 @@ export default function SheetEditorScreen({
                     </div>
 
                     <div>
+                      {/* ✅ NEW: free-text note per window - flows into the
+                          Comment column on export (CSV and Excel), matching
+                          the supplier's own reference format (e.g. used for
+                          "Side-by-side" installations). */}
+                      <label style={labelStyle}>Comment (optional)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Side-by-side"
+                        value={row.comment || ''}
+                        onChange={(e) => updateRow(row.id, { comment: e.target.value })}
+                        style={inputStyle}
+                      />
+                    </div>
+
+                    <div>
                       <label style={labelStyle}>Width (e.g. 34 5/16)</label>
                       <input
                         type="text"
@@ -396,12 +427,20 @@ export default function SheetEditorScreen({
         })}
 
         {/* Export */}
-        <div style={{ display: 'flex', gap: '12px', marginTop: '8px', marginBottom: '32px' }}>
+        <div style={{ display: 'flex', gap: '12px', marginTop: '8px', marginBottom: '12px' }}>
           <button onClick={copyCSV} style={{ flex: 1, padding: '14px', borderRadius: '8px', background: '#d4af37', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
             📋 Copy
           </button>
           <button onClick={exportCSV} style={{ flex: 1, padding: '14px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
-            ⬇️ Download CSV
+            ⬇️ CSV
+          </button>
+        </div>
+        {/* ✅ NEW: real .xlsx with highlighting - CSV can't hold cell color at
+            all, so this is the format that matches the supplier's reference
+            file exactly (yellow on Comment, Solar/Left side, non-default Mount). */}
+        <div style={{ marginBottom: '32px' }}>
+          <button onClick={exportExcel} style={{ width: '100%', padding: '14px', borderRadius: '8px', background: '#1d6f42', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
+            📊 Download Excel (with highlighting)
           </button>
         </div>
       </div>

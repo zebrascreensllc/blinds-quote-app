@@ -15,6 +15,7 @@ import SheetListScreen from './measurements/SheetListScreen';
 import { subscribeToSheets, saveSheetRemote, deleteSheetRemote } from '../services/measurementSync';
 import QuoteSelectScreen from './measurements/QuoteSelectScreen';
 import SheetEditorScreen from './measurements/SheetEditorScreen';
+import { sheetToExcelBuffer } from '../utils/xlsxExport';
 
 // Deliberately separate from the quote app's 'blindsQuotes' key - a bug in this
 // feature's storage can never corrupt or collide with quote data, and vice versa.
@@ -48,6 +49,16 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
   // working through many windows in sequence doesn't mean endless scrolling.
   const [expandedRowId, setExpandedRowId] = useState(null);
 
+  // ✅ BUGFIX: updateSheets previously only console.error'd on a failed
+  // Firestore write, with zero visible indication anything was wrong -
+  // same silent-failure shape that caused the earlier data-loss incident.
+  // Called on nearly every keystroke here (unlike App.js's quote saves,
+  // which happen at a few big checkpoints), so a popup alert on every
+  // field edit would be unusable - a persistent status banner instead.
+  const [syncStatus, setSyncStatus] = useState({ ok: true, failedCount: 0, lastError: null });
+  // ✅ NEW: distinct from "genuinely zero sheets" - same fix as App.js.
+  const [loadError, setLoadError] = useState(null);
+
   // ✅ CLOUD SYNC: sheets now come from Firestore in real time, same pattern
   // as quotes in App.js. This one listener replaces the old localStorage
   // load/save effects entirely.
@@ -58,10 +69,12 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
       (remoteSheets) => {
         setSheets(remoteSheets);
         setHasLoaded(true);
+        setLoadError(null);
       },
       (error) => {
         console.error('Measurement sheet sync error:', error);
         setHasLoaded(true);
+        setLoadError(error?.message || 'Could not load your measurement sheets.');
       }
     );
     return () => unsubscribe();
@@ -75,24 +88,37 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
   // updateActiveSheet just below), only the name changes. `sheets` state
   // itself is only ever updated by the listener above.
   const updateSheets = (newSheetsOrUpdater) => {
-    if (!hasLoaded) {
-      console.warn('updateSheets called before initial load finished - ignoring to avoid overwriting stored sheets.');
-      return;
-    }
     const newSheets = typeof newSheetsOrUpdater === 'function' ? newSheetsOrUpdater(sheets) : newSheetsOrUpdater;
     const oldById = new Map(sheets.map(s => [s.id, s]));
     const newIds = new Set(newSheets.map(s => s.id));
 
-    newSheets.forEach(s => {
+    const toSave = newSheets.filter(s => {
       const old = oldById.get(s.id);
-      if (!old || JSON.stringify(old) !== JSON.stringify(s)) {
-        saveSheetRemote(uid, s).catch(err => console.error('Failed to save sheet', s.id, err));
-      }
+      return !old || JSON.stringify(old) !== JSON.stringify(s);
     });
-    oldById.forEach((s, id) => {
-      if (!newIds.has(id)) {
-        deleteSheetRemote(uid, id).catch(err => console.error('Failed to delete sheet', id, err));
-      }
+    const toDeleteIds = [];
+    oldById.forEach((s, id) => { if (!newIds.has(id)) toDeleteIds.push(id); });
+
+    const attempts = [
+      ...toSave.map(s => saveSheetRemote(uid, s).then(() => ({ ok: true })).catch(err => {
+        console.error('Failed to save sheet', s.id, err);
+        return { ok: false, message: err?.message || String(err) };
+      })),
+      ...toDeleteIds.map(id => deleteSheetRemote(uid, id).then(() => ({ ok: true })).catch(err => {
+        console.error('Failed to delete sheet', id, err);
+        return { ok: false, message: err?.message || String(err) };
+      }))
+    ];
+
+    if (attempts.length === 0) return;
+
+    Promise.all(attempts).then(results => {
+      const failed = results.filter(r => !r.ok);
+      setSyncStatus(
+        failed.length > 0
+          ? { ok: false, failedCount: failed.length, lastError: failed[0].message }
+          : { ok: true, failedCount: 0, lastError: null }
+      );
     });
   };
 
@@ -317,12 +343,37 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
     }
   };
 
+  // ✅ NEW: real .xlsx with cell highlighting, matching the supplier's exact
+  // reference format - CSV cannot represent color at all, so this is the
+  // format to use whenever the highlighting itself matters.
+  const exportExcel = async () => {
+    if (!validateSheetForExport()) return;
+    try {
+      const buffer = await sheetToExcelBuffer(activeSheet, activeSheet.rows);
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(activeSheet.address || 'measurements').replace(/[^a-z0-9]/gi, '_')}_supplier_details.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      console.error('Excel export failed:', e);
+      alert('Could not create the Excel file. Try Download CSV instead.');
+    }
+  };
+
   // ============================== ROUTE TO SCREEN ==============================
 
   if (screen === 'list') {
     return (
       <SheetListScreen
         sheets={sheets}
+        hasLoaded={hasLoaded}
+        loadError={loadError}
+        syncStatus={syncStatus}
         onBack={onBack}
         onNewSheet={() => setScreen('select')}
         onOpenSheet={openSheet}
@@ -352,6 +403,7 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
     <SheetEditorScreen
       activeSheet={activeSheet}
       onBack={() => setScreen('list')}
+      syncStatus={syncStatus}
       updateActiveSheet={updateActiveSheet}
       updateRow={updateRow}
       handleMotorChange={handleMotorChange}
@@ -380,6 +432,7 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
       acknowledgeWarning={acknowledgeWarning}
       copyCSV={copyCSV}
       exportCSV={exportCSV}
+      exportExcel={exportExcel}
     />
   );
 }
