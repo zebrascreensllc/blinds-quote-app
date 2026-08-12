@@ -75,6 +75,10 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
   // updateActiveSheet just below), only the name changes. `sheets` state
   // itself is only ever updated by the listener above.
   const updateSheets = (newSheetsOrUpdater) => {
+    if (!hasLoaded) {
+      console.warn('updateSheets called before initial load finished - ignoring to avoid overwriting stored sheets.');
+      return;
+    }
     const newSheets = typeof newSheetsOrUpdater === 'function' ? newSheetsOrUpdater(sheets) : newSheetsOrUpdater;
     const oldById = new Map(sheets.map(s => [s.id, s]));
     const newIds = new Set(newSheets.map(s => s.id));

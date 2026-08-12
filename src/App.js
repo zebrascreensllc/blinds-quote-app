@@ -171,6 +171,10 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   // listener above - one source of truth, no risk of local state drifting
   // from what's actually saved.
   const updateQuotes = (newQuotesOrUpdater) => {
+    if (!hasLoaded) {
+      console.warn('updateQuotes called before initial load finished - ignoring to avoid overwriting stored quotes.');
+      return;
+    }
     const newQuotes = typeof newQuotesOrUpdater === 'function' ? newQuotesOrUpdater(quotes) : newQuotesOrUpdater;
     const oldById = new Map(quotes.map(q => [q.id, q]));
     const newIds = new Set(newQuotes.map(q => q.id));
