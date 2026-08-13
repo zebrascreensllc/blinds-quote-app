@@ -17,6 +17,11 @@ import QuoteSelectScreen from './measurements/QuoteSelectScreen';
 import SheetEditorScreen from './measurements/SheetEditorScreen';
 import { sheetToExcelBuffer } from '../utils/xlsxExport';
 
+// Client name(s) first (what the business actually identifies a sheet by),
+// falling back to address/location for older sheets saved before clientNames
+// existed - used for both the exported file's name and delete confirmations.
+const exportFileLabel = (sheet) => (sheet.clientNames?.length ? sheet.clientNames.join('_') : (sheet.address || 'measurements'));
+
 // Deliberately separate from the quote app's 'blindsQuotes' key - a bug in this
 // feature's storage can never corrupt or collide with quote data, and vice versa.
 // Split into 3 files (list / select / editor screens), same idea as the
@@ -176,6 +181,12 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
       createdDate: new Date().toISOString(),
       updatedDate: new Date().toISOString(),
       address: selected[0]?.location || '',
+      // ✅ NEW: the sheet's display name was always sheet.address (the
+      // location), which meant client name never showed anywhere prominent -
+      // it was only buried inside sourceQuoteNames' full "client-location-
+      // fabric-quote-vN" string. clientNames is the client name(s) on their
+      // own, so the list/editor screens can show it as the actual title.
+      clientNames: [...new Set(selected.map(q => q.clientName).filter(Boolean))],
       sourceQuoteNames: selected.map(q => q.quoteName || q.clientName),
       rows: allRows
     };
@@ -210,7 +221,8 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
   const deleteSheet = (id) => {
     const sheet = sheets.find(s => s.id === id);
     if (!sheet) return;
-    if (!window.confirm(`Delete this measurement sheet (${sheet.address || 'untitled'}, ${sheet.rows.length} windows)? This cannot be undone.`)) return;
+    const sheetLabel = sheet.clientNames?.length ? sheet.clientNames.join(', ') : (sheet.address || 'untitled');
+    if (!window.confirm(`Delete this measurement sheet (${sheetLabel}, ${sheet.rows.length} windows)? This cannot be undone.`)) return;
     updateSheets(prev => prev.filter(s => s.id !== id));
     if (activeSheetId === id) {
       setActiveSheetId(null);
@@ -347,7 +359,7 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${(activeSheet.address || 'measurements').replace(/[^a-z0-9]/gi, '_')}_supplier_details.csv`;
+    a.download = `${(exportFileLabel(activeSheet)).replace(/[^a-z0-9]/gi, '_')}_supplier_details.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -376,7 +388,7 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${(activeSheet.address || 'measurements').replace(/[^a-z0-9]/gi, '_')}_supplier_details.xlsx`;
+      a.download = `${(exportFileLabel(activeSheet)).replace(/[^a-z0-9]/gi, '_')}_supplier_details.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Copy, Check, ArrowLeft, Search, BarChart3, TrendingUp, Edit2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Trash2, Copy, Check, ArrowLeft, Search, BarChart3, TrendingUp, Edit2, ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
 
 import { PRICING_DATA } from './data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE, getPricingSnapshot } from './utils/constants';
@@ -19,6 +19,7 @@ import {
 // own storage key. Only reads the `quotes` array (never writes it) to build
 // sheets from - never touches quote pricing/calculation state.
 import SupplierMeasurements from './components/SupplierMeasurements';
+import OrderAnalysis from './components/OrderAnalysis';
 import { subscribeToQuotes, saveQuoteRemote, deleteQuoteRemote } from './services/quoteSync';
 // ✅ NEW: reuses the same, already-tested row-expansion + CSV logic for a quick
 // "send to supplier for quote confirmation" export directly from a quote.
@@ -53,6 +54,10 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   // Bulk Assign Fabric handles the common case now, this stays available for
   // the rare per-room exception without taking up space during normal entry.
   const [expandedFabricSection, setExpandedFabricSection] = useState(new Set());
+  // ✅ NEW: per-window-group Surcharge Override section, collapsed by default -
+  // rarely used (auto-calculated surcharge covers the normal case), so it
+  // shouldn't take up space in every window group during normal entry.
+  const [expandedSurchargeOverride, setExpandedSurchargeOverride] = useState(new Set());
   // ✅ NEW: Bulk-assign fabric OR blind-type-only (client hasn't picked exact fabric yet) to multiple rooms
   const [showBulkAssign, setShowBulkAssign] = useState(false);
   const [bulkMode, setBulkMode] = useState('fabric'); // 'fabric' | 'blindType'
@@ -667,6 +672,19 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
               <div style={{ fontSize: '24px', color: '#666' }}>→</div>
             </div>
           </button>
+
+          <button onClick={() => setCurrentView('analysis')} style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }} onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'} onMouseLeave={e => e.target.style.boxShadow = 'none'}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ padding: '16px', borderRadius: '50%', background: '#d4af37', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <ClipboardList size={28} color="#000" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>Order Analysis</h3>
+                <p style={{ color: '#aaa', fontSize: '14px' }}>Supplier actual cost vs app estimate, per order</p>
+              </div>
+              <div style={{ fontSize: '24px', color: '#666' }}>→</div>
+            </div>
+          </button>
         </div>
 
         <div style={{ marginTop: '48px', textAlign: 'center' }}>
@@ -1086,8 +1104,21 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       };
       
       text += `OVERALL QUOTE: ${formatTextPrice(totalMin, totalMax)}\n`;
-      text += `(Includes width & height surcharges)\n`;
-      text += `Sales Tax (8.25%): ${formatTextPrice(taxMin, taxMax)}\n`;
+      // ✅ FIX: Motor/Solar cost totals were shown on screen but never made it
+      // into the copied text, so a copied quote silently understated the
+      // Grand Total's components - same class of bug as the on-screen totals
+      // once had before motorGrandTotal/solarGrandTotal became the single
+      // source of truth. Reuse those same values here.
+      if (motorCount > 0) {
+        text += `Motor ${motorCount} cost total: $${formatMoney(motorGrandTotal)}\n`;
+      }
+      if (solarCount > 0) {
+        text += `Solar ${solarCount} cost total: $${formatMoney(solarGrandTotal)}\n`;
+      }
+      if (motorCount > 0 || solarCount > 0) {
+        text += `Subtotal (before tax): ${formatTextPrice(subtotalMin, subtotalMax)}\n`;
+      }
+      text += `Sales Tax (${formatMoney(taxRate * 100)}%): ${formatTextPrice(taxMin, taxMax)}\n`;
       text += `GRAND TOTAL: ${formatTextPrice(grandMin, grandMax)}`;
       
       return text;
@@ -1547,13 +1578,13 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
                         autoFocus
                       />
                     ) : (
-                      <span>({(() => {
+                      <span>{(() => {
                         // Show effective tax rate (pending edit > saved edit > default), as a percentage
                         const pending = tableEditValues.taxRate;
-                        const effective = typeof pending === 'number' ? pending 
+                        const effective = typeof pending === 'number' ? pending
                           : (typeof selectedQuote.editedPrices?.taxRate === 'number' ? selectedQuote.editedPrices.taxRate : (storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE));
                         return formatMoney(effective * 100);
-                      })()}%)</span>
+                      })()}</span>
                     )}
                     %):
                     <button
@@ -1862,21 +1893,29 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
 
   const getLatestQuoteVersions = (quotesToProcess) => {
     const latestByID = {};
-    
+
     quotesToProcess.forEach(quote => {
-      if (!latestByID[quote.id]) {
-        latestByID[quote.id] = quote;
+      // ✅ BUGFIX: every version of a quote gets its own guaranteed-unique
+      // `id` (see the comment on uniqueId in generateQuote) - `lineageId` is
+      // what ties versions of the same quote together. Grouping by `id` here
+      // meant this function never deduped anything at all: every version of
+      // every quote counted as its own "latest quote", so Total Quotes in
+      // Statistics counted versions instead of quotes, and Total Profit
+      // summed profit across every version instead of just the current one.
+      const key = quote.lineageId || quote.id;
+      if (!latestByID[key]) {
+        latestByID[key] = quote;
       } else {
         // Compare dates - keep the one with latest updatedDate
-        const currentDate = new Date(latestByID[quote.id].updatedDate || latestByID[quote.id].createdDate);
+        const currentDate = new Date(latestByID[key].updatedDate || latestByID[key].createdDate);
         const newDate = new Date(quote.updatedDate || quote.createdDate);
-        
+
         if (newDate > currentDate) {
-          latestByID[quote.id] = quote;
+          latestByID[key] = quote;
         }
       }
     });
-    
+
     return Object.values(latestByID);
   };
 
@@ -2288,12 +2327,30 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
                         </label>
                       )}
 
-                      <div style={{ padding: '8px', borderRadius: '6px', background: '#2a3a2a', marginBottom: '8px', border: '1px solid #4a6a4a' }}>
-                        <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#aaa', marginBottom: '6px' }}>Surcharge Override (Optional)</p>
-                        <p style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>Auto: ${(() => { try { const widthVal = (group.width || '').trim(); const heightVal = (group.height || '').trim(); const w = widthVal ? getWidthSurcharge(widthVal) : 0; const h = heightVal ? getHeightSurcharge(heightVal) : 0; const total = w + h; return isNaN(total) ? '0' : total.toFixed(0); } catch(e) { console.error('Surcharge calc error:', e); return '0'; } })()} {typeof group.surchargeOverride === 'number' && `→ Overridden: $${group.surchargeOverride.toFixed(0)}`}</p>
-                        <input type="number" placeholder="Leave blank to use auto-calculated" value={typeof group.surchargeOverride === 'number' ? group.surchargeOverride : ''} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = e.target.value === '' ? null : parseFloat(e.target.value) || 0; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '6px', borderRadius: '4px', fontSize: '12px', background: '#0a0a0a', border: '1px solid #555', color: 'white', marginBottom: '6px' }} />
-                        <button onClick={() => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = null; setFormData({...formData, rooms: newRooms}); }} style={{ fontSize: '10px', padding: '4px 8px', background: 'transparent', color: '#888', border: '1px solid #555', borderRadius: '4px', cursor: 'pointer' }}>Reset to Auto</button>
-                      </div>
+                      {(() => {
+                        const surchargeKey = `${room.id}_${groupIndex}`;
+                        const isSurchargeExpanded = expandedSurchargeOverride.has(surchargeKey);
+                        const toggleSurchargeSection = () => {
+                          const s = new Set(expandedSurchargeOverride);
+                          if (s.has(surchargeKey)) s.delete(surchargeKey); else s.add(surchargeKey);
+                          setExpandedSurchargeOverride(s);
+                        };
+                        return (
+                          <div style={{ borderRadius: '6px', marginBottom: '8px', border: '1px solid #4a6a4a', overflow: 'hidden' }}>
+                            <button onClick={toggleSurchargeSection} style={{ width: '100%', textAlign: 'left', background: '#2a3a2a', border: 'none', cursor: 'pointer', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#aaa' }}>Surcharge Override (Optional){typeof group.surchargeOverride === 'number' && ` — Overridden: $${group.surchargeOverride.toFixed(0)}`}</span>
+                              <span style={{ color: '#888', fontSize: '12px' }}>{isSurchargeExpanded ? '▼' : '▶'}</span>
+                            </button>
+                            {isSurchargeExpanded && (
+                              <div style={{ padding: '8px', background: '#2a3a2a' }}>
+                                <p style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>Auto: ${(() => { try { const widthVal = (group.width || '').trim(); const heightVal = (group.height || '').trim(); const w = widthVal ? getWidthSurcharge(widthVal) : 0; const h = heightVal ? getHeightSurcharge(heightVal) : 0; const total = w + h; return isNaN(total) ? '0' : total.toFixed(0); } catch(e) { console.error('Surcharge calc error:', e); return '0'; } })()} {typeof group.surchargeOverride === 'number' && `→ Overridden: $${group.surchargeOverride.toFixed(0)}`}</p>
+                                <input type="number" placeholder="Leave blank to use auto-calculated" value={typeof group.surchargeOverride === 'number' ? group.surchargeOverride : ''} onChange={(e) => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = e.target.value === '' ? null : parseFloat(e.target.value) || 0; setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '6px', borderRadius: '4px', fontSize: '12px', background: '#0a0a0a', border: '1px solid #555', color: 'white', marginBottom: '6px' }} />
+                                <button onClick={() => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups[groupIndex].surchargeOverride = null; setFormData({...formData, rooms: newRooms}); }} style={{ fontSize: '10px', padding: '4px 8px', background: 'transparent', color: '#888', border: '1px solid #555', borderRadius: '4px', cursor: 'pointer' }}>Reset to Auto</button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       <button onClick={() => { const newRooms = [...formData.rooms]; newRooms[roomIndex].windowGroups.splice(groupIndex, 1); setFormData({...formData, rooms: newRooms}); }} style={{ width: '100%', padding: '8px', marginTop: '8px', borderRadius: '4px', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
                         <Trash2 size={14} /> Delete This Window Group
@@ -2373,6 +2430,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       {currentView === 'history' && renderHistory()}
       {currentView === 'statistics' && renderStatistics()}
       {currentView === 'measurements' && <SupplierMeasurements quotes={quotes} onBack={() => setCurrentView('menu')} uid={uid} />}
+      {currentView === 'analysis' && <OrderAnalysis quotes={quotes} onBack={() => setCurrentView('menu')} uid={uid} />}
     </div>
   );
 }

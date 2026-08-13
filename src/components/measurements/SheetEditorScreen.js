@@ -86,6 +86,9 @@ export default function SheetEditorScreen({
           </div>
         )}
 
+        {activeSheet.clientNames?.length > 0 && (
+          <p style={{ color: '#d4af37', fontWeight: 'bold', fontSize: '18px', marginBottom: '8px' }}>{activeSheet.clientNames.join(', ')}</p>
+        )}
         <input
           type="text"
           placeholder="Address"

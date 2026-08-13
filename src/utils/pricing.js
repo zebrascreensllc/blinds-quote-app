@@ -304,6 +304,105 @@ export const autoDetectBlindTypes = (fabricInput, fabricData = null) => {
   return detectedTypes.size > 0 ? Array.from(detectedTypes) : ['Roller'];
 };
 
+// ✅ NEW (Order Analysis): reusable, non-JSX version of the same supplier-cost-
+// breakdown + profit math already used inline in App.js's Pricing Comparison
+// panel (renderQuoteDetail) - same formulas, same field names, kept in sync
+// deliberately so the two can never drift apart. Remote cost is split out
+// from Motor here (the Pricing Comparison panel bundles them into one
+// "Motor Cost" figure) since Order Analysis tracks them as separate line
+// items to compare against the supplier's actual invoice.
+export const computeQuoteFinancials = (quote) => {
+  const rooms = quote.rooms || [];
+  const storedPricing = quote.pricing || null;
+  const fabricData = storedPricing?.PRICING_DATA || PRICING_DATA;
+  const isRangeOverride = (v) => v !== null && typeof v === 'object' && typeof v.min === 'number' && typeof v.max === 'number';
+
+  let totalMin = 0, totalMax = 0;
+  let fabricCost = 0, shippingCost = 0, motorSupplierCost = 0, remoteSupplierCost = 0, solarSupplierCost = 0;
+  let motorCount = 0, solarCount = 0;
+
+  rooms.forEach(room => {
+    const fabricNumbers = (room.fabricInput || '').split(',').map(f => f.trim()).filter(f => f);
+    let actualBlindType = (room.blindTypes || ['Roller'])[0];
+    if (fabricNumbers.length > 0) {
+      for (const fabricNum of fabricNumbers) {
+        const detectedType = getBlindTypeFromFabric(fabricNum, fabricData);
+        if (detectedType) { actualBlindType = detectedType; break; }
+      }
+    }
+
+    const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
+
+    room.windowGroups.forEach((group, groupIdx) => {
+      const qty = parseInt(group.quantity) || 0;
+      if (group.controlType === 'Motor') motorCount += qty;
+      if (group.solar) solarCount += qty;
+
+      const q = calculateGroupQuote(group, fabricNumbers, actualBlindType, motorizedCount, storedPricing);
+      if (isNaN(q.minQuote) || isNaN(q.maxQuote)) return;
+
+      const quantityForCost = parseInt(group.quantity) || 1;
+      const avgGroupCost = (q.minCost + q.maxCost) / 2;
+      const shippingForGroup = (storedPricing?.SHIPPING_COST ?? 42) * quantityForCost;
+      shippingCost += shippingForGroup;
+      fabricCost += (avgGroupCost - shippingForGroup);
+      if (group.controlType === 'Motor') {
+        const remoteType = motorizedCount > 6 ? (storedPricing?.REMOTE_16CH ?? 10) : (storedPricing?.REMOTE_6CH ?? 7);
+        motorSupplierCost += (storedPricing?.MOTOR_COST_SUPPLIER ?? 50) * quantityForCost;
+        remoteSupplierCost += (remoteType / motorizedCount) * quantityForCost;
+      }
+      if (group.solar) {
+        solarSupplierCost += (storedPricing?.SOLAR_COST_SUPPLIER ?? 22) * quantityForCost;
+      }
+
+      const priceKey = `${room.id}_${groupIdx}`;
+      const savedPrice = quote.editedPrices?.perWindowPrices?.[priceKey];
+      const quantity = parseInt(group.quantity) || 1;
+      if (typeof savedPrice === 'number' || isRangeOverride(savedPrice)) {
+        if (isRangeOverride(savedPrice)) {
+          totalMin += savedPrice.min * quantity;
+          totalMax += savedPrice.max * quantity;
+        } else {
+          const overrideTotal = savedPrice * quantity;
+          totalMin += overrideTotal;
+          totalMax += overrideTotal;
+        }
+      } else {
+        totalMin += q.baseMinQuote;
+        totalMax += q.baseMaxQuote;
+      }
+    });
+  });
+
+  const defaultMotorCostClient = storedPricing?.MOTOR_COST_CLIENT || 80;
+  const effectiveMotorCost = typeof quote.editedPrices?.motorCost === 'number' ? quote.editedPrices.motorCost : defaultMotorCostClient;
+  const defaultSolarCostClient = storedPricing?.SOLAR_COST_CLIENT || 40;
+  const effectiveSolarCost = typeof quote.editedPrices?.solarCost === 'number' ? quote.editedPrices.solarCost : defaultSolarCostClient;
+  const motorGrandTotal = motorCount * effectiveMotorCost;
+  const solarGrandTotal = solarCount * effectiveSolarCost;
+
+  const appGeneratedCosts = {
+    fabric: fabricCost,
+    shipping: shippingCost,
+    motor: motorSupplierCost,
+    remote: remoteSupplierCost,
+    solar: solarSupplierCost,
+    total: fabricCost + shippingCost + motorSupplierCost + remoteSupplierCost + solarSupplierCost
+  };
+
+  return {
+    appGeneratedCosts,
+    // Revenue actually charged to the client (window + motor + solar, no
+    // tax) - uses the MIN side of any still-ranged pricing, matching how the
+    // rest of the app treats an un-resolved range as its conservative low end.
+    revenueSubtotal: totalMin + motorGrandTotal + solarGrandTotal,
+    revenueSubtotalMax: totalMax + motorGrandTotal + solarGrandTotal,
+    appEstimatedProfit: (totalMin + motorGrandTotal + solarGrandTotal) - appGeneratedCosts.total,
+    motorCount,
+    solarCount
+  };
+};
+
 // Get next version number
 // ✅ DEFENSIVE: quotes defaults to [] so a missing argument can never crash quote creation.
 // Also parses versions safely (strips any non-digits) and ignores unparseable ones.

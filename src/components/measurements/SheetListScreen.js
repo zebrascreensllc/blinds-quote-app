@@ -43,8 +43,8 @@ export default function SheetListScreen({ sheets, hasLoaded, loadError, syncStat
           sheets.slice().sort((a, b) => new Date(b.updatedDate) - new Date(a.updatedDate)).map(sheet => (
             <div key={sheet.id} style={{ background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', padding: '16px', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
               <button onClick={() => onOpenSheet(sheet.id)} style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer' }}>
-                <p style={{ color: '#d4af37', fontWeight: 'bold', fontSize: '15px', marginBottom: '4px' }}>{sheet.address || 'Untitled'}</p>
-                <p style={{ color: '#888', fontSize: '12px' }}>{sheet.sourceQuoteNames?.join(', ')}</p>
+                <p style={{ color: '#d4af37', fontWeight: 'bold', fontSize: '15px', marginBottom: '4px' }}>{sheet.clientNames?.length ? sheet.clientNames.join(', ') : (sheet.address || 'Untitled')}</p>
+                {sheet.address && <p style={{ color: '#888', fontSize: '12px' }}>{sheet.address}</p>}
                 <p style={{ color: '#666', fontSize: '11px', marginTop: '4px' }}>{sheet.rows.length} windows • {new Date(sheet.updatedDate).toLocaleDateString()}</p>
               </button>
               <button onClick={() => onDeleteSheet(sheet.id)} style={{ padding: '10px', borderRadius: '6px', background: '#b91c1c', border: 'none', cursor: 'pointer', color: '#fff', fontSize: '12px' }}>Delete</button>

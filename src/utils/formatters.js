@@ -49,6 +49,13 @@ export const formatCurrency = (value) => {
   return typeof value === 'number' ? value.toFixed(2) : '0.00';
 };
 
+// Format a dollar amount, trimming trailing zeros (e.g. 42.50 -> "42.5", 42.00 -> "42")
+export const formatMoney = (num) => {
+  const val = parseFloat(num);
+  if (isNaN(val)) return '0';
+  return val.toFixed(2).replace(/\.?0+$/, '');
+};
+
 // Format date to readable string
 export const formatDate = (dateString) => {
   if (!dateString) return '';
