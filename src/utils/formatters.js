@@ -56,6 +56,30 @@ export const formatMoney = (num) => {
   return val.toFixed(2).replace(/\.?0+$/, '');
 };
 
+// True if v is a valid {min, max} custom range price override.
+export const isRangeOverride = (v) => v !== null && typeof v === 'object' && typeof v.min === 'number' && typeof v.max === 'number';
+
+// Formats either a plain number or a range override for display, including the "$" sign.
+export const formatPriceOverride = (v) => isRangeOverride(v) ? formatPrice(v.min, v.max) : `$${formatMoney(v)}`;
+
+// Filters raw text input down to valid decimal number text as the user types
+// (digits + at most one decimal point + max 2 decimal places). A plain text
+// input (not type="number") avoids known mobile Safari/Chrome bugs where
+// number inputs "stick" or revert on backspace/decimal entry.
+export const filterNumericText = (raw) => {
+  if (raw === '') return '';
+  let filtered = raw.replace(/[^0-9.]/g, '');
+  const parts = filtered.split('.');
+  if (parts.length > 2) {
+    filtered = parts[0] + '.' + parts.slice(1).join('');
+  }
+  const dotIndex = filtered.indexOf('.');
+  if (dotIndex !== -1 && filtered.length - dotIndex - 1 > 2) {
+    filtered = filtered.slice(0, dotIndex + 3);
+  }
+  return filtered;
+};
+
 // Format date to readable string
 export const formatDate = (dateString) => {
   if (!dateString) return '';
