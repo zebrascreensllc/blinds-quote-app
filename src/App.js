@@ -489,7 +489,20 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       pricing: pricingSnapshot,
       createdDate: editingQuote ? editingQuote.createdDate : new Date().toISOString(),
       updatedDate: new Date().toISOString(),
-      status: 'quote'
+      status: 'quote',
+      // ✅ BUGFIX (major): quoteData never included editedPrices at all, so
+      // editing a window's dimensions/motor/solar via the form and saving as
+      // a new version silently wiped every manually-adjusted price - motor
+      // cost, solar cost, tax rate, and every per-window override - back to
+      // freshly recalculated defaults, identical to v1. Now carries the
+      // previous version's adjustments forward unchanged.
+      //
+      // One tradeoff worth knowing: if you resize or otherwise change a
+      // SPECIFIC window that already had its own manual price override, that
+      // override carries forward as-is too - it won't automatically reflect
+      // the new size. Worth a quick check on that one window after this kind
+      // of edit; everything else carries forward correctly untouched.
+      editedPrices: editingQuote ? editingQuote.editedPrices : undefined
     };
 
     if (editingQuote) {

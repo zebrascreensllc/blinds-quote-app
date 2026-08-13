@@ -29,6 +29,7 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
   const [hasLoaded, setHasLoaded] = useState(false);
   const [screen, setScreen] = useState('list'); // 'list' | 'select' | 'editor'
   const [selectedQuoteIds, setSelectedQuoteIds] = useState(new Set());
+  const [creatingSheet, setCreatingSheet] = useState(false);
   const [activeSheetId, setActiveSheetId] = useState(null);
   // Fabric and Remote bulk tools each get their OWN selection, instead of
   // sharing one - sharing meant a leftover Fabric selection could silently
@@ -87,6 +88,14 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
   // to call setSheets (including the functional-updater form used by
   // updateActiveSheet just below), only the name changes. `sheets` state
   // itself is only ever updated by the listener above.
+  //
+  // ✅ BUGFIX: now returns a Promise<{success, errors}>. High-frequency call
+  // sites (every field edit) can keep ignoring the return value exactly as
+  // before - nothing changes for them. But checkpoint-style callers like
+  // createSheet can now await it and confirm the write actually landed
+  // before navigating anywhere - previously, navigation happened
+  // immediately regardless of outcome, so a failed write silently left you
+  // on a screen pointing at a sheet that was never actually saved.
   const updateSheets = (newSheetsOrUpdater) => {
     const newSheets = typeof newSheetsOrUpdater === 'function' ? newSheetsOrUpdater(sheets) : newSheetsOrUpdater;
     const oldById = new Map(sheets.map(s => [s.id, s]));
@@ -110,15 +119,16 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
       }))
     ];
 
-    if (attempts.length === 0) return;
+    if (attempts.length === 0) return Promise.resolve({ success: true, errors: [] });
 
-    Promise.all(attempts).then(results => {
+    return Promise.all(attempts).then(results => {
       const failed = results.filter(r => !r.ok);
       setSyncStatus(
         failed.length > 0
           ? { ok: false, failedCount: failed.length, lastError: failed[0].message }
           : { ok: true, failedCount: 0, lastError: null }
       );
+      return { success: failed.length === 0, errors: failed.map(f => f.message) };
     });
   };
 
@@ -153,7 +163,7 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
     setSelectedQuoteIds(s);
   };
 
-  const createSheet = () => {
+  const createSheet = async () => {
     const selected = latestQuotes().filter(q => selectedQuoteIds.has(q.id));
     if (selected.length === 0) {
       alert('Select at least one quote first.');
@@ -169,7 +179,19 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
       sourceQuoteNames: selected.map(q => q.quoteName || q.clientName),
       rows: allRows
     };
-    updateSheets(prev => [...prev, newSheet]);
+    // ✅ BUGFIX: previously navigated to the editor screen immediately after
+    // calling updateSheets, without waiting to see if the write actually
+    // succeeded. A failed write left activeSheetId pointing at a sheet that
+    // was never actually saved - "Sheet not found", every single time,
+    // regardless of which quote it was built from. Now waits for
+    // confirmation and shows the real error instead of navigating blind.
+    setCreatingSheet(true);
+    const result = await updateSheets(prev => [...prev, newSheet]);
+    setCreatingSheet(false);
+    if (!result.success) {
+      alert(`Could not create the sheet - ${result.errors[0] || 'sync failed'}.\n\nNothing was lost; just try again once you have a connection.`);
+      return;
+    }
     setActiveSheetId(newSheet.id);
     setSelectedQuoteIds(new Set());
     setAcknowledgedWarnings(new Set());
@@ -390,6 +412,7 @@ export default function SupplierMeasurements({ quotes, onBack, uid }) {
         onToggleQuote={toggleQuoteSelected}
         onBack={() => setScreen('list')}
         onCreateSheet={createSheet}
+        creatingSheet={creatingSheet}
       />
     );
   }

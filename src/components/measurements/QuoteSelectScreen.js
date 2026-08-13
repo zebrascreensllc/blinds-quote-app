@@ -3,7 +3,7 @@ import React from 'react';
 // The "pick which quote(s) to build a sheet from" screen. Receives the
 // already-deduplicated (latest version per quote) list from the parent -
 // this component doesn't touch the raw quotes array or dedup logic at all.
-export default function QuoteSelectScreen({ quotesList, selectedQuoteIds, onToggleQuote, onBack, onCreateSheet }) {
+export default function QuoteSelectScreen({ quotesList, selectedQuoteIds, onToggleQuote, onBack, onCreateSheet, creatingSheet }) {
   return (
     <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '24px 16px' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
@@ -35,8 +35,8 @@ export default function QuoteSelectScreen({ quotesList, selectedQuoteIds, onTogg
         )}
 
         {quotesList.length > 0 && (
-          <button onClick={onCreateSheet} style={{ width: '100%', padding: '14px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '15px', cursor: 'pointer', marginTop: '16px' }}>
-            Create Sheet with {selectedQuoteIds.size} Quote{selectedQuoteIds.size === 1 ? '' : 's'}
+          <button onClick={onCreateSheet} disabled={creatingSheet} style={{ width: '100%', padding: '14px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '15px', cursor: creatingSheet ? 'default' : 'pointer', opacity: creatingSheet ? 0.6 : 1, marginTop: '16px' }}>
+            {creatingSheet ? 'Creating...' : `Create Sheet with ${selectedQuoteIds.size} Quote${selectedQuoteIds.size === 1 ? '' : 's'}`}
           </button>
         )}
       </div>
