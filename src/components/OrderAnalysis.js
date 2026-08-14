@@ -117,7 +117,15 @@ export default function OrderAnalysis({ quotes, onBack, uid }) {
       supplierCosts: { fabric: null, motor: null, remote: null, solar: null, shipping: null },
       appGeneratedCosts: financials.appGeneratedCosts,
       revenueSubtotal: financials.revenueSubtotal,
-      invoicePhoto: null,
+      // ✅ NEW: what the client was ACTUALLY charged, editable and separate
+      // from revenueSubtotal (the app's original estimate at the moment
+      // this entry was created). Defaults to the estimate, but a
+      // client-negotiated discount changes this without needing to go back
+      // and re-edit the quote itself - the difference is shown as
+      // "Discount Given", and profit is computed against this number since
+      // it's the only economically real one.
+      finalPriceCharged: financials.revenueSubtotal,
+      invoiceFile: null,
       notes: ''
     };
     setCreatingEntry(true);

@@ -49,3 +49,24 @@ export function compressImageFile(file) {
     reader.readAsDataURL(file);
   });
 }
+
+// For file types that can't be shrunk the way a photo can (PDF) - just
+// base64-encode it and reject up front if it won't fit under the same
+// per-document budget compressImageFile targets. No compression step, so
+// this cap is unforgiving for a large multi-page scan - the error message
+// says so explicitly rather than failing silently.
+export function readSmallFileAsDataUrl(file, maxLength = MAX_DATA_URL_LENGTH) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read the selected file.'));
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      if (dataUrl.length > maxLength) {
+        reject(new Error(`This file is too large to attach (PDFs can't be compressed the way a photo can). Try a photo of just the cost lines instead, or a shorter/lower-resolution scan.`));
+        return;
+      }
+      resolve(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  });
+}
