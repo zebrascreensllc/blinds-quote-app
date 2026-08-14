@@ -16,6 +16,11 @@ const labelStyle = { fontSize: '11px', color: '#888', display: 'block', marginBo
 const errorTextStyle = { fontSize: '11px', color: '#ef4444', marginTop: '4px' };
 const cellStyle = { padding: '6px', fontSize: '12px', color: '#ccc', borderBottom: '1px solid #333', verticalAlign: 'top' };
 const headerCellStyle = { padding: '8px 6px', fontSize: '11px', fontWeight: 'bold', color: '#fff', textAlign: 'left', borderBottom: '1px solid #444', whiteSpace: 'nowrap' };
+// Frozen first column for the Review table - Location stays put while the
+// rest of the (much wider) table scrolls underneath it. Needs an opaque
+// background of its own, otherwise scrolled-under cells would show through.
+const stickyHeaderCellStyle = { ...headerCellStyle, position: 'sticky', left: 0, zIndex: 2, background: '#1a1a1a' };
+const stickyBodyCellStyle = (isIncomplete) => ({ ...cellStyle, position: 'sticky', left: 0, zIndex: 1, background: isIncomplete ? '#3a1a1a' : '#242424', color: '#d4af37', fontWeight: 'bold' });
 
 // Generic bulk-tool checklist body, reused by every "select windows, then
 // apply" panel below - same interaction pattern as the original feature's
@@ -176,76 +181,72 @@ export default function BulkEditorScreen({
         />
         <p style={{ color: '#888', fontSize: '12px', marginBottom: '20px' }}>{activeSheet.sourceQuoteNames?.join(', ')} • {rows.length} windows</p>
 
-        {/* 1. Windows - width/height/comment only */}
+        {/* 1. Windows - width/height/comment only. A stacked card per window
+            instead of a table - on a phone-width screen, 4 side-by-side
+            table columns can't all fit without horizontal scrolling, which
+            is exactly what this section exists to avoid. */}
         <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>1. Windows</p>
-        <div style={{ overflowX: 'auto', marginBottom: '24px', border: '1px solid #444', borderRadius: '8px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead style={{ background: '#1a1a1a' }}>
-              <tr>
-                <th style={headerCellStyle}>Location</th>
-                <th style={headerCellStyle}>Width</th>
-                <th style={headerCellStyle}>Height</th>
-                <th style={headerCellStyle}>Comment</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(row => {
-                const widthCheck = validateMeasurementFormat(row.width);
-                const heightCheck = validateMeasurementFormat(row.height);
-                const widthOutlierKey = warningKey([row.id, 'width', row.width]);
-                const showWidthWarning = widthCheck.valid && widthOutlierIds.has(row.id) && !acknowledgedWarnings.has(widthOutlierKey);
-                const heightOutlierKey = warningKey([row.id, 'height', row.height]);
-                const showHeightWarning = heightCheck.valid && heightOutlierIds.has(row.id) && !acknowledgedWarnings.has(heightOutlierKey);
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '24px' }}>
+          {rows.map(row => {
+            const widthCheck = validateMeasurementFormat(row.width);
+            const heightCheck = validateMeasurementFormat(row.height);
+            const widthOutlierKey = warningKey([row.id, 'width', row.width]);
+            const showWidthWarning = widthCheck.valid && widthOutlierIds.has(row.id) && !acknowledgedWarnings.has(widthOutlierKey);
+            const heightOutlierKey = warningKey([row.id, 'height', row.height]);
+            const showHeightWarning = heightCheck.valid && heightOutlierIds.has(row.id) && !acknowledgedWarnings.has(heightOutlierKey);
 
-                return (
-                  <tr key={row.id} style={{ background: '#242424' }}>
-                    <td style={{ ...cellStyle, color: '#d4af37', fontWeight: 'bold' }}>{getLocationLabel(row)}</td>
-                    <td style={{ ...cellStyle, minWidth: '130px' }}>
-                      <input
-                        type="text"
-                        value={row.width}
-                        onChange={(e) => updateRow(row.id, { width: e.target.value })}
-                        placeholder="e.g. 34 5/16"
-                        style={{ ...inputStyle, border: !widthCheck.valid ? '1px solid #ef4444' : (showWidthWarning ? '1px solid #f59e0b' : inputStyle.border) }}
-                      />
-                      {!widthCheck.valid && <p style={errorTextStyle}>{widthCheck.message}</p>}
-                      {showWidthWarning && (
-                        <div style={{ marginTop: '4px' }}>
-                          <p style={{ fontSize: '11px', color: '#f59e0b' }}>⚠️ Different from others in "{row.locationBase}".</p>
-                          <button onClick={() => acknowledgeWarning(widthOutlierKey)} style={{ fontSize: '11px', color: '#4ade80', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>✓ Correct</button>
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ ...cellStyle, minWidth: '130px' }}>
-                      <input
-                        type="text"
-                        value={row.height}
-                        onChange={(e) => updateRow(row.id, { height: e.target.value })}
-                        placeholder="e.g. 75 13/16"
-                        style={{ ...inputStyle, border: !heightCheck.valid ? '1px solid #ef4444' : (showHeightWarning ? '1px solid #f59e0b' : inputStyle.border) }}
-                      />
-                      {!heightCheck.valid && <p style={errorTextStyle}>{heightCheck.message}</p>}
-                      {showHeightWarning && (
-                        <div style={{ marginTop: '4px' }}>
-                          <p style={{ fontSize: '11px', color: '#f59e0b' }}>⚠️ Different from others in "{row.locationBase}".</p>
-                          <button onClick={() => acknowledgeWarning(heightOutlierKey)} style={{ fontSize: '11px', color: '#4ade80', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>✓ Correct</button>
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ ...cellStyle, minWidth: '160px' }}>
-                      <input
-                        type="text"
-                        value={row.comment || ''}
-                        onChange={(e) => updateRow(row.id, { comment: e.target.value })}
-                        placeholder="e.g. Side-by-side"
-                        style={inputStyle}
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+            return (
+              <div key={row.id} style={{ background: '#242424', border: '1px solid #444', borderRadius: '8px', padding: '12px' }}>
+                <p style={{ color: '#d4af37', fontWeight: 'bold', fontSize: '14px', marginBottom: '10px' }}>{getLocationLabel(row)}</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                  <div>
+                    <label style={labelStyle}>Width</label>
+                    <input
+                      type="text"
+                      value={row.width}
+                      onChange={(e) => updateRow(row.id, { width: e.target.value })}
+                      placeholder="e.g. 34 5/16"
+                      style={{ ...inputStyle, border: !widthCheck.valid ? '1px solid #ef4444' : (showWidthWarning ? '1px solid #f59e0b' : inputStyle.border) }}
+                    />
+                    {!widthCheck.valid && <p style={errorTextStyle}>{widthCheck.message}</p>}
+                    {showWidthWarning && (
+                      <div style={{ marginTop: '4px' }}>
+                        <p style={{ fontSize: '11px', color: '#f59e0b' }}>⚠️ Different from others in "{row.locationBase}".</p>
+                        <button onClick={() => acknowledgeWarning(widthOutlierKey)} style={{ fontSize: '11px', color: '#4ade80', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>✓ Correct</button>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Height</label>
+                    <input
+                      type="text"
+                      value={row.height}
+                      onChange={(e) => updateRow(row.id, { height: e.target.value })}
+                      placeholder="e.g. 75 13/16"
+                      style={{ ...inputStyle, border: !heightCheck.valid ? '1px solid #ef4444' : (showHeightWarning ? '1px solid #f59e0b' : inputStyle.border) }}
+                    />
+                    {!heightCheck.valid && <p style={errorTextStyle}>{heightCheck.message}</p>}
+                    {showHeightWarning && (
+                      <div style={{ marginTop: '4px' }}>
+                        <p style={{ fontSize: '11px', color: '#f59e0b' }}>⚠️ Different from others in "{row.locationBase}".</p>
+                        <button onClick={() => acknowledgeWarning(heightOutlierKey)} style={{ fontSize: '11px', color: '#4ade80', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>✓ Correct</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label style={labelStyle}>Comment</label>
+                  <input
+                    type="text"
+                    value={row.comment || ''}
+                    onChange={(e) => updateRow(row.id, { comment: e.target.value })}
+                    placeholder="e.g. Side-by-side"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* 2. Bulk Assign Fabric */}
@@ -436,7 +437,7 @@ export default function BulkEditorScreen({
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ background: '#1a1a1a' }}>
               <tr>
-                <th style={headerCellStyle}>Location</th>
+                <th style={stickyHeaderCellStyle}>Location</th>
                 <th style={headerCellStyle}>Comment</th>
                 <th style={headerCellStyle}>Manual/Smart</th>
                 <th style={headerCellStyle}>Motor-type</th>
@@ -457,7 +458,7 @@ export default function BulkEditorScreen({
                 const mixedFabricWarning = roomsWithMixedFabric.has(row.locationBase);
                 return (
                   <tr key={row.id} style={{ background: isIncomplete ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
-                    <td style={{ ...cellStyle, color: '#d4af37', fontWeight: 'bold' }}>{f.location}</td>
+                    <td style={stickyBodyCellStyle(isIncomplete)}>{f.location}</td>
                     <td style={{ ...cellStyle, background: f.hasComment ? 'rgba(250,204,21,0.15)' : 'transparent' }}>{f.comment || '—'}</td>
                     <td style={{ ...cellStyle, background: f.hasMotorVariant ? 'rgba(250,204,21,0.15)' : 'transparent' }}>{f.manualSmart}</td>
                     <td style={cellStyle}>{f.motorType || '—'}</td>
