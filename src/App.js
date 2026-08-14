@@ -8,6 +8,7 @@ import { getQuoteNamePrefix, getNextVersion } from './utils/pricing';
 // own storage key. Only reads the `quotes` array (never writes it) to build
 // sheets from - never touches quote pricing/calculation state.
 import SupplierMeasurements from './components/SupplierMeasurements';
+import BulkMeasurements from './components/BulkMeasurements';
 import OrderAnalysis from './components/OrderAnalysis';
 import MenuScreen from './components/quote/MenuScreen';
 import HistoryScreen from './components/quote/HistoryScreen';
@@ -688,6 +689,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       )}
       {currentView === 'statistics' && <StatisticsScreen quotes={quotes} setCurrentView={setCurrentView} />}
       {currentView === 'measurements' && <SupplierMeasurements quotes={quotes} onBack={() => setCurrentView('menu')} uid={uid} />}
+      {currentView === 'bulkMeasurements' && <BulkMeasurements quotes={quotes} onBack={() => setCurrentView('menu')} uid={uid} />}
       {currentView === 'analysis' && <OrderAnalysis quotes={quotes} onBack={() => setCurrentView('menu')} uid={uid} />}
     </div>
   );

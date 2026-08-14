@@ -1,0 +1,500 @@
+import React from 'react';
+import {
+  MOTOR_OPTIONS,
+  CASSETTE_OPTIONS,
+  MOUNT_OPTIONS,
+  validateMeasurementFormat,
+  getLocationLabel,
+  getIncompleteFields,
+  findRoomsWithMixedFabric,
+  buildRowExportFields
+} from '../../utils/measurementUtils';
+
+const inputStyle = { width: '100%', padding: '8px', borderRadius: '6px', fontSize: '13px', background: '#1a1a1a', border: '1px solid #444', color: 'white', boxSizing: 'border-box' };
+const selectStyle = { ...inputStyle, cursor: 'pointer' };
+const labelStyle = { fontSize: '11px', color: '#888', display: 'block', marginBottom: '4px' };
+const errorTextStyle = { fontSize: '11px', color: '#ef4444', marginTop: '4px' };
+const cellStyle = { padding: '6px', fontSize: '12px', color: '#ccc', borderBottom: '1px solid #333', verticalAlign: 'top' };
+const headerCellStyle = { padding: '8px 6px', fontSize: '11px', fontWeight: 'bold', color: '#fff', textAlign: 'left', borderBottom: '1px solid #444', whiteSpace: 'nowrap' };
+
+// Generic bulk-tool checklist body, reused by every "select windows, then
+// apply" panel below - same interaction pattern as the original feature's
+// Bulk Assign Fabric/Remote tools, just shared instead of copy-pasted 6 times.
+function RowChecklist({ rows, selectedIds, toggleInSet, setSelectedIds, renderLabel, accentColor }) {
+  if (rows.length === 0) {
+    return <p style={{ color: '#888', fontSize: '12px' }}>No matching windows on this sheet.</p>;
+  }
+  return (
+    <>
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
+        <button onClick={() => setSelectedIds(new Set(rows.map(r => r.id)))} style={{ fontSize: '12px', color: accentColor, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Select All</button>
+        <button onClick={() => setSelectedIds(new Set())} style={{ fontSize: '12px', color: '#888', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear</button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '220px', overflowY: 'auto', marginBottom: '10px', border: '1px solid #333', borderRadius: '6px', padding: '6px' }}>
+        {rows.map(row => {
+          const checked = selectedIds.has(row.id);
+          return (
+            <label key={row.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '4px', background: checked ? 'rgba(255,255,255,0.08)' : 'transparent', cursor: 'pointer' }}>
+              <input type="checkbox" checked={checked} onChange={() => toggleInSet(row.id, selectedIds, setSelectedIds)} style={{ width: '16px', height: '16px', cursor: 'pointer', flexShrink: 0 }} />
+              <span style={{ fontSize: '12px', color: checked ? accentColor : '#ccc' }}>{renderLabel(row)}</span>
+            </label>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// Collapsible wrapper shared by every bulk tool section below.
+function BulkToolPanel({ title, icon, bg, border, accentColor, isOpen, onToggle, children }) {
+  return (
+    <div style={{ background: bg, border: `1px solid ${border}`, borderRadius: '8px', marginBottom: '16px', overflow: 'hidden' }}>
+      <button onClick={onToggle} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ color: accentColor, fontWeight: 'bold', fontSize: '13px' }}>{icon} {title}</span>
+        <span style={{ color: '#888', fontSize: '14px' }}>{isOpen ? '▼' : '▶'}</span>
+      </button>
+      {isOpen && <div style={{ padding: '0 16px 16px 16px' }}>{children}</div>}
+    </div>
+  );
+}
+
+// Bulk-first rebuild of SheetEditorScreen.js, trialed as a separate feature -
+// same measurementUtils.js formulas/validation/export, same data model,
+// deliberately different layout: (1) width/height/comment inline in a table
+// for every window, (2)-(7) one bulk-assign tool per remaining field in the
+// order requested, (8) a read-only review table showing everything together,
+// (9) the same Copy/CSV/Excel export as the original feature.
+export default function BulkEditorScreen({
+  activeSheet,
+  onBack,
+  syncStatus,
+  updateActiveSheet,
+  updateRow,
+  remoteLabels,
+  widthOutlierIds,
+  heightOutlierIds,
+  acknowledgedWarnings,
+  warningKey,
+  acknowledgeWarning,
+  toggleInSet,
+
+  showFabricTool,
+  setShowFabricTool,
+  bulkFabricInput,
+  setBulkFabricInput,
+  fabricSelectedRowIds,
+  setFabricSelectedRowIds,
+  applyBulkFabric,
+
+  showMotorTool,
+  setShowMotorTool,
+  bulkMotorValue,
+  setBulkMotorValue,
+  bulkMotorCustomText,
+  setBulkMotorCustomText,
+  motorSelectedRowIds,
+  setMotorSelectedRowIds,
+  applyBulkMotor,
+
+  showSolarTool,
+  setShowSolarTool,
+  bulkSolarValue,
+  setBulkSolarValue,
+  solarSelectedRowIds,
+  setSolarSelectedRowIds,
+  applyBulkSolar,
+
+  showRemoteTool,
+  setShowRemoteTool,
+  remoteSelectedRowIds,
+  setRemoteSelectedRowIds,
+  existingGroups,
+  nextGroupNumber,
+  applyBulkRemoteGroup,
+
+  showCassetteTool,
+  setShowCassetteTool,
+  bulkCassetteValue,
+  setBulkCassetteValue,
+  bulkCassetteCustomText,
+  setBulkCassetteCustomText,
+  cassetteSelectedRowIds,
+  setCassetteSelectedRowIds,
+  applyBulkCassette,
+
+  showMountTool,
+  setShowMountTool,
+  bulkMountValue,
+  setBulkMountValue,
+  mountSelectedRowIds,
+  setMountSelectedRowIds,
+  applyBulkMount,
+
+  copyCSV,
+  exportCSV,
+  exportExcel
+}) {
+  if (!activeSheet) {
+    return (
+      <div style={{ background: '#1a1a1a', minHeight: '100vh', padding: '24px', color: '#fff' }}>
+        <p>Sheet not found.</p>
+        <button onClick={onBack} style={{ marginTop: '12px', padding: '10px 16px', borderRadius: '8px', background: '#444', border: 'none', color: '#fff', cursor: 'pointer' }}>Back to list</button>
+      </div>
+    );
+  }
+
+  const rows = activeSheet.rows;
+  const motorizedRows = rows.filter(r => r.motor !== 'Manual');
+  const roomsWithMixedFabric = new Set(findRoomsWithMixedFabric(rows));
+
+  return (
+    <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '24px 16px' }}>
+      <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <button onClick={onBack} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(100,100,100,0.3)', border: 'none', cursor: 'pointer', color: '#fff' }}>← Back</button>
+          <div style={{ width: '60px' }} />
+        </div>
+
+        {syncStatus && !syncStatus.ok && (
+          <div style={{ padding: '12px', marginBottom: '16px', background: '#3a1a1a', border: '1px solid #ef4444', borderRadius: '8px' }}>
+            <p style={{ color: '#f87171', fontWeight: 'bold', fontSize: '13px', marginBottom: '4px' }}>
+              ⚠️ {syncStatus.failedCount} change{syncStatus.failedCount > 1 ? 's' : ''} not yet saved to the cloud
+            </p>
+            <p style={{ color: '#ccc', fontSize: '12px' }}>{syncStatus.lastError} — your local copy is safe, and this keeps retrying automatically.</p>
+          </div>
+        )}
+
+        {activeSheet.clientNames?.length > 0 && (
+          <p style={{ color: '#d4af37', fontWeight: 'bold', fontSize: '18px', marginBottom: '8px' }}>{activeSheet.clientNames.join(', ')}</p>
+        )}
+        <input
+          type="text"
+          placeholder="Address"
+          value={activeSheet.address}
+          onChange={(e) => updateActiveSheet(sheet => ({ ...sheet, address: e.target.value }))}
+          style={{ ...inputStyle, fontSize: '16px', fontWeight: 'bold', marginBottom: '8px' }}
+        />
+        <p style={{ color: '#888', fontSize: '12px', marginBottom: '20px' }}>{activeSheet.sourceQuoteNames?.join(', ')} • {rows.length} windows</p>
+
+        {/* 1. Windows - width/height/comment only */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>1. Windows</p>
+        <div style={{ overflowX: 'auto', marginBottom: '24px', border: '1px solid #444', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead style={{ background: '#1a1a1a' }}>
+              <tr>
+                <th style={headerCellStyle}>Location</th>
+                <th style={headerCellStyle}>Width</th>
+                <th style={headerCellStyle}>Height</th>
+                <th style={headerCellStyle}>Comment</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => {
+                const widthCheck = validateMeasurementFormat(row.width);
+                const heightCheck = validateMeasurementFormat(row.height);
+                const widthOutlierKey = warningKey([row.id, 'width', row.width]);
+                const showWidthWarning = widthCheck.valid && widthOutlierIds.has(row.id) && !acknowledgedWarnings.has(widthOutlierKey);
+                const heightOutlierKey = warningKey([row.id, 'height', row.height]);
+                const showHeightWarning = heightCheck.valid && heightOutlierIds.has(row.id) && !acknowledgedWarnings.has(heightOutlierKey);
+
+                return (
+                  <tr key={row.id} style={{ background: '#242424' }}>
+                    <td style={{ ...cellStyle, color: '#d4af37', fontWeight: 'bold' }}>{getLocationLabel(row)}</td>
+                    <td style={{ ...cellStyle, minWidth: '130px' }}>
+                      <input
+                        type="text"
+                        value={row.width}
+                        onChange={(e) => updateRow(row.id, { width: e.target.value })}
+                        placeholder="e.g. 34 5/16"
+                        style={{ ...inputStyle, border: !widthCheck.valid ? '1px solid #ef4444' : (showWidthWarning ? '1px solid #f59e0b' : inputStyle.border) }}
+                      />
+                      {!widthCheck.valid && <p style={errorTextStyle}>{widthCheck.message}</p>}
+                      {showWidthWarning && (
+                        <div style={{ marginTop: '4px' }}>
+                          <p style={{ fontSize: '11px', color: '#f59e0b' }}>⚠️ Different from others in "{row.locationBase}".</p>
+                          <button onClick={() => acknowledgeWarning(widthOutlierKey)} style={{ fontSize: '11px', color: '#4ade80', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>✓ Correct</button>
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ ...cellStyle, minWidth: '130px' }}>
+                      <input
+                        type="text"
+                        value={row.height}
+                        onChange={(e) => updateRow(row.id, { height: e.target.value })}
+                        placeholder="e.g. 75 13/16"
+                        style={{ ...inputStyle, border: !heightCheck.valid ? '1px solid #ef4444' : (showHeightWarning ? '1px solid #f59e0b' : inputStyle.border) }}
+                      />
+                      {!heightCheck.valid && <p style={errorTextStyle}>{heightCheck.message}</p>}
+                      {showHeightWarning && (
+                        <div style={{ marginTop: '4px' }}>
+                          <p style={{ fontSize: '11px', color: '#f59e0b' }}>⚠️ Different from others in "{row.locationBase}".</p>
+                          <button onClick={() => acknowledgeWarning(heightOutlierKey)} style={{ fontSize: '11px', color: '#4ade80', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>✓ Correct</button>
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ ...cellStyle, minWidth: '160px' }}>
+                      <input
+                        type="text"
+                        value={row.comment || ''}
+                        onChange={(e) => updateRow(row.id, { comment: e.target.value })}
+                        placeholder="e.g. Side-by-side"
+                        style={inputStyle}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* 2. Bulk Assign Fabric */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>2. Bulk Assign Fabric</p>
+        <BulkToolPanel title="Bulk Assign Fabric" icon="🧵" bg="#1a2a3a" border="#4a6a8a" accentColor="#7dd3fc" isOpen={showFabricTool} onToggle={() => setShowFabricTool(!showFabricTool)}>
+          <input
+            type="text"
+            placeholder="Fabric number"
+            value={bulkFabricInput}
+            onChange={(e) => setBulkFabricInput(e.target.value)}
+            style={{ ...inputStyle, marginBottom: '10px' }}
+          />
+          <RowChecklist
+            rows={rows}
+            selectedIds={fabricSelectedRowIds}
+            toggleInSet={toggleInSet}
+            setSelectedIds={setFabricSelectedRowIds}
+            accentColor="#7dd3fc"
+            renderLabel={(row) => (
+              <>{getLocationLabel(row)}<span style={{ color: '#666' }}>{row.fabricNumber.trim() ? ` — ${row.fabricNumber.trim()}` : ' — no fabric yet'}</span></>
+            )}
+          />
+          <button onClick={applyBulkFabric} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#0e7490', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>
+            Apply to {fabricSelectedRowIds.size} Selected
+          </button>
+        </BulkToolPanel>
+
+        {/* 3. Bulk Assign Motor */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>3. Bulk Assign Motor</p>
+        <BulkToolPanel title="Bulk Assign Motor" icon="⚙️" bg="#2a2a1a" border="#8a7a4a" accentColor="#fbbf24" isOpen={showMotorTool} onToggle={() => setShowMotorTool(!showMotorTool)}>
+          <label style={labelStyle}>Set Motor to</label>
+          <select value={bulkMotorValue} onChange={(e) => setBulkMotorValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
+            {MOTOR_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+          {bulkMotorValue === 'Custom' && (
+            <input
+              type="text"
+              placeholder="Type motor type"
+              value={bulkMotorCustomText}
+              onChange={(e) => setBulkMotorCustomText(e.target.value)}
+              style={{ ...inputStyle, marginBottom: '10px' }}
+            />
+          )}
+          {bulkMotorValue === 'Manual' && (
+            <p style={{ fontSize: '11px', color: '#888', marginBottom: '10px', fontStyle: 'italic' }}>Setting to Manual also clears Solar and Remote Group on the selected windows.</p>
+          )}
+          <RowChecklist
+            rows={rows}
+            selectedIds={motorSelectedRowIds}
+            toggleInSet={toggleInSet}
+            setSelectedIds={setMotorSelectedRowIds}
+            accentColor="#fbbf24"
+            renderLabel={(row) => (
+              <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — currently {row.motor}</span></>
+            )}
+          />
+          <button onClick={applyBulkMotor} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#a16207', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>
+            Apply to {motorSelectedRowIds.size} Selected
+          </button>
+        </BulkToolPanel>
+
+        {/* 4. Bulk Assign Solar */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>4. Bulk Assign Solar</p>
+        <BulkToolPanel title="Bulk Assign Solar (motorized windows only)" icon="☀️" bg="#2a2a1a" border="#8a8a4a" accentColor="#fde047" isOpen={showSolarTool} onToggle={() => setShowSolarTool(!showSolarTool)}>
+          <label style={labelStyle}>Set Solar to</label>
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+            <button
+              onClick={() => setBulkSolarValue(false)}
+              style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: !bulkSolarValue ? '#0e7490' : '#1a1a1a', color: !bulkSolarValue ? '#fff' : '#888', border: !bulkSolarValue ? '1px solid #0e7490' : '1px solid #444' }}
+            >
+              No
+            </button>
+            <button
+              onClick={() => setBulkSolarValue(true)}
+              style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkSolarValue ? '#0e7490' : '#1a1a1a', color: bulkSolarValue ? '#fff' : '#888', border: bulkSolarValue ? '1px solid #0e7490' : '1px solid #444' }}
+            >
+              Yes
+            </button>
+          </div>
+          {motorizedRows.length === 0 ? (
+            <p style={{ color: '#888', fontSize: '12px' }}>No motorized windows yet - assign Motor above first.</p>
+          ) : (
+            <RowChecklist
+              rows={motorizedRows}
+              selectedIds={solarSelectedRowIds}
+              toggleInSet={toggleInSet}
+              setSelectedIds={setSolarSelectedRowIds}
+              accentColor="#fde047"
+              renderLabel={(row) => (
+                <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {row.motor}, Solar currently {row.solar ? 'Yes' : 'No'}</span></>
+              )}
+            />
+          )}
+          <button onClick={applyBulkSolar} disabled={motorizedRows.length === 0} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#a16207', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: motorizedRows.length === 0 ? 'default' : 'pointer', opacity: motorizedRows.length === 0 ? 0.5 : 1 }}>
+            Apply to {solarSelectedRowIds.size} Selected
+          </button>
+        </BulkToolPanel>
+
+        {/* 5. Bulk Assign Remote Group */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>5. Bulk Assign Remote Group</p>
+        <BulkToolPanel title="Bulk Assign Remote Group" icon="📡" bg="#2a1a3a" border="#6a4a8a" accentColor="#c4b5fd" isOpen={showRemoteTool} onToggle={() => setShowRemoteTool(!showRemoteTool)}>
+          {motorizedRows.length === 0 ? (
+            <p style={{ color: '#888', fontSize: '12px' }}>No motorized windows on this sheet yet.</p>
+          ) : (
+            <RowChecklist
+              rows={motorizedRows}
+              selectedIds={remoteSelectedRowIds}
+              toggleInSet={toggleInSet}
+              setSelectedIds={setRemoteSelectedRowIds}
+              accentColor="#c4b5fd"
+              renderLabel={(row) => {
+                const currentLabel = remoteLabels[row.id];
+                return (
+                  <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {row.motor}{currentLabel ? ` (currently ${currentLabel})` : ''}</span></>
+                );
+              }}
+            />
+          )}
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {existingGroups.map(g => (
+              <button key={g} onClick={() => applyBulkRemoteGroup(g)} style={{ padding: '10px 14px', borderRadius: '6px', background: '#4c1d95', color: '#fff', border: 'none', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>
+                Group {g}
+              </button>
+            ))}
+            <button onClick={() => applyBulkRemoteGroup(nextGroupNumber)} style={{ padding: '10px 14px', borderRadius: '6px', background: '#6d28d9', color: '#fff', border: 'none', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>
+              + New Group {nextGroupNumber}
+            </button>
+          </div>
+          <p style={{ color: '#888', fontSize: '11px', marginTop: '8px' }}>Select windows above, then tap a group to assign them all at once. Channel numbers (#1, #2...) are set automatically.</p>
+        </BulkToolPanel>
+
+        {/* 6. Bulk Assign Cassette */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>6. Bulk Assign Cassette</p>
+        <BulkToolPanel title="Bulk Assign Cassette" icon="🧱" bg="#1a2a2a" border="#4a8a7a" accentColor="#5eead4" isOpen={showCassetteTool} onToggle={() => setShowCassetteTool(!showCassetteTool)}>
+          <label style={labelStyle}>Set Cassette to</label>
+          <select value={bulkCassetteValue} onChange={(e) => setBulkCassetteValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
+            {CASSETTE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+          {bulkCassetteValue === 'Custom' && (
+            <input
+              type="text"
+              placeholder="Describe cassette"
+              value={bulkCassetteCustomText}
+              onChange={(e) => setBulkCassetteCustomText(e.target.value)}
+              style={{ ...inputStyle, marginBottom: '10px' }}
+            />
+          )}
+          <RowChecklist
+            rows={rows}
+            selectedIds={cassetteSelectedRowIds}
+            toggleInSet={toggleInSet}
+            setSelectedIds={setCassetteSelectedRowIds}
+            accentColor="#5eead4"
+            renderLabel={(row) => (
+              <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — currently {row.cassette === 'Custom' ? (row.cassetteCustomText || 'Custom') : row.cassette}</span></>
+            )}
+          />
+          <button onClick={applyBulkCassette} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#0f766e', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>
+            Apply to {cassetteSelectedRowIds.size} Selected
+          </button>
+        </BulkToolPanel>
+
+        {/* 7. Bulk Assign Mount */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>7. Bulk Assign Mount</p>
+        <BulkToolPanel title="Bulk Assign Mount" icon="🔩" bg="#2a1a2a" border="#8a4a7a" accentColor="#f0abfc" isOpen={showMountTool} onToggle={() => setShowMountTool(!showMountTool)}>
+          <label style={labelStyle}>Set Mount to</label>
+          <select value={bulkMountValue} onChange={(e) => setBulkMountValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
+            {MOUNT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+          <RowChecklist
+            rows={rows}
+            selectedIds={mountSelectedRowIds}
+            toggleInSet={toggleInSet}
+            setSelectedIds={setMountSelectedRowIds}
+            accentColor="#f0abfc"
+            renderLabel={(row) => (
+              <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — currently {row.mount}</span></>
+            )}
+          />
+          <button onClick={applyBulkMount} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#86198f', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>
+            Apply to {mountSelectedRowIds.size} Selected
+          </button>
+        </BulkToolPanel>
+
+        {/* 8. Review table - read-only, same fields the export actually uses */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px', marginTop: '8px' }}>8. Review</p>
+        <div style={{ overflowX: 'auto', marginBottom: '24px', border: '1px solid #444', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead style={{ background: '#1a1a1a' }}>
+              <tr>
+                <th style={headerCellStyle}>Location</th>
+                <th style={headerCellStyle}>Comment</th>
+                <th style={headerCellStyle}>Manual/Smart</th>
+                <th style={headerCellStyle}>Motor-type</th>
+                <th style={headerCellStyle}>Remote</th>
+                <th style={headerCellStyle}>Cassette</th>
+                <th style={headerCellStyle}>Mount</th>
+                <th style={headerCellStyle}>Fabric</th>
+                <th style={headerCellStyle}>Width</th>
+                <th style={headerCellStyle}>Height</th>
+                <th style={headerCellStyle}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => {
+                const f = buildRowExportFields(row, idx, remoteLabels);
+                const incompleteFields = getIncompleteFields(row);
+                const isIncomplete = incompleteFields.length > 0;
+                const mixedFabricWarning = roomsWithMixedFabric.has(row.locationBase);
+                return (
+                  <tr key={row.id} style={{ background: isIncomplete ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
+                    <td style={{ ...cellStyle, color: '#d4af37', fontWeight: 'bold' }}>{f.location}</td>
+                    <td style={{ ...cellStyle, background: f.hasComment ? 'rgba(250,204,21,0.15)' : 'transparent' }}>{f.comment || '—'}</td>
+                    <td style={{ ...cellStyle, background: f.hasMotorVariant ? 'rgba(250,204,21,0.15)' : 'transparent' }}>{f.manualSmart}</td>
+                    <td style={cellStyle}>{f.motorType || '—'}</td>
+                    <td style={cellStyle}>{f.remote || '—'}</td>
+                    <td style={cellStyle}>{f.cassette}</td>
+                    <td style={{ ...cellStyle, background: f.hasNonDefaultMount ? 'rgba(250,204,21,0.15)' : 'transparent' }}>{f.mount}</td>
+                    <td style={cellStyle}>
+                      {f.fabricNumber || '—'}
+                      {mixedFabricWarning && <div style={{ color: '#f59e0b', fontSize: '10px' }}>⚠️ room has mixed fabric</div>}
+                    </td>
+                    <td style={cellStyle}>{f.width || '—'}</td>
+                    <td style={cellStyle}>{f.height || '—'}</td>
+                    <td style={{ ...cellStyle, color: isIncomplete ? '#f87171' : '#4ade80', fontWeight: 'bold' }}>
+                      {isIncomplete ? `Missing: ${incompleteFields.join(', ')}` : 'Ready'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* 9. Export */}
+        <div style={{ display: 'flex', gap: '12px', marginTop: '8px', marginBottom: '12px' }}>
+          <button onClick={copyCSV} style={{ flex: 1, padding: '14px', borderRadius: '8px', background: '#d4af37', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
+            📋 Copy
+          </button>
+          <button onClick={exportCSV} style={{ flex: 1, padding: '14px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
+            ⬇️ CSV
+          </button>
+        </div>
+        <div style={{ marginBottom: '32px' }}>
+          <button onClick={exportExcel} style={{ width: '100%', padding: '14px', borderRadius: '8px', background: '#1d6f42', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
+            📊 Download Excel (with highlighting)
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

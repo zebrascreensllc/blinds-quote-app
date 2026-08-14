@@ -1,0 +1,530 @@
+import React, { useState, useEffect } from 'react';
+import {
+  validateMeasurementFormat,
+  findRoomSizeOutliers,
+  getLocationLabel,
+  computeRemoteLabels,
+  expandQuoteIntoRows,
+  getIncompleteFields,
+  getNextRemoteChannel,
+  countInRemoteGroup,
+  MAX_REMOTE_CHANNELS,
+  sheetToCSV,
+  DEFAULT_MOTOR_TYPE,
+  DEFAULT_CASSETTE,
+  DEFAULT_MOUNT
+} from '../utils/measurementUtils';
+import SheetListScreen from './measurements/SheetListScreen';
+import QuoteSelectScreen from './measurements/QuoteSelectScreen';
+import BulkEditorScreen from './bulkMeasurements/BulkEditorScreen';
+import { subscribeToBulkSheets, saveBulkSheetRemote, deleteBulkSheetRemote } from '../services/bulkMeasurementSync';
+import { sheetToExcelBuffer } from '../utils/xlsxExport';
+
+// Same identity/export-naming convention as SupplierMeasurements.js.
+const exportFileLabel = (sheet) => (sheet.clientNames?.length ? sheet.clientNames.join('_') : (sheet.address || 'measurements'));
+
+// A parallel workflow to SupplierMeasurements.js, trialed alongside it so the
+// business can compare which is faster day-to-day before deciding to drop
+// one. Deliberately the SAME data model, the SAME measurementUtils.js
+// formulas/validation/export logic, and the SAME list/quote-picker screens
+// (reused unchanged, since neither of those differ between the two
+// workflows) - only the editor screen's layout and data-entry order differ:
+// width/height/comment inline in a table, then one bulk tool per remaining
+// field (fabric/motor/solar/remote/cassette/mount) in that order, then a
+// review table, matching what was asked for instead of the original's
+// per-row accordion with every field editable in place.
+export default function BulkMeasurements({ quotes, onBack, uid }) {
+  const [sheets, setSheets] = useState([]);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [screen, setScreen] = useState('list'); // 'list' | 'select' | 'editor'
+  const [selectedQuoteIds, setSelectedQuoteIds] = useState(new Set());
+  const [creatingSheet, setCreatingSheet] = useState(false);
+  const [activeSheetId, setActiveSheetId] = useState(null);
+
+  // Each bulk tool gets its OWN row selection, same reasoning as the
+  // original feature's fabric/remote split - a leftover selection in one
+  // tool should never silently apply to a different field.
+  const [fabricSelectedRowIds, setFabricSelectedRowIds] = useState(new Set());
+  const [motorSelectedRowIds, setMotorSelectedRowIds] = useState(new Set());
+  const [solarSelectedRowIds, setSolarSelectedRowIds] = useState(new Set());
+  const [remoteSelectedRowIds, setRemoteSelectedRowIds] = useState(new Set());
+  const [cassetteSelectedRowIds, setCassetteSelectedRowIds] = useState(new Set());
+  const [mountSelectedRowIds, setMountSelectedRowIds] = useState(new Set());
+
+  const [bulkFabricInput, setBulkFabricInput] = useState('');
+  const [bulkMotorValue, setBulkMotorValue] = useState(DEFAULT_MOTOR_TYPE);
+  const [bulkMotorCustomText, setBulkMotorCustomText] = useState('');
+  const [bulkSolarValue, setBulkSolarValue] = useState(false);
+  const [bulkCassetteValue, setBulkCassetteValue] = useState(DEFAULT_CASSETTE);
+  const [bulkCassetteCustomText, setBulkCassetteCustomText] = useState('');
+  const [bulkMountValue, setBulkMountValue] = useState(DEFAULT_MOUNT);
+
+  // Every bulk panel collapses by default - same reasoning as the original:
+  // don't take up space with a window checklist until it's actually needed.
+  const [showFabricTool, setShowFabricTool] = useState(false);
+  const [showMotorTool, setShowMotorTool] = useState(false);
+  const [showSolarTool, setShowSolarTool] = useState(false);
+  const [showRemoteTool, setShowRemoteTool] = useState(false);
+  const [showCassetteTool, setShowCassetteTool] = useState(false);
+  const [showMountTool, setShowMountTool] = useState(false);
+
+  const [acknowledgedWarnings, setAcknowledgedWarnings] = useState(new Set());
+
+  const [syncStatus, setSyncStatus] = useState({ ok: true, failedCount: 0, lastError: null });
+  const [loadError, setLoadError] = useState(null);
+
+  useEffect(() => {
+    if (!uid) return;
+    const unsubscribe = subscribeToBulkSheets(
+      uid,
+      (remoteSheets) => {
+        setSheets(remoteSheets);
+        setHasLoaded(true);
+        setLoadError(null);
+      },
+      (error) => {
+        console.error('Bulk measurement sheet sync error:', error);
+        setHasLoaded(true);
+        setLoadError(error?.message || 'Could not load your measurement sheets.');
+      }
+    );
+    return () => unsubscribe();
+  }, [uid]);
+
+  const activeSheet = sheets.find(s => s.id === activeSheetId) || null;
+
+  // Same diffing write-through pattern as SupplierMeasurements.js/App.js.
+  const updateSheets = (newSheetsOrUpdater) => {
+    const newSheets = typeof newSheetsOrUpdater === 'function' ? newSheetsOrUpdater(sheets) : newSheetsOrUpdater;
+    const oldById = new Map(sheets.map(s => [s.id, s]));
+    const newIds = new Set(newSheets.map(s => s.id));
+
+    const toSave = newSheets.filter(s => {
+      const old = oldById.get(s.id);
+      return !old || JSON.stringify(old) !== JSON.stringify(s);
+    });
+    const toDeleteIds = [];
+    oldById.forEach((s, id) => { if (!newIds.has(id)) toDeleteIds.push(id); });
+
+    const attempts = [
+      ...toSave.map(s => saveBulkSheetRemote(uid, s).then(() => ({ ok: true })).catch(err => {
+        console.error('Failed to save bulk sheet', s.id, err);
+        return { ok: false, message: err?.message || String(err) };
+      })),
+      ...toDeleteIds.map(id => deleteBulkSheetRemote(uid, id).then(() => ({ ok: true })).catch(err => {
+        console.error('Failed to delete bulk sheet', id, err);
+        return { ok: false, message: err?.message || String(err) };
+      }))
+    ];
+
+    if (attempts.length === 0) return Promise.resolve({ success: true, errors: [] });
+
+    return Promise.all(attempts).then(results => {
+      const failed = results.filter(r => !r.ok);
+      setSyncStatus(
+        failed.length > 0
+          ? { ok: false, failedCount: failed.length, lastError: failed[0].message }
+          : { ok: true, failedCount: 0, lastError: null }
+      );
+      return { success: failed.length === 0, errors: failed.map(f => f.message) };
+    });
+  };
+
+  const updateActiveSheet = (updater) => {
+    updateSheets(prev => prev.map(s => (s.id === activeSheetId ? updater(s) : s)));
+  };
+
+  const updateRow = (rowId, patch) => {
+    updateActiveSheet(sheet => ({
+      ...sheet,
+      rows: sheet.rows.map(r => (r.id === rowId ? { ...r, ...patch } : r)),
+      updatedDate: new Date().toISOString()
+    }));
+  };
+
+  // ---- Building a new sheet from selected quotes (latest version per quote lineage) ----
+  const latestQuotes = () => {
+    const map = new Map();
+    (quotes || []).forEach(q => {
+      const key = q.lineageId || q.id;
+      const existing = map.get(key);
+      if (!existing || new Date(q.updatedDate) > new Date(existing.updatedDate)) {
+        map.set(key, q);
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => new Date(b.updatedDate) - new Date(a.updatedDate));
+  };
+
+  const toggleQuoteSelected = (id) => {
+    const s = new Set(selectedQuoteIds);
+    if (s.has(id)) s.delete(id); else s.add(id);
+    setSelectedQuoteIds(s);
+  };
+
+  const createSheet = async () => {
+    const selected = latestQuotes().filter(q => selectedQuoteIds.has(q.id));
+    if (selected.length === 0) {
+      alert('Select at least one quote first.');
+      return;
+    }
+    let allRows = [];
+    selected.forEach(q => { allRows = allRows.concat(expandQuoteIntoRows(q)); });
+    const newSheet = {
+      id: `bulksheet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      createdDate: new Date().toISOString(),
+      updatedDate: new Date().toISOString(),
+      address: selected[0]?.location || '',
+      clientNames: [...new Set(selected.map(q => q.clientName).filter(Boolean))],
+      sourceQuoteNames: selected.map(q => q.quoteName || q.clientName),
+      rows: allRows
+    };
+    setCreatingSheet(true);
+    const result = await updateSheets(prev => [...prev, newSheet]);
+    setCreatingSheet(false);
+    if (!result.success) {
+      alert(`Could not create the sheet - ${result.errors[0] || 'sync failed'}.\n\nNothing was lost; just try again once you have a connection.`);
+      return;
+    }
+    setActiveSheetId(newSheet.id);
+    setSelectedQuoteIds(new Set());
+    setAcknowledgedWarnings(new Set());
+    setScreen('editor');
+  };
+
+  const openSheet = (id) => {
+    setActiveSheetId(id);
+    setAcknowledgedWarnings(new Set());
+    setScreen('editor');
+  };
+
+  const deleteSheet = (id) => {
+    const sheet = sheets.find(s => s.id === id);
+    if (!sheet) return;
+    const sheetLabel = sheet.clientNames?.length ? sheet.clientNames.join(', ') : (sheet.address || 'untitled');
+    if (!window.confirm(`Delete this measurement sheet (${sheetLabel}, ${sheet.rows.length} windows)? This cannot be undone.`)) return;
+    updateSheets(prev => prev.filter(s => s.id !== id));
+    if (activeSheetId === id) {
+      setActiveSheetId(null);
+      setScreen('list');
+    }
+  };
+
+  // ---- Row selection (generic - used independently by each bulk tool) ----
+  const toggleInSet = (id, currentSet, setter) => {
+    const s = new Set(currentSet);
+    if (s.has(id)) s.delete(id); else s.add(id);
+    setter(s);
+  };
+
+  // ---- Warning acknowledgment ----
+  const warningKey = (parts) => parts.join(':');
+  const acknowledgeWarning = (key) => {
+    setAcknowledgedWarnings(prev => new Set(prev).add(key));
+  };
+
+  // ---- Bulk fabric tool (identical to the original feature) ----
+  const applyBulkFabric = () => {
+    if (!activeSheet) return;
+    const value = bulkFabricInput.trim();
+    if (!value) { alert('Enter a fabric number first.'); return; }
+    if (fabricSelectedRowIds.size === 0) { alert('Select at least one window first.'); return; }
+
+    const newRows = activeSheet.rows.map(r => (fabricSelectedRowIds.has(r.id) ? { ...r, fabricNumber: value } : r));
+    updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
+    const count = fabricSelectedRowIds.size;
+    setFabricSelectedRowIds(new Set());
+    alert(`Applied "${value}" to ${count} window${count > 1 ? 's' : ''}. Any room with more than one fabric number will show a warning below.`);
+  };
+
+  // ---- Bulk motor tool ----
+  // Same side effects as the original feature's single-row handleMotorChange:
+  // switching a window to Manual also clears solar/remote, since those only
+  // make sense for a motorized window.
+  const applyBulkMotor = () => {
+    if (!activeSheet) return;
+    if (motorSelectedRowIds.size === 0) { alert('Select at least one window first.'); return; }
+    if (bulkMotorValue === 'Custom' && !bulkMotorCustomText.trim()) { alert('Type the custom motor type first.'); return; }
+
+    const newRows = activeSheet.rows.map(r => {
+      if (!motorSelectedRowIds.has(r.id)) return r;
+      const patch = { motor: bulkMotorValue };
+      if (bulkMotorValue === 'Manual') {
+        patch.solar = false;
+        patch.remoteGroup = null;
+        patch.remoteChannel = null;
+        patch.motorCustomText = '';
+      } else if (bulkMotorValue === 'Custom') {
+        patch.motorCustomText = bulkMotorCustomText.trim();
+      } else {
+        patch.motorCustomText = '';
+      }
+      return { ...r, ...patch };
+    });
+    updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
+    const count = motorSelectedRowIds.size;
+    setMotorSelectedRowIds(new Set());
+    alert(`Set ${count} window${count > 1 ? 's' : ''} to "${bulkMotorValue === 'Custom' ? bulkMotorCustomText.trim() : bulkMotorValue}".`);
+  };
+
+  // ---- Bulk solar tool - scoped to motorized windows only, same reasoning
+  // as the original feature's remote tool (solar only makes sense once a
+  // window is motorized) ----
+  const applyBulkSolar = () => {
+    if (!activeSheet) return;
+    if (solarSelectedRowIds.size === 0) { alert('Select at least one motorized window first.'); return; }
+
+    const newRows = activeSheet.rows.map(r => (solarSelectedRowIds.has(r.id) ? { ...r, solar: bulkSolarValue } : r));
+    updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
+    const count = solarSelectedRowIds.size;
+    setSolarSelectedRowIds(new Set());
+    alert(`Set Solar = ${bulkSolarValue ? 'Yes' : 'No'} for ${count} window${count > 1 ? 's' : ''}.`);
+  };
+
+  // ---- Bulk remote group tool (identical to the original feature) ----
+  const existingGroups = activeSheet
+    ? [...new Set(activeSheet.rows.map(r => r.remoteGroup).filter(g => g))].sort((a, b) => a - b)
+    : [];
+  const nextGroupNumber = existingGroups.length > 0 ? Math.max(...existingGroups) + 1 : 1;
+
+  const applyBulkRemoteGroup = (groupNumber) => {
+    if (!activeSheet) return;
+    if (remoteSelectedRowIds.size === 0) { alert('Select at least one motorized window first.'); return; }
+
+    const alreadyInGroup = countInRemoteGroup(activeSheet.rows, groupNumber);
+    const wouldBeSelectedButNotAlreadyInGroup = [...remoteSelectedRowIds].filter(id => {
+      const row = activeSheet.rows.find(r => r.id === id);
+      return row && row.remoteGroup !== groupNumber;
+    }).length;
+    const totalAfter = alreadyInGroup + wouldBeSelectedButNotAlreadyInGroup;
+    if (totalAfter > MAX_REMOTE_CHANNELS) {
+      alert(`Remote Group ${groupNumber} would have ${totalAfter} windows, but a remote only supports ${MAX_REMOTE_CHANNELS} channels.\n\nCurrently in this group: ${alreadyInGroup}\nSelected to add: ${wouldBeSelectedButNotAlreadyInGroup}\n\nSelect fewer windows, or use a different group.`);
+      return;
+    }
+
+    const selectionInOrder = [...remoteSelectedRowIds];
+    let nextChannel = getNextRemoteChannel(activeSheet.rows, groupNumber);
+    const channelById = {};
+    selectionInOrder.forEach(id => {
+      const row = activeSheet.rows.find(r => r.id === id);
+      if (row && row.remoteGroup === groupNumber && typeof row.remoteChannel === 'number') {
+        channelById[id] = row.remoteChannel;
+      } else {
+        channelById[id] = nextChannel;
+        nextChannel += 1;
+      }
+    });
+
+    const newRows = activeSheet.rows.map(r =>
+      remoteSelectedRowIds.has(r.id) ? { ...r, remoteGroup: groupNumber, remoteChannel: channelById[r.id] } : r
+    );
+    updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
+    const count = remoteSelectedRowIds.size;
+    setRemoteSelectedRowIds(new Set());
+    alert(`Assigned ${count} window${count > 1 ? 's' : ''} to Remote Group ${groupNumber}.`);
+  };
+
+  // ---- Bulk cassette tool ----
+  const applyBulkCassette = () => {
+    if (!activeSheet) return;
+    if (cassetteSelectedRowIds.size === 0) { alert('Select at least one window first.'); return; }
+    if (bulkCassetteValue === 'Custom' && !bulkCassetteCustomText.trim()) { alert('Describe the custom cassette first.'); return; }
+
+    const newRows = activeSheet.rows.map(r => {
+      if (!cassetteSelectedRowIds.has(r.id)) return r;
+      return {
+        ...r,
+        cassette: bulkCassetteValue,
+        cassetteCustomText: bulkCassetteValue === 'Custom' ? bulkCassetteCustomText.trim() : ''
+      };
+    });
+    updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
+    const count = cassetteSelectedRowIds.size;
+    setCassetteSelectedRowIds(new Set());
+    alert(`Applied cassette to ${count} window${count > 1 ? 's' : ''}.`);
+  };
+
+  // ---- Bulk mount tool ----
+  const applyBulkMount = () => {
+    if (!activeSheet) return;
+    if (mountSelectedRowIds.size === 0) { alert('Select at least one window first.'); return; }
+
+    const newRows = activeSheet.rows.map(r => (mountSelectedRowIds.has(r.id) ? { ...r, mount: bulkMountValue } : r));
+    updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
+    const count = mountSelectedRowIds.size;
+    setMountSelectedRowIds(new Set());
+    alert(`Set Mount = "${bulkMountValue}" for ${count} window${count > 1 ? 's' : ''}.`);
+  };
+
+  // ---- Export (identical rules/logic to the original feature) ----
+  const validateSheetForExport = () => {
+    if (!activeSheet) return false;
+
+    const invalidRows = activeSheet.rows.filter(r => !validateMeasurementFormat(r.width).valid || !validateMeasurementFormat(r.height).valid);
+    if (invalidRows.length > 0) {
+      alert(`${invalidRows.length} window(s) have an invalid width/height format. Fix the values highlighted in red before exporting.`);
+      return false;
+    }
+
+    const incompleteRows = activeSheet.rows.filter(r => getIncompleteFields(r).length > 0);
+    if (incompleteRows.length > 0) {
+      const preview = incompleteRows.slice(0, 6).map(r => `• ${getLocationLabel(r)} - missing ${getIncompleteFields(r).join(', ')}`).join('\n');
+      const more = incompleteRows.length > 6 ? `\n...and ${incompleteRows.length - 6} more` : '';
+      alert(`Can't copy or download yet - ${incompleteRows.length} window(s) are missing required details:\n\n${preview}${more}\n\nThey're highlighted in red below.`);
+      return false;
+    }
+
+    return true;
+  };
+
+  const exportCSV = () => {
+    if (!validateSheetForExport()) return;
+    const csv = sheetToCSV(activeSheet, activeSheet.rows);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(exportFileLabel(activeSheet)).replace(/[^a-z0-9]/gi, '_')}_supplier_details.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const copyCSV = async () => {
+    if (!validateSheetForExport()) return;
+    const csv = sheetToCSV(activeSheet, activeSheet.rows);
+    try {
+      await navigator.clipboard.writeText(csv);
+      alert('Copied! Paste into a new Excel/Sheets file, or straight into an email.');
+    } catch (e) {
+      alert('Could not copy. Try Download instead.');
+    }
+  };
+
+  const exportExcel = async () => {
+    if (!validateSheetForExport()) return;
+    try {
+      const buffer = await sheetToExcelBuffer(activeSheet, activeSheet.rows);
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(exportFileLabel(activeSheet)).replace(/[^a-z0-9]/gi, '_')}_supplier_details.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      console.error('Excel export failed:', e);
+      alert('Could not create the Excel file. Try Download CSV instead.');
+    }
+  };
+
+  // ============================== ROUTE TO SCREEN ==============================
+
+  if (screen === 'list') {
+    return (
+      <SheetListScreen
+        sheets={sheets}
+        hasLoaded={hasLoaded}
+        loadError={loadError}
+        syncStatus={syncStatus}
+        onBack={onBack}
+        onNewSheet={() => setScreen('select')}
+        onOpenSheet={openSheet}
+        onDeleteSheet={deleteSheet}
+      />
+    );
+  }
+
+  if (screen === 'select') {
+    return (
+      <QuoteSelectScreen
+        quotesList={latestQuotes()}
+        selectedQuoteIds={selectedQuoteIds}
+        onToggleQuote={toggleQuoteSelected}
+        onBack={() => setScreen('list')}
+        onCreateSheet={createSheet}
+        creatingSheet={creatingSheet}
+      />
+    );
+  }
+
+  // screen === 'editor'
+  const remoteLabels = activeSheet ? computeRemoteLabels(activeSheet.rows) : {};
+  const widthOutlierIds = activeSheet ? findRoomSizeOutliers(activeSheet.rows, 'width') : new Set();
+  const heightOutlierIds = activeSheet ? findRoomSizeOutliers(activeSheet.rows, 'height') : new Set();
+
+  return (
+    <BulkEditorScreen
+      activeSheet={activeSheet}
+      onBack={() => setScreen('list')}
+      syncStatus={syncStatus}
+      updateActiveSheet={updateActiveSheet}
+      updateRow={updateRow}
+      remoteLabels={remoteLabels}
+      widthOutlierIds={widthOutlierIds}
+      heightOutlierIds={heightOutlierIds}
+      acknowledgedWarnings={acknowledgedWarnings}
+      warningKey={warningKey}
+      acknowledgeWarning={acknowledgeWarning}
+      toggleInSet={toggleInSet}
+
+      showFabricTool={showFabricTool}
+      setShowFabricTool={setShowFabricTool}
+      bulkFabricInput={bulkFabricInput}
+      setBulkFabricInput={setBulkFabricInput}
+      fabricSelectedRowIds={fabricSelectedRowIds}
+      setFabricSelectedRowIds={setFabricSelectedRowIds}
+      applyBulkFabric={applyBulkFabric}
+
+      showMotorTool={showMotorTool}
+      setShowMotorTool={setShowMotorTool}
+      bulkMotorValue={bulkMotorValue}
+      setBulkMotorValue={setBulkMotorValue}
+      bulkMotorCustomText={bulkMotorCustomText}
+      setBulkMotorCustomText={setBulkMotorCustomText}
+      motorSelectedRowIds={motorSelectedRowIds}
+      setMotorSelectedRowIds={setMotorSelectedRowIds}
+      applyBulkMotor={applyBulkMotor}
+
+      showSolarTool={showSolarTool}
+      setShowSolarTool={setShowSolarTool}
+      bulkSolarValue={bulkSolarValue}
+      setBulkSolarValue={setBulkSolarValue}
+      solarSelectedRowIds={solarSelectedRowIds}
+      setSolarSelectedRowIds={setSolarSelectedRowIds}
+      applyBulkSolar={applyBulkSolar}
+
+      showRemoteTool={showRemoteTool}
+      setShowRemoteTool={setShowRemoteTool}
+      remoteSelectedRowIds={remoteSelectedRowIds}
+      setRemoteSelectedRowIds={setRemoteSelectedRowIds}
+      existingGroups={existingGroups}
+      nextGroupNumber={nextGroupNumber}
+      applyBulkRemoteGroup={applyBulkRemoteGroup}
+
+      showCassetteTool={showCassetteTool}
+      setShowCassetteTool={setShowCassetteTool}
+      bulkCassetteValue={bulkCassetteValue}
+      setBulkCassetteValue={setBulkCassetteValue}
+      bulkCassetteCustomText={bulkCassetteCustomText}
+      setBulkCassetteCustomText={setBulkCassetteCustomText}
+      cassetteSelectedRowIds={cassetteSelectedRowIds}
+      setCassetteSelectedRowIds={setCassetteSelectedRowIds}
+      applyBulkCassette={applyBulkCassette}
+
+      showMountTool={showMountTool}
+      setShowMountTool={setShowMountTool}
+      bulkMountValue={bulkMountValue}
+      setBulkMountValue={setBulkMountValue}
+      mountSelectedRowIds={mountSelectedRowIds}
+      setMountSelectedRowIds={setMountSelectedRowIds}
+      applyBulkMount={applyBulkMount}
+
+      copyCSV={copyCSV}
+      exportCSV={exportCSV}
+      exportExcel={exportExcel}
+    />
+  );
+}
