@@ -19,6 +19,14 @@ import QuoteSelectScreen from './measurements/QuoteSelectScreen';
 import BulkEditorScreen from './bulkMeasurements/BulkEditorScreen';
 import { subscribeToBulkSheets, saveBulkSheetRemote, deleteBulkSheetRemote } from '../services/bulkMeasurementSync';
 import { sheetToExcelBuffer } from '../utils/xlsxExport';
+// ✅ NEW: fabric-existence check, reused from the quote side (same
+// isFabricValid already used by the "Invalid Fabrics" warning there). This
+// is a deliberate, explicit exception to measurementUtils.js's own
+// zero-pricing-import isolation - imported here in the container only,
+// never into measurementUtils.js itself, and only for Bulk Measurements
+// (the original Supplier Measurements feature is intentionally untouched).
+import { isFabricValid } from '../utils/pricing';
+import { PRICING_DATA } from '../data/pricingData';
 
 // Same identity/export-naming convention as SupplierMeasurements.js.
 const exportFileLabel = (sheet) => (sheet.clientNames?.length ? sheet.clientNames.join('_') : (sheet.address || 'measurements'));
@@ -58,6 +66,20 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
   const [bulkCassetteValue, setBulkCassetteValue] = useState(DEFAULT_CASSETTE);
   const [bulkCassetteCustomText, setBulkCassetteCustomText] = useState('');
   const [bulkMountValue, setBulkMountValue] = useState(DEFAULT_MOUNT);
+  // 'Custom' is a Bulk-Measurements-only UI option, not part of the shared
+  // MOUNT_OPTIONS list (adding it there would leak into the original
+  // feature's per-row Mount dropdown too). row.mount is a free-text field
+  // at the data layer, so applying "Custom" just writes the typed text
+  // straight into row.mount - no separate mountCustomText field needed,
+  // and export needs no changes since it already just reads row.mount as-is.
+  const [bulkMountCustomText, setBulkMountCustomText] = useState('');
+
+  // Accordion - only one window's Width/Height/Comment card is open at a
+  // time, so entering measurements for many windows in sequence doesn't
+  // mean scrolling past every already-finished card. Same pattern as the
+  // original feature's expandedRowId, seeded to the first row whenever a
+  // sheet is opened or created.
+  const [expandedRowId, setExpandedRowId] = useState(null);
 
   // Every bulk panel collapses by default - same reasoning as the original:
   // don't take up space with a window checklist until it's actually needed.
@@ -188,12 +210,15 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     setActiveSheetId(newSheet.id);
     setSelectedQuoteIds(new Set());
     setAcknowledgedWarnings(new Set());
+    setExpandedRowId(allRows.length > 0 ? allRows[0].id : null);
     setScreen('editor');
   };
 
   const openSheet = (id) => {
+    const sheet = sheets.find(s => s.id === id);
     setActiveSheetId(id);
     setAcknowledgedWarnings(new Set());
+    setExpandedRowId(sheet && sheet.rows.length > 0 ? sheet.rows[0].id : null);
     setScreen('editor');
   };
 
@@ -222,12 +247,22 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     setAcknowledgedWarnings(prev => new Set(prev).add(key));
   };
 
-  // ---- Bulk fabric tool (identical to the original feature) ----
+  // ---- Bulk fabric tool ----
   const applyBulkFabric = () => {
     if (!activeSheet) return;
     const value = bulkFabricInput.trim();
     if (!value) { alert('Enter a fabric number first.'); return; }
     if (fabricSelectedRowIds.size === 0) { alert('Select at least one window first.'); return; }
+
+    // ✅ NEW: check the fabric number against the actual catalog before
+    // applying, same isFabricValid check the quote side already uses to
+    // flag unrecognized fabrics. A typo here (e.g. "fdsafw3") previously
+    // applied silently with zero warning - now it's a confirm, not a hard
+    // block, since a genuinely new fabric not yet in the system is still a
+    // real, valid thing to send to the supplier.
+    if (!isFabricValid(value, PRICING_DATA)) {
+      if (!window.confirm(`"${value}" is not in the fabric list - it may be a typo.\n\nApply it anyway?`)) return;
+    }
 
     const newRows = activeSheet.rows.map(r => (fabricSelectedRowIds.has(r.id) ? { ...r, fabricNumber: value } : r));
     updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
@@ -347,12 +382,14 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
   const applyBulkMount = () => {
     if (!activeSheet) return;
     if (mountSelectedRowIds.size === 0) { alert('Select at least one window first.'); return; }
+    if (bulkMountValue === 'Custom' && !bulkMountCustomText.trim()) { alert('Type the custom mount first.'); return; }
 
-    const newRows = activeSheet.rows.map(r => (mountSelectedRowIds.has(r.id) ? { ...r, mount: bulkMountValue } : r));
+    const effectiveMount = bulkMountValue === 'Custom' ? bulkMountCustomText.trim() : bulkMountValue;
+    const newRows = activeSheet.rows.map(r => (mountSelectedRowIds.has(r.id) ? { ...r, mount: effectiveMount } : r));
     updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
     const count = mountSelectedRowIds.size;
     setMountSelectedRowIds(new Set());
-    alert(`Set Mount = "${bulkMountValue}" for ${count} window${count > 1 ? 's' : ''}.`);
+    alert(`Set Mount = "${effectiveMount}" for ${count} window${count > 1 ? 's' : ''}.`);
   };
 
   // ---- Export (identical rules/logic to the original feature) ----
@@ -469,6 +506,8 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
       warningKey={warningKey}
       acknowledgeWarning={acknowledgeWarning}
       toggleInSet={toggleInSet}
+      expandedRowId={expandedRowId}
+      setExpandedRowId={setExpandedRowId}
 
       showFabricTool={showFabricTool}
       setShowFabricTool={setShowFabricTool}
@@ -518,6 +557,8 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
       setShowMountTool={setShowMountTool}
       bulkMountValue={bulkMountValue}
       setBulkMountValue={setBulkMountValue}
+      bulkMountCustomText={bulkMountCustomText}
+      setBulkMountCustomText={setBulkMountCustomText}
       mountSelectedRowIds={mountSelectedRowIds}
       setMountSelectedRowIds={setMountSelectedRowIds}
       applyBulkMount={applyBulkMount}
