@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Trash2 } from 'lucide-react';
+import { autoDetectBlindTypes } from '../../utils/pricing';
+
+const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
 
 const inputStyle = { width: '100%', padding: '10px', borderRadius: '6px', fontSize: '13px', background: '#1a1a1a', border: '1px solid #444', color: 'white', boxSizing: 'border-box' };
 const selectStyle = { ...inputStyle, cursor: 'pointer' };
@@ -68,6 +71,11 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
   const [solarSelectedKeys, setSolarSelectedKeys] = useState(new Set());
 
   const [bulkFabricInput, setBulkFabricInput] = useState('');
+  // 'fabric' = exact fabric number, 'blindType' = client hasn't picked a
+  // fabric yet, so pricing falls back to a Min/Max range for the selected
+  // type(s) - same two modes as the regular Quote Generator's bulk tool.
+  const [bulkMode, setBulkMode] = useState('fabric');
+  const [bulkBlindTypes, setBulkBlindTypes] = useState([]);
   const [bulkMotorValue, setBulkMotorValue] = useState('Motor');
   const [bulkSolarValue, setBulkSolarValue] = useState(false);
 
@@ -129,14 +137,36 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
   const roomItems = formData.rooms.map((room, idx) => ({ key: room.id, room, idx }));
 
   const applyBulkFabric = () => {
-    const value = bulkFabricInput.trim();
-    if (!value) { alert('Enter a fabric number first.'); return; }
     if (fabricSelectedRoomIds.size === 0) { alert('Select at least one room first.'); return; }
-    const newRooms = formData.rooms.map(room => (fabricSelectedRoomIds.has(room.id) ? { ...room, fabricInput: value } : room));
-    setFormData({ ...formData, rooms: newRooms });
+
+    let newRooms;
+    let appliedLabel;
+
+    if (bulkMode === 'fabric') {
+      const fabricValue = bulkFabricInput.trim();
+      if (!fabricValue) { alert('Enter a fabric number first.'); return; }
+      const detectedTypes = autoDetectBlindTypes(fabricValue);
+      newRooms = formData.rooms.map(room =>
+        fabricSelectedRoomIds.has(room.id) ? { ...room, fabricInput: fabricValue, blindTypes: detectedTypes } : room
+      );
+      appliedLabel = `fabric "${fabricValue}"`;
+    } else {
+      if (bulkBlindTypes.length === 0) { alert('Select at least one blind type first.'); return; }
+      // Blind-type-only: leave fabricInput blank so pricing uses a Min/Max
+      // range for these types instead of one exact fabric price - same
+      // fallback behavior as the regular Quote Generator's bulk tool.
+      newRooms = formData.rooms.map(room =>
+        fabricSelectedRoomIds.has(room.id) ? { ...room, fabricInput: '', blindTypes: [...bulkBlindTypes] } : room
+      );
+      appliedLabel = `blind type "${bulkBlindTypes.join(', ')}" (Min/Max estimate, no exact fabric)`;
+    }
+
     const count = fabricSelectedRoomIds.size;
+    setFormData({ ...formData, rooms: newRooms });
+    setBulkFabricInput('');
+    setBulkBlindTypes([]);
     setFabricSelectedRoomIds(new Set());
-    alert(`Applied "${value}" to ${count} room${count > 1 ? 's' : ''}.`);
+    alert(`Applied ${appliedLabel} to ${count} room${count > 1 ? 's' : ''}.`);
   };
 
   // ---- Bulk assign motor / solar (window-group-level) ----
@@ -245,7 +275,53 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
         {/* 5. Bulk Assign Fabric */}
         <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>Bulk Assign Fabric</p>
         <BulkToolPanel title="Bulk Assign Fabric" icon="🧵" bg="#1a2a3a" border="#4a6a8a" accentColor="#7dd3fc" isOpen={showFabricTool} onToggle={() => setShowFabricTool(!showFabricTool)}>
-          <input type="text" placeholder="Fabric number" value={bulkFabricInput} onChange={(e) => setBulkFabricInput(e.target.value)} style={{ ...inputStyle, marginBottom: '10px' }} />
+          {/* Mode toggle: exact fabric vs. blind-type-only estimate - same
+              two modes as the regular Quote Generator's bulk tool. */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+            <button
+              onClick={() => setBulkMode('fabric')}
+              style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkMode === 'fabric' ? '#0e7490' : '#0a0a0a', color: bulkMode === 'fabric' ? '#fff' : '#888', border: bulkMode === 'fabric' ? '1px solid #0e7490' : '1px solid #444' }}
+            >
+              Fabric Number
+            </button>
+            <button
+              onClick={() => setBulkMode('blindType')}
+              style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkMode === 'blindType' ? '#0e7490' : '#0a0a0a', color: bulkMode === 'blindType' ? '#fff' : '#888', border: bulkMode === 'blindType' ? '1px solid #0e7490' : '1px solid #444' }}
+            >
+              Blind Type (no fabric yet)
+            </button>
+          </div>
+
+          {bulkMode === 'fabric' ? (
+            <input type="text" placeholder="e.g., 82086K, 82067E" value={bulkFabricInput} onChange={(e) => setBulkFabricInput(e.target.value)} style={{ ...inputStyle, marginBottom: '10px' }} />
+          ) : (
+            <div style={{ marginBottom: '10px' }}>
+              <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '8px' }}>For a Min/Max price range instead of an exact price - select one or more:</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                {BLIND_TYPES.map(type => {
+                  const checked = bulkBlindTypes.includes(type);
+                  return (
+                    <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', borderRadius: '6px', background: checked ? '#1a3a4a' : '#0a0a0a', border: checked ? '1px solid #4ade80' : '1px solid #444', cursor: 'pointer', fontSize: '13px', color: checked ? '#4ade80' : '#ccc' }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setBulkBlindTypes([...new Set([...bulkBlindTypes, type])]);
+                          } else {
+                            setBulkBlindTypes(bulkBlindTypes.filter(t => t !== type));
+                          }
+                        }}
+                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                      />
+                      {type}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <RowChecklist
             items={roomItems}
             selectedIds={fabricSelectedRoomIds}
@@ -253,7 +329,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
             setSelectedIds={setFabricSelectedRoomIds}
             accentColor="#7dd3fc"
             renderLabel={(item) => (
-              <>{item.room.name || `Room ${item.idx + 1}`}<span style={{ color: '#666' }}>{item.room.fabricInput.trim() ? ` — ${item.room.fabricInput.trim()}` : ' — no fabric yet'}</span></>
+              <>{item.room.name || `Room ${item.idx + 1}`}<span style={{ color: '#666' }}>{item.room.fabricInput.trim() ? ` — ${item.room.fabricInput.trim()}` : ` — ${(item.room.blindTypes || ['Roller']).join(', ')} (no fabric set)`}</span></>
             )}
           />
           <button onClick={applyBulkFabric} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#0e7490', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>
@@ -332,7 +408,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
                   <td style={{ ...cellStyle, color: '#d4af37', fontWeight: 'bold' }}>{item.room.name || 'Unnamed'}</td>
                   <td style={cellStyle}>{item.group.quantity || '—'}</td>
                   <td style={cellStyle}>{item.group.width || '?'} x {item.group.height || '?'}</td>
-                  <td style={cellStyle}>{item.room.fabricInput || '—'}</td>
+                  <td style={cellStyle}>{item.room.fabricInput || `${(item.room.blindTypes || ['Roller']).join(', ')} (no fabric)`}</td>
                   <td style={cellStyle}>{item.group.controlType || 'Manual'}</td>
                   <td style={cellStyle}>{item.group.solar ? 'Yes' : 'No'}</td>
                 </tr>
