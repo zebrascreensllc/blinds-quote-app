@@ -1,0 +1,356 @@
+import React, { useState } from 'react';
+import { ArrowLeft, Trash2 } from 'lucide-react';
+
+const inputStyle = { width: '100%', padding: '10px', borderRadius: '6px', fontSize: '13px', background: '#1a1a1a', border: '1px solid #444', color: 'white', boxSizing: 'border-box' };
+const selectStyle = { ...inputStyle, cursor: 'pointer' };
+const labelStyle = { fontSize: '11px', color: '#888', display: 'block', marginBottom: '4px' };
+const cellStyle = { padding: '6px', fontSize: '12px', color: '#ccc', borderBottom: '1px solid #333', verticalAlign: 'top' };
+const headerCellStyle = { padding: '8px 6px', fontSize: '11px', fontWeight: 'bold', color: '#fff', textAlign: 'left', borderBottom: '1px solid #444', whiteSpace: 'nowrap' };
+
+// Generic bulk-tool checklist, same shared pattern as BulkEditorScreen.js
+// (Bulk Measurements) - reused here since the interaction is identical,
+// just over rooms or window groups instead of measurement rows.
+function RowChecklist({ items, selectedIds, toggleInSet, setSelectedIds, renderLabel, accentColor }) {
+  if (items.length === 0) {
+    return <p style={{ color: '#888', fontSize: '12px' }}>Nothing to select yet.</p>;
+  }
+  return (
+    <>
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
+        <button onClick={() => setSelectedIds(new Set(items.map(i => i.key)))} style={{ fontSize: '12px', color: accentColor, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Select All</button>
+        <button onClick={() => setSelectedIds(new Set())} style={{ fontSize: '12px', color: '#888', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear</button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '220px', overflowY: 'auto', marginBottom: '10px', border: '1px solid #333', borderRadius: '6px', padding: '6px' }}>
+        {items.map(item => {
+          const checked = selectedIds.has(item.key);
+          return (
+            <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '4px', background: checked ? 'rgba(255,255,255,0.08)' : 'transparent', cursor: 'pointer' }}>
+              <input type="checkbox" checked={checked} onChange={() => toggleInSet(item.key, selectedIds, setSelectedIds)} style={{ width: '16px', height: '16px', cursor: 'pointer', flexShrink: 0 }} />
+              <span style={{ fontSize: '12px', color: checked ? accentColor : '#ccc' }}>{renderLabel(item)}</span>
+            </label>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function BulkToolPanel({ title, icon, bg, border, accentColor, isOpen, onToggle, children }) {
+  return (
+    <div style={{ background: bg, border: `1px solid ${border}`, borderRadius: '8px', marginBottom: '16px', overflow: 'hidden' }}>
+      <button onClick={onToggle} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ color: accentColor, fontWeight: 'bold', fontSize: '13px' }}>{icon} {title}</span>
+        <span style={{ color: '#888', fontSize: '14px' }}>{isOpen ? '▼' : '▶'}</span>
+      </button>
+      {isOpen && <div style={{ padding: '0 16px 16px 16px' }}>{children}</div>}
+    </div>
+  );
+}
+
+// A bulk-first alternative to QuoteFormScreen.js for creating a NEW quote,
+// trialed alongside it. Deliberately reuses App.js's real formData/
+// generateQuote UNCHANGED - a quote made here is byte-identical in shape to
+// one made through the regular form, uses the exact same pricing engine,
+// and lands in the exact same Firestore collection - it shows up in Quote
+// History, Statistics, Order Analysis exactly like any other quote, with no
+// extra code needed anywhere else. Only the entry UX differs: rooms only
+// take Qty/Width/Height directly, everything else (fabric/motor/solar) is
+// bulk-assigned in one pass instead of per-room/per-window-group, same
+// "why is this so repetitive" fix as Bulk Measurements.
+export default function BulkQuoteFormScreen({ formData, setFormData, generateQuote, resetForm, setEditingQuote, setCurrentView }) {
+  // Fabric applies at the ROOM level (matches the existing data model -
+  // room.fabricInput, not per window group). Motor and Solar apply at the
+  // WINDOW GROUP level, keyed the same way the rest of the app keys window
+  // groups (`${room.id}_${groupIndex}`), since group ids are only unique
+  // within their own room.
+  const [fabricSelectedRoomIds, setFabricSelectedRoomIds] = useState(new Set());
+  const [motorSelectedKeys, setMotorSelectedKeys] = useState(new Set());
+  const [solarSelectedKeys, setSolarSelectedKeys] = useState(new Set());
+
+  const [bulkFabricInput, setBulkFabricInput] = useState('');
+  const [bulkMotorValue, setBulkMotorValue] = useState('Motor');
+  const [bulkSolarValue, setBulkSolarValue] = useState(false);
+
+  const [showFabricTool, setShowFabricTool] = useState(false);
+  const [showMotorTool, setShowMotorTool] = useState(false);
+  const [showSolarTool, setShowSolarTool] = useState(false);
+
+  const toggleInSet = (key, currentSet, setter) => {
+    const s = new Set(currentSet);
+    if (s.has(key)) s.delete(key); else s.add(key);
+    setter(s);
+  };
+
+  // ---- Room / window group structure (Qty/Width/Height only) ----
+  const addRoom = () => {
+    const newRoomId = Math.max(...formData.rooms.map(r => r.id), 0) + 1;
+    setFormData({
+      ...formData,
+      rooms: [...formData.rooms, {
+        id: newRoomId, name: '', fabricInput: '', blindTypes: ['Roller'],
+        windowGroups: [{ id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null }]
+      }]
+    });
+  };
+
+  const deleteRoom = (roomIndex) => {
+    const newRooms = [...formData.rooms];
+    newRooms.splice(roomIndex, 1);
+    setFormData({ ...formData, rooms: newRooms });
+  };
+
+  const updateRoomName = (roomIndex, name) => {
+    const newRooms = [...formData.rooms];
+    newRooms[roomIndex].name = name;
+    setFormData({ ...formData, rooms: newRooms });
+  };
+
+  const addWindowGroup = (roomIndex) => {
+    const newRooms = [...formData.rooms];
+    const group = newRooms[roomIndex].windowGroups;
+    const newId = Math.max(...group.map(w => w.id), 0) + 1;
+    group.push({ id: newId, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null });
+    setFormData({ ...formData, rooms: newRooms });
+  };
+
+  const deleteWindowGroup = (roomIndex, groupIndex) => {
+    const newRooms = [...formData.rooms];
+    newRooms[roomIndex].windowGroups.splice(groupIndex, 1);
+    setFormData({ ...formData, rooms: newRooms });
+  };
+
+  const updateWindowGroupField = (roomIndex, groupIndex, field, value) => {
+    const newRooms = [...formData.rooms];
+    newRooms[roomIndex].windowGroups[groupIndex][field] = value;
+    setFormData({ ...formData, rooms: newRooms });
+  };
+
+  // ---- Bulk assign fabric (room-level, matches the existing data model) ----
+  const roomItems = formData.rooms.map((room, idx) => ({ key: room.id, room, idx }));
+
+  const applyBulkFabric = () => {
+    const value = bulkFabricInput.trim();
+    if (!value) { alert('Enter a fabric number first.'); return; }
+    if (fabricSelectedRoomIds.size === 0) { alert('Select at least one room first.'); return; }
+    const newRooms = formData.rooms.map(room => (fabricSelectedRoomIds.has(room.id) ? { ...room, fabricInput: value } : room));
+    setFormData({ ...formData, rooms: newRooms });
+    const count = fabricSelectedRoomIds.size;
+    setFabricSelectedRoomIds(new Set());
+    alert(`Applied "${value}" to ${count} room${count > 1 ? 's' : ''}.`);
+  };
+
+  // ---- Bulk assign motor / solar (window-group-level) ----
+  const allGroupItems = [];
+  formData.rooms.forEach(room => {
+    room.windowGroups.forEach((group, groupIndex) => {
+      allGroupItems.push({ key: `${room.id}_${groupIndex}`, room, group, groupIndex });
+    });
+  });
+  const motorGroupItems = allGroupItems.filter(i => i.group.controlType === 'Motor');
+
+  const applyBulkMotor = () => {
+    if (motorSelectedKeys.size === 0) { alert('Select at least one window group first.'); return; }
+    const newRooms = formData.rooms.map(room => ({
+      ...room,
+      windowGroups: room.windowGroups.map((group, groupIndex) => {
+        const key = `${room.id}_${groupIndex}`;
+        if (!motorSelectedKeys.has(key)) return group;
+        const patch = { controlType: bulkMotorValue };
+        // Manual doesn't support Solar - same rule enforced elsewhere in
+        // the app (Solar checkbox only shows for Motor windows).
+        if (bulkMotorValue !== 'Motor') patch.solar = false;
+        return { ...group, ...patch };
+      })
+    }));
+    setFormData({ ...formData, rooms: newRooms });
+    const count = motorSelectedKeys.size;
+    setMotorSelectedKeys(new Set());
+    alert(`Set ${count} window group${count > 1 ? 's' : ''} to "${bulkMotorValue}".`);
+  };
+
+  const applyBulkSolar = () => {
+    if (solarSelectedKeys.size === 0) { alert('Select at least one motorized window group first.'); return; }
+    const newRooms = formData.rooms.map(room => ({
+      ...room,
+      windowGroups: room.windowGroups.map((group, groupIndex) => {
+        const key = `${room.id}_${groupIndex}`;
+        if (!solarSelectedKeys.has(key)) return group;
+        return { ...group, solar: bulkSolarValue };
+      })
+    }));
+    setFormData({ ...formData, rooms: newRooms });
+    const count = solarSelectedKeys.size;
+    setSolarSelectedKeys(new Set());
+    alert(`Set Solar = ${bulkSolarValue ? 'Yes' : 'No'} for ${count} window group${count > 1 ? 's' : ''}.`);
+  };
+
+  return (
+    <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', paddingBottom: '48px', padding: '32px 16px' }}>
+      <div style={{ maxWidth: '700px', margin: '0 auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
+          <button onClick={() => { setCurrentView('menu'); resetForm(); setEditingQuote(null); }} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(100,100,100,0.3)', border: 'none', cursor: 'pointer' }}>
+            <ArrowLeft size={24} color="#aaa" />
+          </button>
+          <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#fff', fontFamily: 'Georgia, serif' }}>Bulk Quote Create</h2>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px' }}>
+          <input type="text" placeholder="Client Name" value={formData.clientName} onChange={(e) => setFormData({ ...formData, clientName: e.target.value })} style={{ ...inputStyle, fontSize: '16px', padding: '12px' }} />
+          <input type="tel" placeholder="Client Phone" value={formData.clientPhone} onChange={(e) => setFormData({ ...formData, clientPhone: e.target.value })} style={{ ...inputStyle, fontSize: '16px', padding: '12px' }} />
+          <input type="text" placeholder="Client Address" value={formData.location} onChange={(e) => setFormData({ ...formData, location: e.target.value })} style={{ ...inputStyle, fontSize: '16px', padding: '12px' }} />
+        </div>
+
+        {/* 4. Rooms - name + Qty/Width/Height only */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>Rooms</p>
+        {formData.rooms.map((room, roomIndex) => (
+          <div key={room.id} style={{ background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+              <input type="text" placeholder="Room Name" value={room.name} onChange={(e) => updateRoomName(roomIndex, e.target.value)} style={{ ...inputStyle, fontWeight: 'bold' }} />
+              <button onClick={() => deleteRoom(roomIndex)} style={{ padding: '10px', borderRadius: '6px', background: '#b91c1c', border: 'none', color: '#fff', cursor: 'pointer', flexShrink: 0 }}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+
+            {room.windowGroups.map((group, groupIndex) => (
+              <div key={group.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '8px', marginBottom: '8px', alignItems: 'start' }}>
+                <div>
+                  {groupIndex === 0 && <label style={labelStyle}>Qty</label>}
+                  <input type="number" placeholder="Qty" value={group.quantity} onChange={(e) => updateWindowGroupField(roomIndex, groupIndex, 'quantity', e.target.value)} style={inputStyle} />
+                </div>
+                <div>
+                  {groupIndex === 0 && <label style={labelStyle}>Width</label>}
+                  <input type="text" placeholder="Width" value={group.width} onChange={(e) => updateWindowGroupField(roomIndex, groupIndex, 'width', e.target.value)} style={inputStyle} />
+                </div>
+                <div>
+                  {groupIndex === 0 && <label style={labelStyle}>Height</label>}
+                  <input type="text" placeholder="Height" value={group.height} onChange={(e) => updateWindowGroupField(roomIndex, groupIndex, 'height', e.target.value)} style={inputStyle} />
+                </div>
+                <div>
+                  {groupIndex === 0 && <label style={labelStyle}>&nbsp;</label>}
+                  <button onClick={() => deleteWindowGroup(roomIndex, groupIndex)} style={{ padding: '10px', borderRadius: '6px', background: '#444', border: 'none', color: '#f87171', cursor: 'pointer' }}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button onClick={() => addWindowGroup(roomIndex)} style={{ width: '100%', padding: '10px', marginTop: '4px', borderRadius: '6px', color: '#888', fontWeight: 'bold', fontSize: '13px', background: 'transparent', border: '2px dashed #555', cursor: 'pointer' }}>
+              + Add Window Group
+            </button>
+          </div>
+        ))}
+        <button onClick={addRoom} style={{ width: '100%', padding: '14px', borderRadius: '8px', color: '#888', fontWeight: 'bold', fontSize: '15px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '24px' }}>
+          + Add Room
+        </button>
+
+        {/* 5. Bulk Assign Fabric */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>Bulk Assign Fabric</p>
+        <BulkToolPanel title="Bulk Assign Fabric" icon="🧵" bg="#1a2a3a" border="#4a6a8a" accentColor="#7dd3fc" isOpen={showFabricTool} onToggle={() => setShowFabricTool(!showFabricTool)}>
+          <input type="text" placeholder="Fabric number" value={bulkFabricInput} onChange={(e) => setBulkFabricInput(e.target.value)} style={{ ...inputStyle, marginBottom: '10px' }} />
+          <RowChecklist
+            items={roomItems}
+            selectedIds={fabricSelectedRoomIds}
+            toggleInSet={toggleInSet}
+            setSelectedIds={setFabricSelectedRoomIds}
+            accentColor="#7dd3fc"
+            renderLabel={(item) => (
+              <>{item.room.name || `Room ${item.idx + 1}`}<span style={{ color: '#666' }}>{item.room.fabricInput.trim() ? ` — ${item.room.fabricInput.trim()}` : ' — no fabric yet'}</span></>
+            )}
+          />
+          <button onClick={applyBulkFabric} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#0e7490', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>
+            Apply to {fabricSelectedRoomIds.size} Selected
+          </button>
+        </BulkToolPanel>
+
+        {/* 6. Bulk Assign Motor */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>Bulk Assign Motor</p>
+        <BulkToolPanel title="Bulk Assign Motor" icon="⚙️" bg="#2a2a1a" border="#8a7a4a" accentColor="#fbbf24" isOpen={showMotorTool} onToggle={() => setShowMotorTool(!showMotorTool)}>
+          <label style={labelStyle}>Set Type to</label>
+          <select value={bulkMotorValue} onChange={(e) => setBulkMotorValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
+            <option value="Manual">Manual</option>
+            <option value="Cordless">Cordless</option>
+            <option value="Motor">Motor</option>
+          </select>
+          <RowChecklist
+            items={allGroupItems}
+            selectedIds={motorSelectedKeys}
+            toggleInSet={toggleInSet}
+            setSelectedIds={setMotorSelectedKeys}
+            accentColor="#fbbf24"
+            renderLabel={(item) => (
+              <>{item.room.name || 'Room'} ({item.group.width || '?'}x{item.group.height || '?'})<span style={{ color: '#666' }}> — currently {item.group.controlType || 'Manual'}</span></>
+            )}
+          />
+          <button onClick={applyBulkMotor} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#a16207', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>
+            Apply to {motorSelectedKeys.size} Selected
+          </button>
+        </BulkToolPanel>
+
+        {/* 7. Bulk Assign Solar */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>Bulk Assign Solar</p>
+        <BulkToolPanel title="Bulk Assign Solar (motorized windows only)" icon="☀️" bg="#2a2a1a" border="#8a8a4a" accentColor="#fde047" isOpen={showSolarTool} onToggle={() => setShowSolarTool(!showSolarTool)}>
+          <label style={labelStyle}>Set Solar to</label>
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+            <button onClick={() => setBulkSolarValue(false)} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: !bulkSolarValue ? '#0e7490' : '#1a1a1a', color: !bulkSolarValue ? '#fff' : '#888', border: !bulkSolarValue ? '1px solid #0e7490' : '1px solid #444' }}>No</button>
+            <button onClick={() => setBulkSolarValue(true)} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkSolarValue ? '#0e7490' : '#1a1a1a', color: bulkSolarValue ? '#fff' : '#888', border: bulkSolarValue ? '1px solid #0e7490' : '1px solid #444' }}>Yes</button>
+          </div>
+          {motorGroupItems.length === 0 ? (
+            <p style={{ color: '#888', fontSize: '12px' }}>No motorized window groups yet - assign Motor above first.</p>
+          ) : (
+            <RowChecklist
+              items={motorGroupItems}
+              selectedIds={solarSelectedKeys}
+              toggleInSet={toggleInSet}
+              setSelectedIds={setSolarSelectedKeys}
+              accentColor="#fde047"
+              renderLabel={(item) => (
+                <>{item.room.name || 'Room'} ({item.group.width || '?'}x{item.group.height || '?'})<span style={{ color: '#666' }}> — Solar currently {item.group.solar ? 'Yes' : 'No'}</span></>
+              )}
+            />
+          )}
+          <button onClick={applyBulkSolar} disabled={motorGroupItems.length === 0} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#a16207', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: motorGroupItems.length === 0 ? 'default' : 'pointer', opacity: motorGroupItems.length === 0 ? 0.5 : 1 }}>
+            Apply to {solarSelectedKeys.size} Selected
+          </button>
+        </BulkToolPanel>
+
+        {/* 8. Review table */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px', marginTop: '8px' }}>Review</p>
+        <div style={{ overflowX: 'auto', marginBottom: '24px', border: '1px solid #444', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead style={{ background: '#1a1a1a' }}>
+              <tr>
+                <th style={headerCellStyle}>Room</th>
+                <th style={headerCellStyle}>Qty</th>
+                <th style={headerCellStyle}>Size</th>
+                <th style={headerCellStyle}>Fabric</th>
+                <th style={headerCellStyle}>Type</th>
+                <th style={headerCellStyle}>Solar</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allGroupItems.map(item => (
+                <tr key={item.key}>
+                  <td style={{ ...cellStyle, color: '#d4af37', fontWeight: 'bold' }}>{item.room.name || 'Unnamed'}</td>
+                  <td style={cellStyle}>{item.group.quantity || '—'}</td>
+                  <td style={cellStyle}>{item.group.width || '?'} x {item.group.height || '?'}</td>
+                  <td style={cellStyle}>{item.room.fabricInput || '—'}</td>
+                  <td style={cellStyle}>{item.group.controlType || 'Manual'}</td>
+                  <td style={cellStyle}>{item.group.solar ? 'Yes' : 'No'}</td>
+                </tr>
+              ))}
+              {allGroupItems.length === 0 && (
+                <tr><td style={cellStyle} colSpan={6}>No window groups yet - add a room above.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* 9. Generate Quote - same function the regular Quote Generator uses,
+            unchanged: same pricing engine, same quote object shape, same
+            Firestore write. */}
+        <button onClick={generateQuote} style={{ width: '100%', padding: '16px', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>
+          Generate Quote
+        </button>
+      </div>
+    </div>
+  );
+}

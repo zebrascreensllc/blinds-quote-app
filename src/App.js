@@ -14,6 +14,7 @@ import MenuScreen from './components/quote/MenuScreen';
 import HistoryScreen from './components/quote/HistoryScreen';
 import StatisticsScreen from './components/quote/StatisticsScreen';
 import QuoteFormScreen from './components/quote/QuoteFormScreen';
+import BulkQuoteFormScreen from './components/quote/BulkQuoteFormScreen';
 import QuoteDetailScreen from './components/quote/QuoteDetailScreen';
 import { subscribeToQuotes, saveQuoteRemote, deleteQuoteRemote } from './services/quoteSync';
 
@@ -633,6 +634,16 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
           setLastWidth={setLastWidth}
           setShowBulkAssign={setShowBulkAssign}
           showBulkAssign={showBulkAssign}
+        />
+      )}
+      {currentView === 'bulkQuote' && (
+        <BulkQuoteFormScreen
+          formData={formData}
+          setFormData={setFormData}
+          generateQuote={generateQuote}
+          resetForm={resetForm}
+          setEditingQuote={setEditingQuote}
+          setCurrentView={setCurrentView}
         />
       )}
       {currentView === 'history' && (
