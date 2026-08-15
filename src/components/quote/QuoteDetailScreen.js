@@ -2,7 +2,7 @@ import React from 'react';
 import { Copy, Check, Edit2, Trash2 } from 'lucide-react';
 import { PRICING_DATA } from '../../data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE } from '../../utils/constants';
-import { formatPrice, formatMoney, isRangeOverride, formatPriceOverride, filterNumericText } from '../../utils/formatters';
+import { formatPrice, formatMoney, isRangeOverride, formatPriceOverride, filterNumericText, parseUnits } from '../../utils/formatters';
 import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric } from '../../utils/pricing';
 import { expandQuoteIntoRows, sheetToCSV } from '../../utils/measurementUtils';
 
@@ -44,6 +44,28 @@ export default function QuoteDetailScreen({
   try {
     const rooms = selectedQuote.rooms;
     const storedPricing = selectedQuote.pricing || null; // Use stored pricing or null (fallback to defaults)
+
+    // ✅ NEW: finds every OTHER window group in this quote (any room) whose
+    // width x height numerically matches, for the "apply this price to
+    // same-size windows too?" prompt below. Numeric comparison (via
+    // parseUnits) rather than string equality, so "35" and "35.0" or "3'
+    // 6"" match sensibly the way this app parses measurements everywhere else.
+    const findMatchingSizePriceKeys = (excludeKey, width, height) => {
+      const targetW = parseUnits(width);
+      const targetH = parseUnits(height);
+      if (!targetW || !targetH) return [];
+      const matches = [];
+      rooms.forEach(r => {
+        r.windowGroups.forEach((g, idx) => {
+          const key = `${r.id}_${idx}`;
+          if (key === excludeKey) return;
+          if (parseUnits(g.width) === targetW && parseUnits(g.height) === targetH) {
+            matches.push(key);
+          }
+        });
+      });
+      return matches;
+    };
     let totalMin = 0, totalMax = 0;
     // ✅ NEW: Supplier-side cost breakdown for the Pricing Comparison section.
     // Computed from the physical specs of each window (fabric, size, motor, solar) -
@@ -551,19 +573,38 @@ export default function QuoteDetailScreen({
                                 // ✅ Commit whatever was entered - Range mode reads BOTH boxes
                                 // (each a plain, always-valid number - no parsing ambiguity),
                                 // Fixed mode reads the one box as before.
+                                let committedValue = null;
                                 if (q.isRange && priceEditMode === 'range') {
                                   const min = parseFloat(activeEditText);
                                   const max = parseFloat(activeEditTextMax);
                                   if (!isNaN(min) && !isNaN(max) && min >= 0 && max >= 0) {
-                                    setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [priceKey]: { min: Math.min(min, max), max: Math.max(min, max) }}});
+                                    committedValue = { min: Math.min(min, max), max: Math.max(min, max) };
                                   }
                                   // If either box is empty/invalid, leave unchanged - same as
                                   // the existing "invalid input, don't commit" pattern.
                                 } else {
                                   const parsed = parseFloat(activeEditText);
                                   if (activeEditText !== '' && !isNaN(parsed) && parsed >= 0) {
-                                    setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, [priceKey]: parsed}});
+                                    committedValue = parsed;
                                   }
+                                }
+
+                                if (committedValue !== null) {
+                                  const updates = { [priceKey]: committedValue };
+                                  // ✅ NEW: offer (never automatic) to apply the same price to
+                                  // every other same-size window group in this quote, any
+                                  // room. Opt-in via a confirm - a silent price change here is
+                                  // exactly the kind of bug this app has been burned by before,
+                                  // so nothing propagates without you seeing it happen.
+                                  const matchingKeys = findMatchingSizePriceKeys(priceKey, group.width, group.height);
+                                  if (matchingKeys.length > 0) {
+                                    const priceLabel = isRangeOverride(committedValue) ? formatPriceOverride(committedValue) : `$${formatMoney(committedValue)}`;
+                                    const proceed = window.confirm(`${matchingKeys.length} other ${group.width}x${group.height} window${matchingKeys.length > 1 ? 's' : ''} in this quote.\n\nApply ${priceLabel} to ${matchingKeys.length > 1 ? 'them' : 'it'} too?`);
+                                    if (proceed) {
+                                      matchingKeys.forEach(k => { updates[k] = committedValue; });
+                                    }
+                                  }
+                                  setTableEditValues({...tableEditValues, perWindowPrices: {...tableEditValues.perWindowPrices, ...updates}});
                                 }
                                 setEditingTableField(null);
                                 setActiveEditText('');
