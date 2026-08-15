@@ -45,17 +45,48 @@ export default function QuoteDetailScreen({
     const rooms = selectedQuote.rooms;
     const storedPricing = selectedQuote.pricing || null; // Use stored pricing or null (fallback to defaults)
 
+    // ✅ NEW: pending structural edits (Qty/Width/Height/Type/Solar per
+    // window group, and whole-room deletions) - same "pending until Save"
+    // shape as perWindowPrices/motorCost/etc. above, never written to the
+    // saved quote until "Save All Changes & Create New Version".
+    const groupEdits = tableEditValues.groupEdits || {};
+    const deletedRoomIds = tableEditValues.deletedRoomIds || new Set();
+
+    // ✅ NEW: merges those pending edits onto the saved quote's rooms,
+    // computed ONCE here and used for BOTH the totals below and the table
+    // rows - same single-source-of-truth reasoning as motorGrandTotal/
+    // solarGrandTotal, so the header totals and the table can never show
+    // different numbers for the same pending edit. Group INDEX POSITIONS
+    // never change (edits patch fields in place, deletions only ever
+    // remove a whole ROOM by id) - priceKey (`${room.id}_${groupIdx}`)
+    // stays valid across a save exactly like it does today.
+    const effectiveRooms = rooms
+      .filter(room => !deletedRoomIds.has(room.id))
+      .map(room => ({
+        ...room,
+        windowGroups: room.windowGroups.map((group, groupIdx) => {
+          const edit = groupEdits[`${room.id}_${groupIdx}`];
+          if (!edit) return group;
+          const merged = { ...group, ...edit };
+          // Solar only makes sense for a motorized window - same rule
+          // enforced everywhere else in the app (bulk tools, per-row form).
+          if (merged.controlType !== 'Motor') merged.solar = false;
+          return merged;
+        })
+      }));
+
     // ✅ NEW: finds every OTHER window group in this quote (any room) whose
     // width x height numerically matches, for the "apply this price to
     // same-size windows too?" prompt below. Numeric comparison (via
     // parseUnits) rather than string equality, so "35" and "35.0" or "3'
-    // 6"" match sensibly the way this app parses measurements everywhere else.
+    // 6"" match sensibly the way this app parses measurements everywhere
+    // else. Uses effectiveRooms so a pending size edit is reflected too.
     const findMatchingSizePriceKeys = (excludeKey, width, height) => {
       const targetW = parseUnits(width);
       const targetH = parseUnits(height);
       if (!targetW || !targetH) return [];
       const matches = [];
-      rooms.forEach(r => {
+      effectiveRooms.forEach(r => {
         r.windowGroups.forEach((g, idx) => {
           const key = `${r.id}_${idx}`;
           if (key === excludeKey) return;
@@ -105,7 +136,7 @@ export default function QuoteDetailScreen({
     // simply added once, cleanly.
     let motorCount = 0;
     let solarCount = 0;
-    rooms.forEach(room => {
+    effectiveRooms.forEach(room => {
       room.windowGroups.forEach(group => {
         const qty = parseInt(group.quantity) || 0;
         if (group.controlType === 'Motor') motorCount += qty;
@@ -117,7 +148,7 @@ export default function QuoteDetailScreen({
 
     // Check for invalid fabrics
     const invalidFabrics = [];
-    rooms.forEach((room, roomIndex) => {
+    effectiveRooms.forEach((room, roomIndex) => {
       const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
       const fabricData = storedPricing?.PRICING_DATA || PRICING_DATA;
 
@@ -128,7 +159,7 @@ export default function QuoteDetailScreen({
       });
     });
 
-    rooms.forEach(room => {
+    effectiveRooms.forEach(room => {
       const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
       const fabricData = storedPricing?.PRICING_DATA || PRICING_DATA;
 
@@ -244,7 +275,7 @@ export default function QuoteDetailScreen({
       let totalWindows = 0;
 
       text += `ROOMS:\n`;
-      rooms.forEach(room => {
+      effectiveRooms.forEach(room => {
         // ✅ BUGFIX (2 issues):
         // 1. Only group.controlType was used to build the label, so a
         //    Motor+Solar group showed as just "Motor" - solar was silently dropped.
@@ -450,7 +481,7 @@ export default function QuoteDetailScreen({
                 </tr>
               </thead>
               <tbody>
-                {rooms.map((room, roomIdx) => {
+                {effectiveRooms.map((room, roomIdx) => {
                   const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
 
                   // Determine blind type from ACTUAL FABRICS entered
@@ -476,6 +507,22 @@ export default function QuoteDetailScreen({
                     const priceKey = `${room.id}_${groupIdx}`;
                     const fieldKey = `perWindow-${priceKey}`;
 
+                    // ✅ NEW: Qty/Size/Type/Solar inline edit, same pencil-and-Done
+                    // pattern as the Price cell. `group` already reflects any pending
+                    // edit (effectiveRooms merged it in above), so the display value
+                    // and the edit box's seed value are the same read - no separate
+                    // "effective" lookup needed the way Motor/Solar cost required.
+                    const groupEditForRow = groupEdits[priceKey] || {};
+                    const isQtyEdited = groupEditForRow.quantity !== undefined;
+                    const isSizeEdited = groupEditForRow.width !== undefined || groupEditForRow.height !== undefined;
+                    const isTypeEdited = groupEditForRow.controlType !== undefined || groupEditForRow.solar !== undefined;
+                    const qtyFieldKey = `qty-${priceKey}`;
+                    const sizeFieldKey = `size-${priceKey}`;
+                    const typeFieldKey = `type-${priceKey}`;
+                    const isEditingQty = editingTableField === qtyFieldKey;
+                    const isEditingSize = editingTableField === sizeFieldKey;
+                    const isEditingType = editingTableField === typeFieldKey;
+
                     // Saved price (from a previously saved version) - now either a
                     // plain number OR a {min,max} custom range override
                     const savedPrice = selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
@@ -491,10 +538,157 @@ export default function QuoteDetailScreen({
 
                     return (
                       <tr key={`${roomIdx}-${groupIdx}`} style={{ borderBottom: '1px solid #444' }}>
-                        <td style={{ padding: '8px', color: '#fff' }}>{room.name}</td>
-                        <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.quantity}</td>
-                        <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{group.width}x{group.height}</td>
-                        <td style={{ padding: '8px', textAlign: 'center', color: '#ccc' }}>{motorType}</td>
+                        <td style={{ padding: '8px', color: '#fff' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            {room.name}
+                            <button
+                              onClick={() => {
+                                if (!window.confirm(`Delete "${room.name || 'this room'}" from this quote?\n\nIts windows won't be included when you save changes.`)) return;
+                                setTableEditValues({
+                                  ...tableEditValues,
+                                  deletedRoomIds: new Set([...(tableEditValues.deletedRoomIds || new Set()), room.id])
+                                });
+                              }}
+                              title="Delete this room"
+                              style={{ padding: '2px', background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: isQtyEdited ? '#ffcc00' : '#ccc' }}>
+                          {isEditingQty ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={activeEditText}
+                                onChange={(e) => setActiveEditText(e.target.value.replace(/[^0-9]/g, ''))}
+                                style={{ width: '36px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white', textAlign: 'center' }}
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => {
+                                  const parsed = parseInt(activeEditText, 10);
+                                  if (activeEditText !== '' && !isNaN(parsed) && parsed > 0) {
+                                    setTableEditValues({ ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [priceKey]: { ...groupEditForRow, quantity: String(parsed) } } });
+                                  }
+                                  setEditingTableField(null);
+                                  setActiveEditText('');
+                                }}
+                                style={{ padding: '2px 4px', borderRadius: '2px', background: '#10b981', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}
+                              >
+                                ✓
+                              </button>
+                            </span>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              {group.quantity}
+                              <button
+                                onClick={() => { setEditingTableField(qtyFieldKey); setActiveEditText(String(group.quantity || '')); }}
+                                style={{ padding: '1px 3px', borderRadius: '2px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '9px' }}
+                              >
+                                ✏️
+                              </button>
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: isSizeEdited ? '#ffcc00' : '#ccc' }}>
+                          {isEditingSize ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <input
+                                type="text"
+                                placeholder="W"
+                                value={activeEditText}
+                                onChange={(e) => setActiveEditText(e.target.value)}
+                                style={{ width: '38px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white', textAlign: 'center' }}
+                                autoFocus
+                              />
+                              <span style={{ color: '#888' }}>x</span>
+                              <input
+                                type="text"
+                                placeholder="H"
+                                value={activeEditTextMax}
+                                onChange={(e) => setActiveEditTextMax(e.target.value)}
+                                style={{ width: '38px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white', textAlign: 'center' }}
+                              />
+                              <button
+                                onClick={() => {
+                                  const w = activeEditText.trim();
+                                  const h = activeEditTextMax.trim();
+                                  if (w && h) {
+                                    setTableEditValues({ ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [priceKey]: { ...groupEditForRow, width: w, height: h } } });
+                                  }
+                                  setEditingTableField(null);
+                                  setActiveEditText('');
+                                  setActiveEditTextMax('');
+                                }}
+                                style={{ padding: '2px 4px', borderRadius: '2px', background: '#10b981', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}
+                              >
+                                ✓
+                              </button>
+                            </span>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              {group.width}x{group.height}
+                              <button
+                                onClick={() => { setEditingTableField(sizeFieldKey); setActiveEditText(group.width || ''); setActiveEditTextMax(group.height || ''); }}
+                                style={{ padding: '1px 3px', borderRadius: '2px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '9px' }}
+                              >
+                                ✏️
+                              </button>
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: '8px', textAlign: 'center', color: isTypeEdited ? '#ffcc00' : '#ccc' }}>
+                          {isEditingType ? (
+                            <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                              <select
+                                value={group.controlType || 'Manual'}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  const patch = { controlType: value };
+                                  if (value !== 'Motor') patch.solar = false;
+                                  setTableEditValues({ ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [priceKey]: { ...groupEditForRow, ...patch } } });
+                                }}
+                                style={{ padding: '2px 4px', borderRadius: '4px', fontSize: '11px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                              >
+                                <option value="Manual">Manual</option>
+                                <option value="Cordless">Cordless</option>
+                                <option value="Motor">Motor</option>
+                              </select>
+                              {group.controlType === 'Motor' && (
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#ccc', cursor: 'pointer' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={!!group.solar}
+                                    onChange={(e) => {
+                                      setTableEditValues({ ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [priceKey]: { ...groupEditForRow, solar: e.target.checked } } });
+                                    }}
+                                    style={{ width: '12px', height: '12px' }}
+                                  />
+                                  Solar
+                                </label>
+                              )}
+                              <button
+                                onClick={() => setEditingTableField(null)}
+                                style={{ padding: '2px 6px', borderRadius: '2px', background: '#10b981', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}
+                              >
+                                Done
+                              </button>
+                            </span>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              {motorType}{group.solar ? '+Solar' : ''}
+                              <button
+                                onClick={() => setEditingTableField(typeFieldKey)}
+                                style={{ padding: '1px 3px', borderRadius: '2px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '9px' }}
+                              >
+                                ✏️
+                              </button>
+                            </span>
+                          )}
+                        </td>
                         <td style={{ padding: '8px', textAlign: 'right', color: isEdited ? '#ffcc00' : '#d4af37', fontWeight: '600' }}>
                           {isEditingThis ? (
                             <>
@@ -653,7 +847,7 @@ export default function QuoteDetailScreen({
                   <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
                     TOTAL WINDOWS: <span style={{ color: '#fff', fontWeight: 'bold' }}>{(() => {
                       let totalWins = 0;
-                      selectedQuote.rooms.forEach(room => {
+                      effectiveRooms.forEach(room => {
                         room.windowGroups.forEach(group => {
                           totalWins += parseInt(group.quantity) || 0;
                         });
@@ -824,12 +1018,12 @@ export default function QuoteDetailScreen({
           </div>
 
           {/* ✅ FIXED: Save All Changes Button - Show if ANY values differ from "not edited" defaults, OR you're actively typing a not-yet-committed edit */}
-          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null || (editingTableField && activeEditText !== '')) && (
+          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0 || (editingTableField && activeEditText !== '')) && (
             <>
               {/* Visual indicator of pending changes */}
               <div style={{ padding: '12px', marginBottom: '12px', background: '#2a3a1a', border: '2px solid #4ade80', borderRadius: '6px', textAlign: 'center' }}>
                 <p style={{ color: '#4ade80', fontWeight: 'bold', margin: '0' }}>
-                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.solarCost !== null ? ', solar cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''}{editingTableField && activeEditText !== '' ? ' (still typing...)' : ''})
+                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.solarCost !== null ? ', solar cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''}{Object.keys(tableEditValues.groupEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.groupEdits).length} window edit${Object.keys(tableEditValues.groupEdits).length > 1 ? 's' : ''}` : ''}{(tableEditValues.deletedRoomIds || new Set()).size > 0 ? `, ${(tableEditValues.deletedRoomIds || new Set()).size} room(s) removed` : ''}{editingTableField && activeEditText !== '' ? ' (still typing...)' : ''})
                 </p>
               </div>
 
@@ -849,6 +1043,20 @@ export default function QuoteDetailScreen({
                     const key = editingTableField.replace('perWindow-', '');
                     effectiveTableEditValues = { ...tableEditValues, perWindowPrices: { ...tableEditValues.perWindowPrices, [key]: { min: Math.min(min, max), max: Math.max(min, max) } } };
                   }
+                // ✅ NEW: same auto-commit safety net, extended to the Qty and
+                // Size edit boxes - clicking "Save All Changes" instead of that
+                // row's own checkmark first must not silently drop what was typed.
+                } else if (editingTableField && editingTableField.startsWith('qty-') && activeEditText !== '') {
+                  const parsed = parseInt(activeEditText, 10);
+                  if (!isNaN(parsed) && parsed > 0) {
+                    const key = editingTableField.replace('qty-', '');
+                    const existing = (tableEditValues.groupEdits || {})[key] || {};
+                    effectiveTableEditValues = { ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [key]: { ...existing, quantity: String(parsed) } } };
+                  }
+                } else if (editingTableField && editingTableField.startsWith('size-') && activeEditText.trim() !== '' && activeEditTextMax.trim() !== '') {
+                  const key = editingTableField.replace('size-', '');
+                  const existing = (tableEditValues.groupEdits || {})[key] || {};
+                  effectiveTableEditValues = { ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [key]: { ...existing, width: activeEditText.trim(), height: activeEditTextMax.trim() } } };
                 } else if (editingTableField && activeEditText !== '') {
                   const parsed = parseFloat(activeEditText);
                   if (!isNaN(parsed)) {
@@ -864,6 +1072,24 @@ export default function QuoteDetailScreen({
                     }
                   }
                 }
+
+                // ✅ NEW: bakes any pending Qty/Width/Height/Type/Solar edits and
+                // room deletions into the rooms this new version actually saves -
+                // same merge logic as effectiveRooms above, recomputed here from
+                // effectiveTableEditValues so an edit still sitting in the input
+                // box (just auto-committed above) is included too.
+                const roomsToSave = rooms
+                  .filter(room => !(effectiveTableEditValues.deletedRoomIds || new Set()).has(room.id))
+                  .map(room => ({
+                    ...room,
+                    windowGroups: room.windowGroups.map((group, groupIdx) => {
+                      const edit = (effectiveTableEditValues.groupEdits || {})[`${room.id}_${groupIdx}`];
+                      if (!edit) return group;
+                      const merged = { ...group, ...edit };
+                      if (merged.controlType !== 'Motor') merged.solar = false;
+                      return merged;
+                    })
+                  }));
 
                 // ✅ FIX #1: Parse version string safely - handles corrupted versions
                 const parseVersion = (version) => {
@@ -902,13 +1128,15 @@ export default function QuoteDetailScreen({
                   taxRate: typeof effectiveTableEditValues.taxRate === 'number' ? effectiveTableEditValues.taxRate : selectedQuote.editedPrices?.taxRate
                 };
 
-                // Create new version with merged edited prices
+                // Create new version with merged edited prices and any pending
+                // structural edits (Qty/Width/Height/Type/Solar/room deletions) baked in
                 const newQuote = {
                   ...selectedQuote,
                   id: uniqueId,
                   quoteName: newQuoteName,
                   version: newVersionString,
                   updatedDate: new Date().toISOString(),
+                  rooms: roomsToSave,
                   editedPrices: mergedEditedPrices,
                   hasEditedPrices: true
                 };
@@ -923,7 +1151,7 @@ export default function QuoteDetailScreen({
                 setEditingTableField(null);
 
                 // Reset edit values for next time
-                setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null });
+                setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, groupEdits: {}, deletedRoomIds: new Set() });
                 setActiveEditText('');
                 setActiveEditTextMax('');
                 setPriceEditMode('fixed');
