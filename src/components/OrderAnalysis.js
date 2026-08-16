@@ -168,6 +168,10 @@ export default function OrderAnalysis({ quotes, onBack, uid }) {
 
   if (screen === 'select') {
     const pickable = latestQuotes();
+    // ✅ NEW: nothing previously stopped creating a second analysis entry
+    // for the same quote - easy to do by accident, with no warning either
+    // way. Flags it inline and confirms before creating a genuine duplicate.
+    const trackedLineageIds = new Set(entries.map(e => e.quoteLineageId).filter(Boolean));
     return (
       <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '24px 16px' }}>
         <div style={{ maxWidth: '600px', margin: '0 auto' }}>
@@ -180,17 +184,26 @@ export default function OrderAnalysis({ quotes, onBack, uid }) {
           {pickable.length === 0 ? (
             <p style={{ color: '#888', textAlign: 'center', fontSize: '14px' }}>No quotes yet.</p>
           ) : (
-            pickable.map(q => (
-              <button
-                key={q.id}
-                disabled={creatingEntry}
-                onClick={() => createEntryFromQuote(q)}
-                style={{ width: '100%', textAlign: 'left', background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', padding: '14px', marginBottom: '10px', cursor: creatingEntry ? 'default' : 'pointer', opacity: creatingEntry ? 0.6 : 1 }}
-              >
-                <p style={{ color: '#d4af37', fontWeight: 'bold', fontSize: '14px', marginBottom: '2px' }}>{q.clientName}</p>
-                <p style={{ color: '#888', fontSize: '12px' }}>{q.location} — {q.version}</p>
-              </button>
-            ))
+            pickable.map(q => {
+              const alreadyTracked = trackedLineageIds.has(q.lineageId || q.id);
+              return (
+                <button
+                  key={q.id}
+                  disabled={creatingEntry}
+                  onClick={() => {
+                    if (alreadyTracked && !window.confirm(`"${q.clientName}" already has an Order Analysis entry.\n\nCreate a second, separate entry for it anyway?`)) return;
+                    createEntryFromQuote(q);
+                  }}
+                  style={{ width: '100%', textAlign: 'left', background: '#2a2a2a', border: alreadyTracked ? '1px solid #7a6a4a' : '1px solid #444', borderRadius: '8px', padding: '14px', marginBottom: '10px', cursor: creatingEntry ? 'default' : 'pointer', opacity: creatingEntry ? 0.6 : 1 }}
+                >
+                  <p style={{ color: '#d4af37', fontWeight: 'bold', fontSize: '14px', marginBottom: '2px' }}>
+                    {q.clientName}
+                    {alreadyTracked && <span style={{ marginLeft: '8px', fontSize: '11px', color: '#fbbf24', fontWeight: 'normal' }}>● Already has an entry</span>}
+                  </p>
+                  <p style={{ color: '#888', fontSize: '12px' }}>{q.location} — {q.version}</p>
+                </button>
+              );
+            })
           )}
         </div>
       </div>
