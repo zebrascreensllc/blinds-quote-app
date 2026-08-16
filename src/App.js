@@ -811,7 +811,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
           />
         )
       )}
-      {currentView === 'statistics' && <StatisticsScreen quotes={quotes} setCurrentView={setCurrentView} />}
+      {currentView === 'statistics' && <StatisticsScreen quotes={quotes} setCurrentView={setCurrentView} uid={uid} />}
       {currentView === 'measurements' && <SupplierMeasurements quotes={quotes} onBack={() => setCurrentView('menu')} uid={uid} />}
       {currentView === 'bulkMeasurements' && <BulkMeasurements quotes={quotes} onBack={() => setCurrentView('menu')} uid={uid} />}
       {currentView === 'analysis' && <OrderAnalysis quotes={quotes} onBack={() => setCurrentView('menu')} uid={uid} />}

@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, TrendingUp } from 'lucide-react';
 import { PRICING_DATA } from '../../data/pricingData';
 import { calculateGroupQuote, getBlindTypeFromFabric } from '../../utils/pricing';
 import { isRangeOverride } from '../../utils/formatters';
+import { subscribeToAnalysisEntries } from '../../services/analysisSync';
 
 // Pure, only used by this screen - relocated as-is from App.js.
 const getLatestQuoteVersions = (quotesToProcess) => {
@@ -30,13 +31,33 @@ const getLatestQuoteVersions = (quotesToProcess) => {
   return Object.values(latestByID);
 };
 
-// Statistics - relocated from App.js's renderStatistics with no logic changes.
-export default function StatisticsScreen({ quotes, setCurrentView }) {
+// Statistics - relocated from App.js's renderStatistics, plus its own
+// read-only Order Analysis subscription (see below).
+export default function StatisticsScreen({ quotes, setCurrentView, uid }) {
+  // ✅ NEW: a separate, read-only subscription to the SAME orderAnalysis
+  // collection OrderAnalysis.js owns - deliberately not lifted into shared
+  // App.js state, so this can never risk that component's own read/write
+  // logic. Only used here to tell "confirmed order" apart from "quote still
+  // awaiting a decision", replacing a stat that was previously meaningless
+  // (every quote's status is always 'quote' - the old "Pending (7 days)"
+  // check against it was effectively just "quotes made in the last week").
+  const [analysisEntries, setAnalysisEntries] = useState([]);
+  useEffect(() => {
+    if (!uid) return;
+    const unsubscribe = subscribeToAnalysisEntries(uid, setAnalysisEntries, (error) => {
+      console.error('Statistics: order analysis sync error:', error);
+    });
+    return () => unsubscribe();
+  }, [uid]);
+  const confirmedLineageIds = new Set(analysisEntries.map(e => e.quoteLineageId).filter(Boolean));
+
   const activeQuotes = quotes.filter(q => !q.archived && !q.trashedAt);
   // Only the latest version of each quote lineage
   const latestQuotes = getLatestQuoteVersions(activeQuotes);
+  const confirmedCount = latestQuotes.filter(q => confirmedLineageIds.has(q.lineageId || q.id)).length;
+  const pendingDecisionCount = latestQuotes.length - confirmedCount;
 
-  const stats = { monthlyStats: {}, totalProfit: 0, totalQuotes: 0, pendingOrders: 0 };
+  const stats = { monthlyStats: {}, totalProfit: 0, totalQuotes: 0 };
 
   latestQuotes.forEach(quote => {
     const date = new Date(quote.createdDate);
@@ -105,14 +126,6 @@ export default function StatisticsScreen({ quotes, setCurrentView }) {
     stats.totalProfit += quoteProfit;
   });
 
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  latestQuotes.forEach(quote => {
-    if (new Date(quote.createdDate) > sevenDaysAgo && quote.status === 'quote') {
-      stats.pendingOrders += 1;
-    }
-  });
-
   const monthlyEntries = Object.entries(stats.monthlyStats).sort().reverse().slice(0, 12);
 
   return (
@@ -136,9 +149,20 @@ export default function StatisticsScreen({ quotes, setCurrentView }) {
             <p style={{ fontSize: '32px', fontWeight: 'bold', color: '#fff' }}>${stats.totalProfit.toFixed(0)}</p>
           </div>
 
+          {/* ✅ NEW: replaces the old "Pending (7 days)" stat, which was
+              effectively meaningless - quote.status is never anything but
+              'quote', so that check always passed and the number was really
+              just "quotes made in the last week." Order Analysis already
+              tracks which quotes became real confirmed orders, so this uses
+              that instead. */}
+          <div style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #4ade80', borderRadius: '8px', padding: '24px' }}>
+            <p style={{ color: '#888', fontSize: '12px', marginBottom: '8px' }}>Confirmed Orders</p>
+            <p style={{ fontSize: '32px', fontWeight: 'bold', color: '#4ade80' }}>{confirmedCount}</p>
+          </div>
+
           <div style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px' }}>
-            <p style={{ color: '#888', fontSize: '12px', marginBottom: '8px' }}>Pending (7 days)</p>
-            <p style={{ fontSize: '32px', fontWeight: 'bold', color: '#fff' }}>{stats.pendingOrders}</p>
+            <p style={{ color: '#888', fontSize: '12px', marginBottom: '8px' }}>Pending Decision</p>
+            <p style={{ fontSize: '32px', fontWeight: 'bold', color: '#fff' }}>{pendingDecisionCount}</p>
           </div>
 
           <div style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px' }}>
