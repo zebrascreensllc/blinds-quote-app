@@ -75,6 +75,8 @@ export default function BulkEditorScreen({
   syncStatus,
   updateActiveSheet,
   updateRow,
+  updateRowLocation,
+  addWindowRow,
   remoteLabels,
   widthOutlierIds,
   heightOutlierIds,
@@ -111,6 +113,14 @@ export default function BulkEditorScreen({
   setSolarSelectedRowIds,
   applyBulkSolar,
 
+  showMotorSideTool,
+  setShowMotorSideTool,
+  bulkMotorSideValue,
+  setBulkMotorSideValue,
+  motorSideSelectedRowIds,
+  setMotorSideSelectedRowIds,
+  applyBulkMotorSide,
+
   showRemoteTool,
   setShowRemoteTool,
   remoteSelectedRowIds,
@@ -118,6 +128,7 @@ export default function BulkEditorScreen({
   existingGroups,
   nextGroupNumber,
   applyBulkRemoteGroup,
+  applyBulkRemoteUnassign,
 
   showCassetteTool,
   setShowCassetteTool,
@@ -183,7 +194,9 @@ export default function BulkEditorScreen({
           onChange={(e) => updateActiveSheet(sheet => ({ ...sheet, address: e.target.value }))}
           style={{ ...inputStyle, fontSize: '16px', fontWeight: 'bold', marginBottom: '8px' }}
         />
-        <p style={{ color: '#888', fontSize: '12px', marginBottom: '20px' }}>{activeSheet.sourceQuoteNames?.join(', ')} • {rows.length} windows</p>
+        <p style={{ color: '#888', fontSize: '12px', marginBottom: '20px' }}>
+          {activeSheet.sourceQuoteNames?.length > 0 ? `${activeSheet.sourceQuoteNames.join(', ')} • ` : ''}{rows.length} window{rows.length === 1 ? '' : 's'}
+        </p>
 
         {/* 1. Windows - width/height/comment only. A stacked card per window
             instead of a table - on a phone-width screen, 4 side-by-side
@@ -194,7 +207,7 @@ export default function BulkEditorScreen({
             finished windows collapse to a one-line summary instead of
             staying expanded and pushing everything else down the page. */}
         <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>1. Windows</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '10px' }}>
           {rows.map((row, rowIndex) => {
             const widthCheck = validateMeasurementFormat(row.width);
             const heightCheck = validateMeasurementFormat(row.height);
@@ -218,8 +231,8 @@ export default function BulkEditorScreen({
                   onClick={() => setExpandedRowId(isExpanded ? null : row.id)}
                   style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'pointer', padding: '12px', textAlign: 'left' }}
                 >
-                  <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#d4af37' }}>
-                    {getLocationLabel(row)}
+                  <span style={{ fontSize: '14px', fontWeight: 'bold', color: row.locationBase.trim() ? '#d4af37' : '#888' }}>
+                    {row.locationBase.trim() ? getLocationLabel(row) : '(new window - add a location)'}
                     {row.comment && row.comment.trim() && <span style={{ marginLeft: '8px', fontSize: '13px' }} title={row.comment}>💬</span>}
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -230,6 +243,16 @@ export default function BulkEditorScreen({
 
                 {isExpanded && (
                   <div style={{ padding: '0 12px 12px 12px' }}>
+                    <div style={{ marginBottom: '10px' }}>
+                      <label style={labelStyle}>Location (e.g. Living Room)</label>
+                      <input
+                        type="text"
+                        value={row.locationBase}
+                        onChange={(e) => updateRowLocation(row.id, e.target.value)}
+                        placeholder="Room / area name"
+                        style={{ ...inputStyle, border: !row.locationBase.trim() ? '1px solid #ef4444' : inputStyle.border }}
+                      />
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
                       <div>
                         <label style={labelStyle}>Width</label>
@@ -298,6 +321,13 @@ export default function BulkEditorScreen({
             );
           })}
         </div>
+
+        <button
+          onClick={addWindowRow}
+          style={{ width: '100%', padding: '12px', marginBottom: '24px', borderRadius: '6px', color: '#888', fontWeight: 'bold', fontSize: '14px', background: 'transparent', border: '2px dashed #555', cursor: 'pointer' }}
+        >
+          + Add Window
+        </button>
 
         {/* 2. Bulk Assign Fabric */}
         <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>2. Bulk Assign Fabric</p>
@@ -395,8 +425,47 @@ export default function BulkEditorScreen({
           </button>
         </BulkToolPanel>
 
-        {/* 5. Bulk Assign Remote Group */}
-        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>5. Bulk Assign Remote Group</p>
+        {/* 5. Bulk Assign Motor Side - parity with the original feature's
+            per-row Right/Left toggle (Right is the default, never written to
+            export; Left is the exception, shows as "Smart - Left side"). */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>5. Bulk Assign Motor Side</p>
+        <BulkToolPanel title="Bulk Assign Motor Side (motorized windows only)" icon="↔️" bg="#2a1a1a" border="#8a5a4a" accentColor="#fca5a5" isOpen={showMotorSideTool} onToggle={() => setShowMotorSideTool(!showMotorSideTool)}>
+          <label style={labelStyle}>Set Side to</label>
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+            <button
+              onClick={() => setBulkMotorSideValue('')}
+              style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkMotorSideValue === '' ? '#0e7490' : '#1a1a1a', color: bulkMotorSideValue === '' ? '#fff' : '#888', border: bulkMotorSideValue === '' ? '1px solid #0e7490' : '1px solid #444' }}
+            >
+              Right (default)
+            </button>
+            <button
+              onClick={() => setBulkMotorSideValue('Left')}
+              style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkMotorSideValue === 'Left' ? '#0e7490' : '#1a1a1a', color: bulkMotorSideValue === 'Left' ? '#fff' : '#888', border: bulkMotorSideValue === 'Left' ? '1px solid #0e7490' : '1px solid #444' }}
+            >
+              Left
+            </button>
+          </div>
+          {motorizedRows.length === 0 ? (
+            <p style={{ color: '#888', fontSize: '12px' }}>No motorized windows yet - assign Motor above first.</p>
+          ) : (
+            <RowChecklist
+              rows={motorizedRows}
+              selectedIds={motorSideSelectedRowIds}
+              toggleInSet={toggleInSet}
+              setSelectedIds={setMotorSideSelectedRowIds}
+              accentColor="#fca5a5"
+              renderLabel={(row) => (
+                <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {row.motor}, Side currently {row.motorSide === 'Left' ? 'Left' : 'Right (default)'}</span></>
+              )}
+            />
+          )}
+          <button onClick={applyBulkMotorSide} disabled={motorizedRows.length === 0} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#991b1b', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: motorizedRows.length === 0 ? 'default' : 'pointer', opacity: motorizedRows.length === 0 ? 0.5 : 1 }}>
+            Apply to {motorSideSelectedRowIds.size} Selected
+          </button>
+        </BulkToolPanel>
+
+        {/* 6. Bulk Assign Remote Group */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>6. Bulk Assign Remote Group</p>
         <BulkToolPanel title="Bulk Assign Remote Group" icon="📡" bg="#2a1a3a" border="#6a4a8a" accentColor="#c4b5fd" isOpen={showRemoteTool} onToggle={() => setShowRemoteTool(!showRemoteTool)}>
           {motorizedRows.length === 0 ? (
             <p style={{ color: '#888', fontSize: '12px' }}>No motorized windows on this sheet yet.</p>
@@ -424,12 +493,15 @@ export default function BulkEditorScreen({
             <button onClick={() => applyBulkRemoteGroup(nextGroupNumber)} style={{ padding: '10px 14px', borderRadius: '6px', background: '#6d28d9', color: '#fff', border: 'none', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>
               + New Group {nextGroupNumber}
             </button>
+            <button onClick={applyBulkRemoteUnassign} style={{ padding: '10px 14px', borderRadius: '6px', background: '#444', color: '#fff', border: '1px solid #666', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>
+              Unassign
+            </button>
           </div>
-          <p style={{ color: '#888', fontSize: '11px', marginTop: '8px' }}>Select windows above, then tap a group to assign them all at once. Channel numbers (#1, #2...) are set automatically.</p>
+          <p style={{ color: '#888', fontSize: '11px', marginTop: '8px' }}>Select windows above, then tap a group to assign them all at once (channel numbers are set automatically), or Unassign to clear their remote group.</p>
         </BulkToolPanel>
 
         {/* 6. Bulk Assign Cassette */}
-        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>6. Bulk Assign Cassette</p>
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>7. Bulk Assign Cassette</p>
         <BulkToolPanel title="Bulk Assign Cassette" icon="🧱" bg="#1a2a2a" border="#4a8a7a" accentColor="#5eead4" isOpen={showCassetteTool} onToggle={() => setShowCassetteTool(!showCassetteTool)}>
           <label style={labelStyle}>Set Cassette to</label>
           <select value={bulkCassetteValue} onChange={(e) => setBulkCassetteValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
@@ -460,7 +532,7 @@ export default function BulkEditorScreen({
         </BulkToolPanel>
 
         {/* 7. Bulk Assign Mount */}
-        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>7. Bulk Assign Mount</p>
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>8. Bulk Assign Mount</p>
         <BulkToolPanel title="Bulk Assign Mount" icon="🔩" bg="#2a1a2a" border="#8a4a7a" accentColor="#f0abfc" isOpen={showMountTool} onToggle={() => setShowMountTool(!showMountTool)}>
           <label style={labelStyle}>Set Mount to</label>
           <select value={bulkMountValue} onChange={(e) => setBulkMountValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
@@ -492,7 +564,7 @@ export default function BulkEditorScreen({
         </BulkToolPanel>
 
         {/* 8. Review table - read-only, same fields the export actually uses */}
-        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px', marginTop: '8px' }}>8. Review</p>
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px', marginTop: '8px' }}>9. Review</p>
         <div style={{ overflowX: 'auto', marginBottom: '24px', border: '1px solid #444', borderRadius: '8px' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ background: '#1a1a1a' }}>
@@ -541,7 +613,7 @@ export default function BulkEditorScreen({
           </table>
         </div>
 
-        {/* 9. Export */}
+        {/* 10. Export */}
         <div style={{ display: 'flex', gap: '12px', marginTop: '8px', marginBottom: '12px' }}>
           <button onClick={copyCSV} style={{ flex: 1, padding: '14px', borderRadius: '8px', background: '#d4af37', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
             📋 Copy

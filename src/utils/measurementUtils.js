@@ -257,6 +257,68 @@ export function expandQuoteIntoRows(quote, options = {}) {
   return rows;
 }
 
+// ---- Blank/manual row (Bulk Measurements only - no source quote) ----------
+
+/**
+ * Same row shape as expandQuoteIntoRows produces, but for a window with no
+ * quote behind it at all - the "client wants measurements taken before a
+ * quote exists" case. locationIndex/totalInLocation start at 1/1 and get
+ * corrected immediately by recomputeLocationIndices once this row joins a
+ * sheet (a lone new row is always "1 of 1" until siblings say otherwise).
+ * sourceQuoteId/sourceRoomId/sourceGroupIdx are explicitly null, never
+ * undefined, per this app's Firestore rule (undefined fields crash writes).
+ */
+export function createBlankMeasurementRow({ clientName = '', locationBase = '' } = {}) {
+  return {
+    id: `row-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    clientName,
+    locationBase,
+    locationIndex: 1,
+    totalInLocation: 1,
+    motor: 'Manual',
+    motorCustomText: '',
+    motorSide: '',
+    solar: false,
+    remoteGroup: null,
+    remoteChannel: null,
+    cassette: DEFAULT_CASSETTE,
+    cassetteCustomText: '',
+    mount: DEFAULT_MOUNT,
+    fabricNumber: '',
+    comment: '',
+    width: '',
+    height: '',
+    blindType: 'Roller',
+    sourceQuoteId: null,
+    sourceQuoteName: '',
+    sourceRoomId: null,
+    sourceGroupIdx: null
+  };
+}
+
+// ---- Live location numbering (Bulk Measurements only) ---------------------
+
+/**
+ * Recomputes locationIndex/totalInLocation for every row, grouped by
+ * locationBase (trimmed) in row order - so getLocationLabel stays correct
+ * after a Location name is edited or a window is added/removed, without
+ * ever having to touch getLocationLabel or the export pipeline that reads
+ * it. Only called from the Bulk Measurements container; the original
+ * feature never edits locationBase after creation, so its rows never need
+ * this recomputed.
+ */
+export function recomputeLocationIndices(rows) {
+  const keyOf = (r) => (r.locationBase || '').trim() || 'Window';
+  const counts = {};
+  rows.forEach(r => { const k = keyOf(r); counts[k] = (counts[k] || 0) + 1; });
+  const seen = {};
+  return rows.map(r => {
+    const k = keyOf(r);
+    seen[k] = (seen[k] || 0) + 1;
+    return { ...r, locationIndex: seen[k], totalInLocation: counts[k] };
+  });
+}
+
 // ---- Fabric conflict check within a room -----------------------------------
 
 /** Returns the list of room names that currently have 2+ DIFFERENT fabric
@@ -281,6 +343,10 @@ export function findRoomsWithMixedFabric(rows) {
  * and to highlight exactly which windows and fields still need attention. */
 export function getIncompleteFields(row) {
   const missing = [];
+  // Always non-blank for a quote-derived row (the room name), so this only
+  // ever fires for a manually-added Bulk Measurements window that hasn't
+  // had its Location filled in yet.
+  if (!(row.locationBase || '').trim()) missing.push('location');
   if (!row.width.trim()) missing.push('width');
   if (!row.height.trim()) missing.push('height');
   if (!row.fabricNumber.trim()) missing.push('fabric');

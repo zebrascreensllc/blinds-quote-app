@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Trash2 } from 'lucide-react';
-import { autoDetectBlindTypes } from '../../utils/pricing';
+import { autoDetectBlindTypes, getHeightSurcharge, getWidthSurcharge } from '../../utils/pricing';
 
 const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
 
@@ -82,6 +82,11 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
   const [showFabricTool, setShowFabricTool] = useState(false);
   const [showMotorTool, setShowMotorTool] = useState(false);
   const [showSolarTool, setShowSolarTool] = useState(false);
+
+  // ✅ NEW: parity with the original Quote Generator's per-window-group
+  // Surcharge Override - collapsed by default, same as there. Keyed
+  // `${room.id}_${groupIndex}` like the rest of this screen's per-group state.
+  const [expandedSurchargeOverride, setExpandedSurchargeOverride] = useState(new Set());
 
   const toggleInSet = (key, currentSet, setter) => {
     const s = new Set(currentSet);
@@ -221,13 +226,14 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
           <button onClick={() => { setCurrentView('menu'); resetForm(); setEditingQuote(null); }} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(100,100,100,0.3)', border: 'none', cursor: 'pointer' }}>
             <ArrowLeft size={24} color="#aaa" />
           </button>
-          <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#fff', fontFamily: 'Georgia, serif' }}>{editingQuote ? 'Edit Quote' : 'Bulk Quote Create'}</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#fff', fontFamily: 'Georgia, serif' }}>{editingQuote ? 'Edit Quote' : 'Quote Create'}</h2>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px' }}>
           <input type="text" placeholder="Client Name" value={formData.clientName} onChange={(e) => setFormData({ ...formData, clientName: e.target.value })} style={{ ...inputStyle, fontSize: '16px', padding: '12px' }} />
           <input type="tel" placeholder="Client Phone" value={formData.clientPhone} onChange={(e) => setFormData({ ...formData, clientPhone: e.target.value })} style={{ ...inputStyle, fontSize: '16px', padding: '12px' }} />
           <input type="text" placeholder="Client Address" value={formData.location} onChange={(e) => setFormData({ ...formData, location: e.target.value })} style={{ ...inputStyle, fontSize: '16px', padding: '12px' }} />
+          <input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} style={{ ...inputStyle, fontSize: '16px', padding: '12px' }} />
         </div>
 
         {/* 4. Rooms - name + Qty/Width/Height only */}
@@ -241,28 +247,75 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
               </button>
             </div>
 
-            {room.windowGroups.map((group, groupIndex) => (
-              <div key={group.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '8px', marginBottom: '8px', alignItems: 'start' }}>
-                <div>
-                  {groupIndex === 0 && <label style={labelStyle}>Qty</label>}
-                  <input type="number" placeholder="Qty" value={group.quantity} onChange={(e) => updateWindowGroupField(roomIndex, groupIndex, 'quantity', e.target.value)} style={inputStyle} />
+            {room.windowGroups.map((group, groupIndex) => {
+              // ✅ NEW: parity with the original Quote Generator's per-window-
+              // group Surcharge Override - same collapsed-by-default panel,
+              // same key shape, same auto-calc preview + Reset to Auto.
+              const surchargeKey = `${room.id}_${groupIndex}`;
+              const isSurchargeExpanded = expandedSurchargeOverride.has(surchargeKey);
+              const toggleSurchargeSection = () => {
+                const s = new Set(expandedSurchargeOverride);
+                if (s.has(surchargeKey)) s.delete(surchargeKey); else s.add(surchargeKey);
+                setExpandedSurchargeOverride(s);
+              };
+              return (
+                <div key={group.id} style={{ marginBottom: '10px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '8px', alignItems: 'start', marginBottom: '6px' }}>
+                    <div>
+                      {groupIndex === 0 && <label style={labelStyle}>Qty</label>}
+                      <input type="number" placeholder="Qty" value={group.quantity} onChange={(e) => updateWindowGroupField(roomIndex, groupIndex, 'quantity', e.target.value)} style={inputStyle} />
+                    </div>
+                    <div>
+                      {groupIndex === 0 && <label style={labelStyle}>Width</label>}
+                      <input type="text" placeholder="Width" value={group.width} onChange={(e) => updateWindowGroupField(roomIndex, groupIndex, 'width', e.target.value)} style={inputStyle} />
+                    </div>
+                    <div>
+                      {groupIndex === 0 && <label style={labelStyle}>Height</label>}
+                      <input type="text" placeholder="Height" value={group.height} onChange={(e) => updateWindowGroupField(roomIndex, groupIndex, 'height', e.target.value)} style={inputStyle} />
+                    </div>
+                    <div>
+                      {groupIndex === 0 && <label style={labelStyle}>&nbsp;</label>}
+                      <button onClick={() => deleteWindowGroup(roomIndex, groupIndex)} style={{ padding: '10px', borderRadius: '6px', background: '#444', border: 'none', color: '#f87171', cursor: 'pointer' }}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ borderRadius: '6px', border: '1px solid #4a6a4a', overflow: 'hidden' }}>
+                    <button onClick={toggleSurchargeSection} style={{ width: '100%', textAlign: 'left', background: '#2a3a2a', border: 'none', cursor: 'pointer', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#aaa' }}>Surcharge Override (Optional){typeof group.surchargeOverride === 'number' && ` — Overridden: $${group.surchargeOverride.toFixed(0)}`}</span>
+                      <span style={{ color: '#888', fontSize: '12px' }}>{isSurchargeExpanded ? '▼' : '▶'}</span>
+                    </button>
+                    {isSurchargeExpanded && (
+                      <div style={{ padding: '8px', background: '#2a3a2a' }}>
+                        <p style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>
+                          Auto: ${(() => {
+                            try {
+                              const widthVal = (group.width || '').trim();
+                              const heightVal = (group.height || '').trim();
+                              const w = widthVal ? getWidthSurcharge(widthVal) : 0;
+                              const h = heightVal ? getHeightSurcharge(heightVal) : 0;
+                              const total = w + h;
+                              return isNaN(total) ? '0' : total.toFixed(0);
+                            } catch (e) {
+                              console.error('Surcharge calc error:', e);
+                              return '0';
+                            }
+                          })()} {typeof group.surchargeOverride === 'number' && `→ Overridden: $${group.surchargeOverride.toFixed(0)}`}
+                        </p>
+                        <input
+                          type="number"
+                          placeholder="Leave blank to use auto-calculated"
+                          value={typeof group.surchargeOverride === 'number' ? group.surchargeOverride : ''}
+                          onChange={(e) => updateWindowGroupField(roomIndex, groupIndex, 'surchargeOverride', e.target.value === '' ? null : parseFloat(e.target.value) || 0)}
+                          style={{ width: '100%', padding: '6px', borderRadius: '4px', fontSize: '12px', background: '#0a0a0a', border: '1px solid #555', color: 'white', marginBottom: '6px', boxSizing: 'border-box' }}
+                        />
+                        <button onClick={() => updateWindowGroupField(roomIndex, groupIndex, 'surchargeOverride', null)} style={{ fontSize: '10px', padding: '4px 8px', background: 'transparent', color: '#888', border: '1px solid #555', borderRadius: '4px', cursor: 'pointer' }}>Reset to Auto</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  {groupIndex === 0 && <label style={labelStyle}>Width</label>}
-                  <input type="text" placeholder="Width" value={group.width} onChange={(e) => updateWindowGroupField(roomIndex, groupIndex, 'width', e.target.value)} style={inputStyle} />
-                </div>
-                <div>
-                  {groupIndex === 0 && <label style={labelStyle}>Height</label>}
-                  <input type="text" placeholder="Height" value={group.height} onChange={(e) => updateWindowGroupField(roomIndex, groupIndex, 'height', e.target.value)} style={inputStyle} />
-                </div>
-                <div>
-                  {groupIndex === 0 && <label style={labelStyle}>&nbsp;</label>}
-                  <button onClick={() => deleteWindowGroup(roomIndex, groupIndex)} style={{ padding: '10px', borderRadius: '6px', background: '#444', border: 'none', color: '#f87171', cursor: 'pointer' }}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
             <button onClick={() => addWindowGroup(roomIndex)} style={{ width: '100%', padding: '10px', marginTop: '4px', borderRadius: '6px', color: '#888', fontWeight: 'bold', fontSize: '13px', background: 'transparent', border: '2px dashed #555', cursor: 'pointer' }}>
               + Add Window Group
             </button>

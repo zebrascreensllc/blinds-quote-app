@@ -12,10 +12,13 @@ import {
   sheetToCSV,
   DEFAULT_MOTOR_TYPE,
   DEFAULT_CASSETTE,
-  DEFAULT_MOUNT
+  DEFAULT_MOUNT,
+  createBlankMeasurementRow,
+  recomputeLocationIndices
 } from '../utils/measurementUtils';
 import SheetListScreen from './measurements/SheetListScreen';
 import QuoteSelectScreen from './measurements/QuoteSelectScreen';
+import ManualEntryScreen from './bulkMeasurements/ManualEntryScreen';
 import BulkEditorScreen from './bulkMeasurements/BulkEditorScreen';
 import { subscribeToBulkSheets, saveBulkSheetRemote, deleteBulkSheetRemote } from '../services/bulkMeasurementSync';
 import { sheetToExcelBuffer } from '../utils/xlsxExport';
@@ -44,7 +47,7 @@ const exportFileLabel = (sheet) => (sheet.clientNames?.length ? sheet.clientName
 export default function BulkMeasurements({ quotes, onBack, uid }) {
   const [sheets, setSheets] = useState([]);
   const [hasLoaded, setHasLoaded] = useState(false);
-  const [screen, setScreen] = useState('list'); // 'list' | 'select' | 'editor'
+  const [screen, setScreen] = useState('list'); // 'list' | 'select' | 'manual' | 'editor'
   const [selectedQuoteIds, setSelectedQuoteIds] = useState(new Set());
   const [creatingSheet, setCreatingSheet] = useState(false);
   const [activeSheetId, setActiveSheetId] = useState(null);
@@ -55,6 +58,9 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
   const [fabricSelectedRowIds, setFabricSelectedRowIds] = useState(new Set());
   const [motorSelectedRowIds, setMotorSelectedRowIds] = useState(new Set());
   const [solarSelectedRowIds, setSolarSelectedRowIds] = useState(new Set());
+  // ✅ NEW: parity with the original feature's per-row Right/Left toggle -
+  // motorSide only makes sense for a motorized window, same scoping as Solar.
+  const [motorSideSelectedRowIds, setMotorSideSelectedRowIds] = useState(new Set());
   const [remoteSelectedRowIds, setRemoteSelectedRowIds] = useState(new Set());
   const [cassetteSelectedRowIds, setCassetteSelectedRowIds] = useState(new Set());
   const [mountSelectedRowIds, setMountSelectedRowIds] = useState(new Set());
@@ -63,6 +69,7 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
   const [bulkMotorValue, setBulkMotorValue] = useState(DEFAULT_MOTOR_TYPE);
   const [bulkMotorCustomText, setBulkMotorCustomText] = useState('');
   const [bulkSolarValue, setBulkSolarValue] = useState(false);
+  const [bulkMotorSideValue, setBulkMotorSideValue] = useState(''); // '' = Right (default), 'Left' = the exception
   const [bulkCassetteValue, setBulkCassetteValue] = useState(DEFAULT_CASSETTE);
   const [bulkCassetteCustomText, setBulkCassetteCustomText] = useState('');
   const [bulkMountValue, setBulkMountValue] = useState(DEFAULT_MOUNT);
@@ -86,6 +93,7 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
   const [showFabricTool, setShowFabricTool] = useState(false);
   const [showMotorTool, setShowMotorTool] = useState(false);
   const [showSolarTool, setShowSolarTool] = useState(false);
+  const [showMotorSideTool, setShowMotorSideTool] = useState(false);
   const [showRemoteTool, setShowRemoteTool] = useState(false);
   const [showCassetteTool, setShowCassetteTool] = useState(false);
   const [showMountTool, setShowMountTool] = useState(false);
@@ -214,6 +222,69 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     setScreen('editor');
   };
 
+  // ---- Building a new sheet with NO quote behind it (client wants
+  // measurements taken before a quote exists) - one blank starter row,
+  // straight into the editor to fill it in. ----
+  const createBlankSheet = async (clientName, address) => {
+    const trimmedName = clientName.trim();
+    if (!trimmedName) {
+      alert('Enter a client name first.');
+      return;
+    }
+    const startRow = createBlankMeasurementRow({ clientName: trimmedName });
+    const newSheet = {
+      id: `bulksheet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      createdDate: new Date().toISOString(),
+      updatedDate: new Date().toISOString(),
+      address: address.trim(),
+      clientNames: [trimmedName],
+      sourceQuoteNames: [],
+      rows: [startRow]
+    };
+    setCreatingSheet(true);
+    const result = await updateSheets(prev => [...prev, newSheet]);
+    setCreatingSheet(false);
+    if (!result.success) {
+      alert(`Could not create the sheet - ${result.errors[0] || 'sync failed'}.\n\nNothing was lost; just try again once you have a connection.`);
+      return;
+    }
+    setActiveSheetId(newSheet.id);
+    setAcknowledgedWarnings(new Set());
+    setExpandedRowId(startRow.id);
+    setScreen('editor');
+  };
+
+  // ---- Adding one more window to a sheet already being edited - either a
+  // quote-derived sheet that needs an extra window, or a manual sheet that
+  // needs more than the one starter row. Location defaults to the last
+  // window's (usually the same room), always editable. ----
+  const addWindowRow = () => {
+    if (!activeSheet) return;
+    const lastRow = activeSheet.rows[activeSheet.rows.length - 1];
+    const newRow = createBlankMeasurementRow({
+      clientName: activeSheet.clientNames?.[0] || lastRow?.clientName || '',
+      locationBase: lastRow?.locationBase || ''
+    });
+    updateActiveSheet(sheet => ({
+      ...sheet,
+      rows: recomputeLocationIndices([...sheet.rows, newRow]),
+      updatedDate: new Date().toISOString()
+    }));
+    setExpandedRowId(newRow.id);
+  };
+
+  // ---- Renaming a window's Location - unlike updateRow's generic patch,
+  // this also recomputes locationIndex/totalInLocation across the WHOLE
+  // sheet, since renaming one row changes the numbering of every sibling
+  // sharing its old or new location name. ----
+  const updateRowLocation = (rowId, newLocationBase) => {
+    updateActiveSheet(sheet => ({
+      ...sheet,
+      rows: recomputeLocationIndices(sheet.rows.map(r => (r.id === rowId ? { ...r, locationBase: newLocationBase } : r))),
+      updatedDate: new Date().toISOString()
+    }));
+  };
+
   const openSheet = (id) => {
     const sheet = sheets.find(s => s.id === id);
     setActiveSheetId(id);
@@ -288,6 +359,12 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
         patch.remoteGroup = null;
         patch.remoteChannel = null;
         patch.motorCustomText = '';
+        // ✅ FIX: a stale motorSide: 'Left' from before the switch would
+        // otherwise leak into the export as "Manual - Left side", which
+        // makes no sense for a non-motorized window. Same bug exists in
+        // the original SheetEditorScreen.js's handleMotorChange - not
+        // touched there since it's out of scope for the Bulk feature fix.
+        patch.motorSide = '';
       } else if (bulkMotorValue === 'Custom') {
         patch.motorCustomText = bulkMotorCustomText.trim();
       } else {
@@ -313,6 +390,19 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     const count = solarSelectedRowIds.size;
     setSolarSelectedRowIds(new Set());
     alert(`Set Solar = ${bulkSolarValue ? 'Yes' : 'No'} for ${count} window${count > 1 ? 's' : ''}.`);
+  };
+
+  // ---- Bulk motor side tool - parity with the original feature's per-row
+  // Right/Left toggle, scoped to motorized windows the same way Solar is ----
+  const applyBulkMotorSide = () => {
+    if (!activeSheet) return;
+    if (motorSideSelectedRowIds.size === 0) { alert('Select at least one motorized window first.'); return; }
+
+    const newRows = activeSheet.rows.map(r => (motorSideSelectedRowIds.has(r.id) ? { ...r, motorSide: bulkMotorSideValue } : r));
+    updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
+    const count = motorSideSelectedRowIds.size;
+    setMotorSideSelectedRowIds(new Set());
+    alert(`Set Side = ${bulkMotorSideValue === 'Left' ? 'Left' : 'Right (default)'} for ${count} window${count > 1 ? 's' : ''}.`);
   };
 
   // ---- Bulk remote group tool (identical to the original feature) ----
@@ -358,6 +448,21 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     alert(`Assigned ${count} window${count > 1 ? 's' : ''} to Remote Group ${groupNumber}.`);
   };
 
+  // ---- Unassign from a remote group - parity with the original feature's
+  // per-row "Not assigned" dropdown option, which the bulk-only Assign
+  // buttons here had no equivalent for (switching to Manual also cleared
+  // this, but that meant losing the motor type just to clear the remote). ----
+  const applyBulkRemoteUnassign = () => {
+    if (!activeSheet) return;
+    if (remoteSelectedRowIds.size === 0) { alert('Select at least one window first.'); return; }
+
+    const newRows = activeSheet.rows.map(r => (remoteSelectedRowIds.has(r.id) ? { ...r, remoteGroup: null, remoteChannel: null } : r));
+    updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
+    const count = remoteSelectedRowIds.size;
+    setRemoteSelectedRowIds(new Set());
+    alert(`Unassigned ${count} window${count > 1 ? 's' : ''} from their remote group.`);
+  };
+
   // ---- Bulk cassette tool ----
   const applyBulkCassette = () => {
     if (!activeSheet) return;
@@ -399,6 +504,7 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     const invalidRows = activeSheet.rows.filter(r => !validateMeasurementFormat(r.width).valid || !validateMeasurementFormat(r.height).valid);
     if (invalidRows.length > 0) {
       alert(`${invalidRows.length} window(s) have an invalid width/height format. Fix the values highlighted in red before exporting.`);
+      setExpandedRowId(invalidRows[0].id);
       return false;
     }
 
@@ -407,6 +513,7 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
       const preview = incompleteRows.slice(0, 6).map(r => `• ${getLocationLabel(r)} - missing ${getIncompleteFields(r).join(', ')}`).join('\n');
       const more = incompleteRows.length > 6 ? `\n...and ${incompleteRows.length - 6} more` : '';
       alert(`Can't copy or download yet - ${incompleteRows.length} window(s) are missing required details:\n\n${preview}${more}\n\nThey're highlighted in red below.`);
+      setExpandedRowId(incompleteRows[0].id);
       return false;
     }
 
@@ -483,6 +590,17 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
         onBack={() => setScreen('list')}
         onCreateSheet={createSheet}
         creatingSheet={creatingSheet}
+        onStartBlank={() => setScreen('manual')}
+      />
+    );
+  }
+
+  if (screen === 'manual') {
+    return (
+      <ManualEntryScreen
+        onBack={() => setScreen('select')}
+        onCreate={createBlankSheet}
+        creatingSheet={creatingSheet}
       />
     );
   }
@@ -499,6 +617,8 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
       syncStatus={syncStatus}
       updateActiveSheet={updateActiveSheet}
       updateRow={updateRow}
+      updateRowLocation={updateRowLocation}
+      addWindowRow={addWindowRow}
       remoteLabels={remoteLabels}
       widthOutlierIds={widthOutlierIds}
       heightOutlierIds={heightOutlierIds}
@@ -535,6 +655,14 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
       setSolarSelectedRowIds={setSolarSelectedRowIds}
       applyBulkSolar={applyBulkSolar}
 
+      showMotorSideTool={showMotorSideTool}
+      setShowMotorSideTool={setShowMotorSideTool}
+      bulkMotorSideValue={bulkMotorSideValue}
+      setBulkMotorSideValue={setBulkMotorSideValue}
+      motorSideSelectedRowIds={motorSideSelectedRowIds}
+      setMotorSideSelectedRowIds={setMotorSideSelectedRowIds}
+      applyBulkMotorSide={applyBulkMotorSide}
+
       showRemoteTool={showRemoteTool}
       setShowRemoteTool={setShowRemoteTool}
       remoteSelectedRowIds={remoteSelectedRowIds}
@@ -542,6 +670,7 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
       existingGroups={existingGroups}
       nextGroupNumber={nextGroupNumber}
       applyBulkRemoteGroup={applyBulkRemoteGroup}
+      applyBulkRemoteUnassign={applyBulkRemoteUnassign}
 
       showCassetteTool={showCassetteTool}
       setShowCassetteTool={setShowCassetteTool}

@@ -3,7 +3,11 @@ import React from 'react';
 // The "pick which quote(s) to build a sheet from" screen. Receives the
 // already-deduplicated (latest version per quote) list from the parent -
 // this component doesn't touch the raw quotes array or dedup logic at all.
-export default function QuoteSelectScreen({ quotesList, selectedQuoteIds, onToggleQuote, onBack, onCreateSheet, creatingSheet }) {
+//
+// onStartBlank is optional - only Bulk Measurements passes it (for the
+// "client wants measurements before a quote exists" case), so the original
+// Supplier Measurements flow renders exactly as it always has.
+export default function QuoteSelectScreen({ quotesList, selectedQuoteIds, onToggleQuote, onBack, onCreateSheet, creatingSheet, onStartBlank }) {
   return (
     <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '24px 16px' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
@@ -16,6 +20,15 @@ export default function QuoteSelectScreen({ quotesList, selectedQuoteIds, onTogg
         <p style={{ color: '#aaa', fontSize: '13px', marginBottom: '16px' }}>
           Pick one or more quotes to combine into a single supplier sheet (handy when several clients confirm the same week).
         </p>
+
+        {onStartBlank && (
+          <button
+            onClick={onStartBlank}
+            style={{ width: '100%', padding: '12px', marginBottom: '16px', borderRadius: '8px', background: 'transparent', border: '2px dashed #666', color: '#aaa', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
+          >
+            Don't have a quote yet? Start blank →
+          </button>
+        )}
 
         {quotesList.length === 0 ? (
           <p style={{ color: '#888', textAlign: 'center' }}>No quotes found.</p>
