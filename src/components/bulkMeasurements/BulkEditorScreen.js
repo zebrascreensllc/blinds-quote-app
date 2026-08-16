@@ -260,7 +260,7 @@ export default function BulkEditorScreen({
                         type="text"
                         value={row.locationBase}
                         onChange={(e) => updateRowLocation(row.id, e.target.value)}
-                        placeholder="Room / area name"
+                        placeholder={`e.g. Living Room (blank shows as "${getLocationLabel(row)}")`}
                         style={{ ...inputStyle, border: !row.locationBase.trim() ? '1px solid #ef4444' : inputStyle.border }}
                       />
                     </div>
