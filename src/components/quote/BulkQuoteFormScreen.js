@@ -60,7 +60,7 @@ function BulkToolPanel({ title, icon, bg, border, accentColor, isOpen, onToggle,
 // take Qty/Width/Height directly, everything else (fabric/motor/solar) is
 // bulk-assigned in one pass instead of per-room/per-window-group, same
 // "why is this so repetitive" fix as Bulk Measurements.
-export default function BulkQuoteFormScreen({ formData, setFormData, generateQuote, resetForm, setEditingQuote, setCurrentView }) {
+export default function BulkQuoteFormScreen({ formData, setFormData, generateQuote, resetForm, editingQuote, setEditingQuote, setCurrentView }) {
   // Fabric applies at the ROOM level (matches the existing data model -
   // room.fabricInput, not per window group). Motor and Solar apply at the
   // WINDOW GROUP level, keyed the same way the rest of the app keys window
@@ -221,7 +221,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
           <button onClick={() => { setCurrentView('menu'); resetForm(); setEditingQuote(null); }} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(100,100,100,0.3)', border: 'none', cursor: 'pointer' }}>
             <ArrowLeft size={24} color="#aaa" />
           </button>
-          <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#fff', fontFamily: 'Georgia, serif' }}>Bulk Quote Create</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#fff', fontFamily: 'Georgia, serif' }}>{editingQuote ? 'Edit Quote' : 'Bulk Quote Create'}</h2>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px' }}>
@@ -424,7 +424,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
             unchanged: same pricing engine, same quote object shape, same
             Firestore write. */}
         <button onClick={generateQuote} style={{ width: '100%', padding: '16px', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>
-          Generate Quote
+          {editingQuote ? 'Save as New Version' : 'Generate Quote'}
         </button>
       </div>
     </div>

@@ -468,95 +468,83 @@ export default function QuoteDetailScreen({
               </p>
             </button>
             {expandedQuoteTable && (
-            <div style={{ overflowX: 'auto', marginBottom: '12px' }}>
-            <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
-              <thead style={{ background: '#1a1a1a', borderBottom: '1px solid #444' }}>
-                <tr>
-                  <th style={{ padding: '8px', textAlign: 'left', fontWeight: 'bold', color: '#fff' }}>Room</th>
-                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Qty</th>
-                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Size</th>
-                  <th style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#fff' }}>Type</th>
-                  <th style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>Per Window</th>
-                  <th style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {effectiveRooms.map((room, roomIdx) => {
-                  const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
+            <div style={{ marginBottom: '12px' }}>
+              {effectiveRooms.map((room, roomIdx) => {
+                const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
 
-                  // Determine blind type from ACTUAL FABRICS entered
-                  let actualBlindType = (room.blindTypes || ['Roller'])[0];
-                  if (fabricNumbers.length > 0) {
-                    for (const fabricNum of fabricNumbers) {
-                      const detectedType = getBlindTypeFromFabric(fabricNum);
-                      if (detectedType) {
-                        actualBlindType = detectedType;
-                        break;
-                      }
+                // Determine blind type from ACTUAL FABRICS entered
+                let actualBlindType = (room.blindTypes || ['Roller'])[0];
+                if (fabricNumbers.length > 0) {
+                  for (const fabricNum of fabricNumbers) {
+                    const detectedType = getBlindTypeFromFabric(fabricNum);
+                    if (detectedType) {
+                      actualBlindType = detectedType;
+                      break;
                     }
                   }
+                }
 
-                  return room.windowGroups.map((group, groupIdx) => {
-                    const q = calculateGroupQuote(group, fabricNumbers, actualBlindType, room.windowGroups.filter(w => w.controlType === 'Motor').length, storedPricing);
-                    const motorType = group.controlType || 'Manual';
-                    const quantity = parseInt(group.quantity) || 1;
-                    const perWindowMin = q.baseMinQuote / quantity;
+                return room.windowGroups.map((group, groupIdx) => {
+                  const q = calculateGroupQuote(group, fabricNumbers, actualBlindType, room.windowGroups.filter(w => w.controlType === 'Motor').length, storedPricing);
+                  const motorType = group.controlType || 'Manual';
+                  const quantity = parseInt(group.quantity) || 1;
+                  const perWindowMin = q.baseMinQuote / quantity;
 
-                    // ✅ FIX: Composite key (room + window group) so multiple window groups
-                    // in the same room don't collide with each other's edited price
-                    const priceKey = `${room.id}_${groupIdx}`;
-                    const fieldKey = `perWindow-${priceKey}`;
+                  // Composite key (room + window group) so multiple window groups
+                  // in the same room don't collide with each other's edited price
+                  const priceKey = `${room.id}_${groupIdx}`;
+                  const fieldKey = `perWindow-${priceKey}`;
 
-                    // ✅ NEW: Qty/Size/Type/Solar inline edit, same pencil-and-Done
-                    // pattern as the Price cell. `group` already reflects any pending
-                    // edit (effectiveRooms merged it in above), so the display value
-                    // and the edit box's seed value are the same read - no separate
-                    // "effective" lookup needed the way Motor/Solar cost required.
-                    const groupEditForRow = groupEdits[priceKey] || {};
-                    const isQtyEdited = groupEditForRow.quantity !== undefined;
-                    const isSizeEdited = groupEditForRow.width !== undefined || groupEditForRow.height !== undefined;
-                    const isTypeEdited = groupEditForRow.controlType !== undefined || groupEditForRow.solar !== undefined;
-                    const qtyFieldKey = `qty-${priceKey}`;
-                    const sizeFieldKey = `size-${priceKey}`;
-                    const typeFieldKey = `type-${priceKey}`;
-                    const isEditingQty = editingTableField === qtyFieldKey;
-                    const isEditingSize = editingTableField === sizeFieldKey;
-                    const isEditingType = editingTableField === typeFieldKey;
+                  const groupEditForRow = groupEdits[priceKey] || {};
+                  const isQtyEdited = groupEditForRow.quantity !== undefined;
+                  const isSizeEdited = groupEditForRow.width !== undefined || groupEditForRow.height !== undefined;
+                  const isTypeEdited = groupEditForRow.controlType !== undefined || groupEditForRow.solar !== undefined;
+                  const qtyFieldKey = `qty-${priceKey}`;
+                  const sizeFieldKey = `size-${priceKey}`;
+                  const typeFieldKey = `type-${priceKey}`;
+                  const isEditingQty = editingTableField === qtyFieldKey;
+                  const isEditingSize = editingTableField === sizeFieldKey;
+                  const isEditingType = editingTableField === typeFieldKey;
 
-                    // Saved price (from a previously saved version) - now either a
-                    // plain number OR a {min,max} custom range override
-                    const savedPrice = selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
-                    const hasSavedPrice = typeof savedPrice === 'number' || isRangeOverride(savedPrice);
-                    const basePrice = hasSavedPrice ? savedPrice : perWindowMin;
+                  const savedPrice = selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
+                  const hasSavedPrice = typeof savedPrice === 'number' || isRangeOverride(savedPrice);
+                  const basePrice = hasSavedPrice ? savedPrice : perWindowMin;
 
-                    // "Effective" price - a committed pending edit (after Done, before Save) takes priority
-                    const pendingPrice = tableEditValues.perWindowPrices[priceKey];
-                    const hasPendingPrice = typeof pendingPrice === 'number' || isRangeOverride(pendingPrice);
-                    const effectivePrice = hasPendingPrice ? pendingPrice : basePrice;
-                    const isEdited = hasPendingPrice || hasSavedPrice;
-                    const isEditingThis = editingTableField === fieldKey;
+                  const pendingPrice = tableEditValues.perWindowPrices[priceKey];
+                  const hasPendingPrice = typeof pendingPrice === 'number' || isRangeOverride(pendingPrice);
+                  const effectivePrice = hasPendingPrice ? pendingPrice : basePrice;
+                  const isEdited = hasPendingPrice || hasSavedPrice;
+                  const isEditingThis = editingTableField === fieldKey;
 
-                    return (
-                      <tr key={`${roomIdx}-${groupIdx}`} style={{ borderBottom: '1px solid #444' }}>
-                        <td style={{ padding: '8px', color: '#fff' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                            {room.name}
-                            <button
-                              onClick={() => {
-                                if (!window.confirm(`Delete "${room.name || 'this room'}" from this quote?\n\nIts windows won't be included when you save changes.`)) return;
-                                setTableEditValues({
-                                  ...tableEditValues,
-                                  deletedRoomIds: new Set([...(tableEditValues.deletedRoomIds || new Set()), room.id])
-                                });
-                              }}
-                              title="Delete this room"
-                              style={{ padding: '2px', background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </span>
-                        </td>
-                        <td style={{ padding: '8px', textAlign: 'center', color: isQtyEdited ? '#ffcc00' : '#ccc' }}>
+                  return (
+                    <div key={`${roomIdx}-${groupIdx}`} style={{ background: '#1f1f1f', border: '1px solid #444', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px', marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid #333' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#fff', fontWeight: 'bold', fontSize: '13px' }}>
+                          {room.name}
+                          <button
+                            onClick={() => {
+                              if (!window.confirm(`Delete "${room.name || 'this room'}" from this quote?\n\nIts windows won't be included when you save changes.`)) return;
+                              setTableEditValues({
+                                ...tableEditValues,
+                                deletedRoomIds: new Set([...(tableEditValues.deletedRoomIds || new Set()), room.id])
+                              });
+                            }}
+                            title="Delete this room"
+                            style={{ padding: '2px', background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </span>
+                        <span style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '13px', color: isEdited ? '#ffcc00' : '#fff' }}>
+                          {isEdited
+                            ? (isRangeOverride(effectivePrice) ? formatPrice(effectivePrice.min * quantity, effectivePrice.max * quantity) : `$${formatMoney(effectivePrice * quantity)}`)
+                            : (q.isRange ? formatPrice(q.baseMinQuote, q.baseMaxQuote) : `$${formatMoney(effectivePrice * quantity)}`)}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', fontSize: '12px', marginBottom: '10px' }}>
+                        <div>
+                          <div style={{ fontSize: '10px', color: '#888', marginBottom: '3px', fontWeight: 'bold' }}>QTY</div>
+                          <div style={{ color: isQtyEdited ? '#ffcc00' : '#ccc' }}>
                           {isEditingQty ? (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                               <input
@@ -592,8 +580,11 @@ export default function QuoteDetailScreen({
                               </button>
                             </span>
                           )}
-                        </td>
-                        <td style={{ padding: '8px', textAlign: 'center', color: isSizeEdited ? '#ffcc00' : '#ccc' }}>
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '10px', color: '#888', marginBottom: '3px', fontWeight: 'bold' }}>SIZE</div>
+                          <div style={{ color: isSizeEdited ? '#ffcc00' : '#ccc' }}>
                           {isEditingSize ? (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                               <input
@@ -639,8 +630,11 @@ export default function QuoteDetailScreen({
                               </button>
                             </span>
                           )}
-                        </td>
-                        <td style={{ padding: '8px', textAlign: 'center', color: isTypeEdited ? '#ffcc00' : '#ccc' }}>
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '10px', color: '#888', marginBottom: '3px', fontWeight: 'bold' }}>TYPE</div>
+                          <div style={{ color: isTypeEdited ? '#ffcc00' : '#ccc' }}>
                           {isEditingType ? (
                             <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
                               <select
@@ -688,8 +682,12 @@ export default function QuoteDetailScreen({
                               </button>
                             </span>
                           )}
-                        </td>
-                        <td style={{ padding: '8px', textAlign: 'right', color: isEdited ? '#ffcc00' : '#d4af37', fontWeight: '600' }}>
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '10px', color: '#888', marginBottom: '3px', fontWeight: 'bold' }}>PER WINDOW PRICE</div>
+                        <div style={{ color: isEdited ? '#ffcc00' : '#d4af37', fontWeight: '600', fontSize: '12px' }}>
                           {isEditingThis ? (
                             <>
                               {/* ✅ Range-priced windows get a Fixed/Range toggle. Range mode
@@ -828,44 +826,37 @@ export default function QuoteDetailScreen({
                           >
                             {isEditingThis ? 'Done' : '✏️'}
                           </button>
-                        </td>
-                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: isEdited ? '#ffcc00' : '#fff' }}>
-                          {isEdited
-                            ? (isRangeOverride(effectivePrice) ? formatPrice(effectivePrice.min * quantity, effectivePrice.max * quantity) : `$${formatMoney(effectivePrice * quantity)}`)
-                            : (q.isRange ? formatPrice(q.baseMinQuote, q.baseMaxQuote) : `$${formatMoney(effectivePrice * quantity)}`)}
-                        </td>
-                      </tr>
-                    );
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })}
+
+              <div style={{ background: '#1a3a3a', border: '1px solid #d4af37', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                <span style={{ color: '#fff' }}>TOTAL:</span>
+                <span style={{ color: '#fff' }}>{formatPrice(totalMin, totalMax)}</span>
+              </div>
+
+              <div style={{ background: '#2a3a2a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#aaa' }}>TOTAL WINDOWS:</span>
+                <span style={{ color: '#fff', fontWeight: 'bold' }}>{(() => {
+                  let totalWins = 0;
+                  effectiveRooms.forEach(room => {
+                    room.windowGroups.forEach(group => {
+                      totalWins += parseInt(group.quantity) || 0;
+                    });
                   });
-                })}
-                <tr style={{ background: '#1a3a3a', borderTop: '2px solid #d4af37', fontWeight: 'bold' }}>
-                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>TOTAL:</td>
-                  <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>{formatPrice(totalMin, totalMax)}</td>
-                </tr>
-                {/* ✅ NEW: Total Windows Row */}
-                <tr style={{ background: '#2a3a2a' }}>
-                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
-                    TOTAL WINDOWS: <span style={{ color: '#fff', fontWeight: 'bold' }}>{(() => {
-                      let totalWins = 0;
-                      effectiveRooms.forEach(room => {
-                        room.windowGroups.forEach(group => {
-                          totalWins += parseInt(group.quantity) || 0;
-                        });
-                      });
-                      return totalWins;
-                    })()}</span>
-                  </td>
-                  <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
-                </tr>
-                {/* ✅ Motor Cost Breakdown Row - uses the SAME motorCount/motorGrandTotal
-                    computed once above for Grand Total, so this row and Grand Total can
-                    never show different numbers again. */}
-                {motorCount > 0 && (() => {
-                  const isEditingMotor = editingTableField === 'motorCost';
-                  const isMotorEdited = typeof tableEditValues.motorCost === 'number' || typeof selectedQuote.editedPrices?.motorCost === 'number';
-                  return (
-                    <tr style={{ background: '#3a2a2a' }}>
-                      <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
+                  return totalWins;
+                })()}</span>
+              </div>
+
+              {motorCount > 0 && (() => {
+                const isEditingMotor = editingTableField === 'motorCost';
+                const isMotorEdited = typeof tableEditValues.motorCost === 'number' || typeof selectedQuote.editedPrices?.motorCost === 'number';
+                return (
+                  <div style={{ background: '#3a2a2a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                    <span style={{ color: '#aaa' }}>
                         Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost total:
                         {isEditingMotor ? (
                           <input
@@ -879,6 +870,7 @@ export default function QuoteDetailScreen({
                         ) : (
                           <span style={{ color: isMotorEdited ? '#ffcc00' : '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${formatMoney(motorGrandTotal)}</span>
                         )}
+                    </span>
                         <button
                           onClick={() => {
                             if (isEditingMotor) {
@@ -899,18 +891,16 @@ export default function QuoteDetailScreen({
                         >
                           {isEditingMotor ? 'Done' : '✏️'}
                         </button>
-                      </td>
-                      <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
-                    </tr>
-                  );
-                })()}
-                {/* ✅ Solar Cost Breakdown Row - same shared-source-of-truth pattern as Motor */}
-                {solarCount > 0 && (() => {
-                  const isEditingSolar = editingTableField === 'solarCost';
-                  const isSolarEdited = typeof tableEditValues.solarCost === 'number' || typeof selectedQuote.editedPrices?.solarCost === 'number';
-                  return (
-                    <tr style={{ background: '#2a3a2a' }}>
-                      <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
+                  </div>
+                );
+              })()}
+
+              {solarCount > 0 && (() => {
+                const isEditingSolar = editingTableField === 'solarCost';
+                const isSolarEdited = typeof tableEditValues.solarCost === 'number' || typeof selectedQuote.editedPrices?.solarCost === 'number';
+                return (
+                  <div style={{ background: '#2a3a2a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                    <span style={{ color: '#aaa' }}>
                         Solar <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{solarCount}</span> cost total:
                         {isEditingSolar ? (
                           <input
@@ -924,6 +914,7 @@ export default function QuoteDetailScreen({
                         ) : (
                           <span style={{ color: isSolarEdited ? '#ffcc00' : '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${formatMoney(solarGrandTotal)}</span>
                         )}
+                    </span>
                         <button
                           onClick={() => {
                             if (isEditingSolar) {
@@ -944,21 +935,19 @@ export default function QuoteDetailScreen({
                         >
                           {isEditingSolar ? 'Done' : '✏️'}
                         </button>
-                      </td>
-                      <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}></td>
-                    </tr>
-                  );
-                })()}
-                {/* ✅ NEW: Subtotal row - makes it explicit that Tax applies to
-                    Window + Motor + Solar together, not just the window cost. */}
-                {(motorCount > 0 || solarCount > 0) && (
-                  <tr style={{ background: '#2a2a3a' }}>
-                    <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#ccc', fontWeight: 'bold' }}>Subtotal (before tax):</td>
-                    <td style={{ padding: '8px', textAlign: 'right', color: '#ccc', fontWeight: 'bold' }}>{formatPrice(subtotalMin, subtotalMax)}</td>
-                  </tr>
-                )}
-                <tr style={{ background: '#1a3a3a' }}>
-                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>
+                  </div>
+                );
+              })()}
+
+              {(motorCount > 0 || solarCount > 0) && (
+                <div style={{ background: '#2a2a3a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                  <span style={{ color: '#ccc' }}>Subtotal (before tax):</span>
+                  <span style={{ color: '#ccc' }}>{formatPrice(subtotalMin, subtotalMax)}</span>
+                </div>
+              )}
+
+              <div style={{ background: '#1a3a3a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                <span style={{ color: '#aaa' }}>
                     Tax (
                     {editingTableField === 'tax' ? (
                       <input
@@ -979,6 +968,7 @@ export default function QuoteDetailScreen({
                       })()}</span>
                     )}
                     %):
+                </span>
                     <button
                       onClick={() => {
                         if (editingTableField === 'tax') {
@@ -1004,15 +994,13 @@ export default function QuoteDetailScreen({
                     >
                       {editingTableField === 'tax' ? 'Done' : '✏️'}
                     </button>
-                  </td>
-                  <td style={{ padding: '8px', textAlign: 'right', color: '#aaa' }}>{formatPrice(taxMin, taxMax)}</td>
-                </tr>
-                <tr style={{ background: '#2a5a2a', fontWeight: 'bold' }}>
-                  <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>GRAND TOTAL:</td>
-                  <td style={{ padding: '8px', textAlign: 'right', color: '#fff' }}>{formatPrice(grandMin, grandMax)}</td>
-                </tr>
-              </tbody>
-            </table>
+                <span style={{ color: '#aaa' }}>{formatPrice(taxMin, taxMax)}</span>
+              </div>
+
+              <div style={{ background: '#2a5a2a', borderRadius: '8px', padding: '10px 12px', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#fff' }}>GRAND TOTAL:</span>
+                <span style={{ color: '#fff' }}>{formatPrice(grandMin, grandMax)}</span>
+              </div>
             </div>
             )}
           </div>

@@ -552,7 +552,13 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         }]
       });
       setEditingQuote(quote);
-      setCurrentView('quote');
+      // ✅ Edit now goes through the bulk-first form (same formData/
+      // generateQuote underneath - generateQuote already branches on
+      // editingQuote to create a new version instead of a new quote,
+      // unchanged). QuoteFormScreen (the original form) is still reachable
+      // from the menu's own "New Quote" button, just no longer the target
+      // of "Edit" specifically.
+      setCurrentView('bulkQuote');
     } catch (error) {
       console.error('Error loading quote for edit:', error);
       alert('❌ Error loading quote. Please try again.');
@@ -642,6 +648,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
           setFormData={setFormData}
           generateQuote={generateQuote}
           resetForm={resetForm}
+          editingQuote={editingQuote}
           setEditingQuote={setEditingQuote}
           setCurrentView={setCurrentView}
         />

@@ -25,19 +25,6 @@ export default function MenuScreen({ onLogout, quotes, resetForm, setCurrentView
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <button onClick={() => { resetForm(); setEditingQuote(null); setCurrentView('quote'); }} style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }} onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'} onMouseLeave={e => e.target.style.boxShadow = 'none'}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ padding: '16px', borderRadius: '50%', background: '#d4af37', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Plus size={28} color="#000" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>New Quote</h3>
-                <p style={{ color: '#aaa', fontSize: '14px' }}>Create a new client quote</p>
-              </div>
-              <div style={{ fontSize: '24px', color: '#666' }}>→</div>
-            </div>
-          </button>
-
           <button onClick={() => { resetForm(); setEditingQuote(null); setCurrentView('bulkQuote'); }} style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }} onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'} onMouseLeave={e => e.target.style.boxShadow = 'none'}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               <div style={{ padding: '16px', borderRadius: '50%', background: '#d4af37', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -59,19 +46,6 @@ export default function MenuScreen({ onLogout, quotes, resetForm, setCurrentView
               <div style={{ flex: 1 }}>
                 <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>Pull Existing Quote</h3>
                 <p style={{ color: '#aaa', fontSize: '14px' }}>Search & view past quotes ({quotes.filter(q => !q.archived).length})</p>
-              </div>
-              <div style={{ fontSize: '24px', color: '#666' }}>→</div>
-            </div>
-          </button>
-
-          <button onClick={() => setCurrentView('measurements')} style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }} onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'} onMouseLeave={e => e.target.style.boxShadow = 'none'}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ padding: '16px', borderRadius: '50%', background: '#d4af37', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Edit2 size={28} color="#000" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>Supplier Measurements</h3>
-                <p style={{ color: '#aaa', fontSize: '14px' }}>Precise measurements & supplier detail sheets</p>
               </div>
               <div style={{ fontSize: '24px', color: '#666' }}>→</div>
             </div>
@@ -111,6 +85,32 @@ export default function MenuScreen({ onLogout, quotes, resetForm, setCurrentView
               <div style={{ flex: 1 }}>
                 <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>Order Analysis</h3>
                 <p style={{ color: '#aaa', fontSize: '14px' }}>Supplier actual cost vs app estimate, per order</p>
+              </div>
+              <div style={{ fontSize: '24px', color: '#666' }}>→</div>
+            </div>
+          </button>
+
+          <button onClick={() => { resetForm(); setEditingQuote(null); setCurrentView('quote'); }} style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }} onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'} onMouseLeave={e => e.target.style.boxShadow = 'none'}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ padding: '16px', borderRadius: '50%', background: '#d4af37', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Plus size={28} color="#000" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>New Quote</h3>
+                <p style={{ color: '#aaa', fontSize: '14px' }}>Create a new client quote</p>
+              </div>
+              <div style={{ fontSize: '24px', color: '#666' }}>→</div>
+            </div>
+          </button>
+
+          <button onClick={() => setCurrentView('measurements')} style={{ background: 'linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%)', border: '1px solid #d4af37', borderRadius: '8px', padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s' }} onMouseEnter={e => e.target.style.boxShadow = '0 20px 25px rgba(0,0,0,0.5)'} onMouseLeave={e => e.target.style.boxShadow = 'none'}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ padding: '16px', borderRadius: '50%', background: '#d4af37', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Edit2 size={28} color="#000" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>Supplier Measurements</h3>
+                <p style={{ color: '#aaa', fontSize: '14px' }}>Precise measurements & supplier detail sheets</p>
               </div>
               <div style={{ fontSize: '24px', color: '#666' }}>→</div>
             </div>
