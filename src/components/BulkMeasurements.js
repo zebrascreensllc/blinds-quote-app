@@ -256,14 +256,22 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
 
   // ---- Adding one more window to a sheet already being edited - either a
   // quote-derived sheet that needs an extra window, or a manual sheet that
-  // needs more than the one starter row. Location defaults to the last
-  // window's (usually the same room), always editable. ----
+  // needs more than the one starter row.
+  //
+  // ✅ FIX: this used to pre-fill the new window's Location with the exact
+  // text of the last window's - convenient when that text was a real room
+  // name ("Living Room"), but confusing when it wasn't: typing "Window 1"
+  // as a placeholder name meant the next window inherited that literal
+  // text and got auto-suffixed to "Window 1 2" instead of a clean
+  // "Window 2". Starting blank lets getLocationLabel's own "Window N"
+  // fallback number each unnamed window cleanly and sequentially - typing
+  // a real room name for a repeat window is one extra tap, but never
+  // collides like this. ----
   const addWindowRow = () => {
     if (!activeSheet) return;
     const lastRow = activeSheet.rows[activeSheet.rows.length - 1];
     const newRow = createBlankMeasurementRow({
-      clientName: activeSheet.clientNames?.[0] || lastRow?.clientName || '',
-      locationBase: lastRow?.locationBase || ''
+      clientName: activeSheet.clientNames?.[0] || lastRow?.clientName || ''
     });
     updateActiveSheet(sheet => ({
       ...sheet,

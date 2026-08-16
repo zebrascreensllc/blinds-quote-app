@@ -235,7 +235,7 @@ export default function BulkEditorScreen({
                     style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left' }}
                   >
                     <span style={{ fontSize: '14px', fontWeight: 'bold', color: row.locationBase.trim() ? '#d4af37' : '#888' }}>
-                      {row.locationBase.trim() ? getLocationLabel(row) : '(new window - add a location)'}
+                      {getLocationLabel(row)}
                       {row.comment && row.comment.trim() && <span style={{ marginLeft: '8px', fontSize: '13px' }} title={row.comment}>💬</span>}
                     </span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

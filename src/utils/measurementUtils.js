@@ -129,6 +129,15 @@ export function findRoomSizeOutliers(rows, field) {
 // ---- Location label ("Living 1", "Living 2", or just "Entrance" if only 1) --
 
 export function getLocationLabel(row) {
+  // A quote-derived row's locationBase is never blank (expandQuoteIntoRows
+  // always falls back to 'Room'), so this branch only fires for a Bulk
+  // Measurements window that hasn't been named yet - a clean sequential
+  // "Window N" (never written back into locationBase itself) instead of a
+  // blank or confusing label. recomputeLocationIndices already numbers
+  // every not-yet-named row sequentially among each other for this.
+  if (!row.locationBase || !row.locationBase.trim()) {
+    return `Window ${row.locationIndex || 1}`;
+  }
   return row.totalInLocation > 1 ? `${row.locationBase} ${row.locationIndex}` : row.locationBase;
 }
 
@@ -308,12 +317,22 @@ export function createBlankMeasurementRow({ clientName = '', locationBase = '' }
  * this recomputed.
  */
 export function recomputeLocationIndices(rows) {
-  const keyOf = (r) => (r.locationBase || '').trim() || 'Window';
+  const keyOf = (r) => (r.locationBase || '').trim();
   const counts = {};
-  rows.forEach(r => { const k = keyOf(r); counts[k] = (counts[k] || 0) + 1; });
-  const seen = {};
-  return rows.map(r => {
+  rows.forEach(r => {
     const k = keyOf(r);
+    if (k) counts[k] = (counts[k] || 0) + 1;
+  });
+  const seen = {};
+  return rows.map((r, idx) => {
+    const k = keyOf(r);
+    // Not yet named - number by overall row position (1st row, 2nd row...)
+    // rather than grouping all unnamed rows together. Grouping them would
+    // make an unnamed row's number depend on how many OTHER unnamed rows
+    // came before it, which can coincidentally match a real typed name
+    // like "Window 1" for an entirely different row. Position-based
+    // numbering can't collide that way.
+    if (!k) return { ...r, locationIndex: idx + 1, totalInLocation: 1 };
     seen[k] = (seen[k] || 0) + 1;
     return { ...r, locationIndex: seen[k], totalInLocation: counts[k] };
   });
