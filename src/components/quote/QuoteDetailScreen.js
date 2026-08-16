@@ -1,10 +1,44 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Copy, Check, Edit2, Trash2 } from 'lucide-react';
 import { PRICING_DATA } from '../../data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE } from '../../utils/constants';
 import { formatPrice, formatMoney, isRangeOverride, formatPriceOverride, filterNumericText, parseUnits } from '../../utils/formatters';
-import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric } from '../../utils/pricing';
+import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric, autoDetectBlindTypes } from '../../utils/pricing';
 import { expandQuoteIntoRows, sheetToCSV } from '../../utils/measurementUtils';
+
+const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
+
+// Same checkbox-list pattern as BulkQuoteFormScreen.js's RowChecklist -
+// duplicated locally (not imported) so this quote-view tool stays isolated
+// from the Bulk Quote Create screen, same isolation reasoning as Bulk
+// Measurements vs. Supplier Measurements elsewhere in this app.
+function FabricRoomChecklist({ items, selectedIds, toggleInSet, setSelectedIds }) {
+  if (items.length === 0) {
+    return <p style={{ color: '#888', fontSize: '12px' }}>No rooms on this quote.</p>;
+  }
+  return (
+    <>
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
+        <button onClick={() => setSelectedIds(new Set(items.map(i => i.key)))} style={{ fontSize: '12px', color: '#7dd3fc', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Select All</button>
+        <button onClick={() => setSelectedIds(new Set())} style={{ fontSize: '12px', color: '#888', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear</button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '220px', overflowY: 'auto', marginBottom: '10px', border: '1px solid #333', borderRadius: '6px', padding: '6px' }}>
+        {items.map(item => {
+          const checked = selectedIds.has(item.key);
+          return (
+            <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '4px', background: checked ? 'rgba(255,255,255,0.08)' : 'transparent', cursor: 'pointer' }}>
+              <input type="checkbox" checked={checked} onChange={() => toggleInSet(item.key, selectedIds, setSelectedIds)} style={{ width: '16px', height: '16px', cursor: 'pointer', flexShrink: 0 }} />
+              <span style={{ fontSize: '12px', color: checked ? '#7dd3fc' : '#ccc' }}>
+                {item.room.name || `Room ${item.idx + 1}`}
+                <span style={{ color: '#666' }}>{item.room.fabricInput.trim() ? ` — ${item.room.fabricInput.trim()}` : ` — ${(item.room.blindTypes || ['Roller']).join(', ')} (no fabric set)`}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </>
+  );
+}
 
 // Quote Detail / Pricing Table - relocated from App.js's renderQuoteDetail
 // with no logic changes. This is the highest-risk extraction in the split
@@ -39,6 +73,15 @@ export default function QuoteDetailScreen({
   tableEditValues,
   updateQuotes
 }) {
+  // ✅ NEW: local UI-only state for the Bulk Assign Fabric tool below -
+  // same pattern as BulkQuoteFormScreen.js's own bulk tools, kept local
+  // since it never needs to persist between renders or travel to App.js.
+  const [showFabricTool, setShowFabricTool] = useState(false);
+  const [fabricSelectedRoomIds, setFabricSelectedRoomIds] = useState(new Set());
+  const [bulkFabricInput, setBulkFabricInput] = useState('');
+  const [bulkFabricMode, setBulkFabricMode] = useState('fabric');
+  const [bulkFabricBlindTypes, setBulkFabricBlindTypes] = useState([]);
+
   if (!selectedQuote) return null;
 
   try {
@@ -51,6 +94,10 @@ export default function QuoteDetailScreen({
     // saved quote until "Save All Changes & Create New Version".
     const groupEdits = tableEditValues.groupEdits || {};
     const deletedRoomIds = tableEditValues.deletedRoomIds || new Set();
+    // ✅ NEW: pending room-level fabric edits (Bulk Assign Fabric below),
+    // same "pending until Save" shape as groupEdits - keyed by room.id
+    // since fabric lives on the room, not the window group.
+    const fabricEdits = tableEditValues.fabricEdits || {};
 
     // ✅ NEW: merges those pending edits onto the saved quote's rooms,
     // computed ONCE here and used for BOTH the totals below and the table
@@ -64,6 +111,7 @@ export default function QuoteDetailScreen({
       .filter(room => !deletedRoomIds.has(room.id))
       .map(room => ({
         ...room,
+        ...(fabricEdits[room.id] ? { fabricInput: fabricEdits[room.id].fabricInput, blindTypes: fabricEdits[room.id].blindTypes } : {}),
         windowGroups: room.windowGroups.map((group, groupIdx) => {
           const edit = groupEdits[`${room.id}_${groupIdx}`];
           if (!edit) return group;
@@ -97,6 +145,46 @@ export default function QuoteDetailScreen({
       });
       return matches;
     };
+
+    // ✅ NEW: Bulk Assign Fabric tool (mirrors BulkQuoteFormScreen.js's
+    // room-level fabric bulk-assign). Applying here does NOT touch
+    // Firestore directly - it stages the change into
+    // tableEditValues.fabricEdits, same "pending until Save All Changes"
+    // model as every other edit in this screen, so a price-integrity
+    // mistake here is never silent or automatic.
+    const fabricRoomItems = effectiveRooms.map((room, idx) => ({ key: room.id, room, idx }));
+    const toggleFabricRoomId = (key, currentSet, setter) => {
+      const s = new Set(currentSet);
+      if (s.has(key)) s.delete(key); else s.add(key);
+      setter(s);
+    };
+    const applyBulkFabricEdit = () => {
+      if (fabricSelectedRoomIds.size === 0) { alert('Select at least one room first.'); return; }
+
+      let edit;
+      let appliedLabel;
+      if (bulkFabricMode === 'fabric') {
+        const fabricValue = bulkFabricInput.trim();
+        if (!fabricValue) { alert('Enter a fabric number first.'); return; }
+        edit = { fabricInput: fabricValue, blindTypes: autoDetectBlindTypes(fabricValue) };
+        appliedLabel = `fabric "${fabricValue}"`;
+      } else {
+        if (bulkFabricBlindTypes.length === 0) { alert('Select at least one blind type first.'); return; }
+        edit = { fabricInput: '', blindTypes: [...bulkFabricBlindTypes] };
+        appliedLabel = `blind type "${bulkFabricBlindTypes.join(', ')}" (Min/Max estimate, no exact fabric)`;
+      }
+
+      const newFabricEdits = { ...(tableEditValues.fabricEdits || {}) };
+      fabricSelectedRoomIds.forEach(roomId => { newFabricEdits[roomId] = edit; });
+
+      const count = fabricSelectedRoomIds.size;
+      setTableEditValues({ ...tableEditValues, fabricEdits: newFabricEdits });
+      setBulkFabricInput('');
+      setBulkFabricBlindTypes([]);
+      setFabricSelectedRoomIds(new Set());
+      alert(`Applied ${appliedLabel} to ${count} room${count > 1 ? 's' : ''}. Click "Save All Changes" below to create a new version with this fabric.`);
+    };
+
     let totalMin = 0, totalMax = 0;
     // ✅ NEW: Supplier-side cost breakdown for the Pricing Comparison section.
     // Computed from the physical specs of each window (fabric, size, motor, solar) -
@@ -1005,13 +1093,83 @@ export default function QuoteDetailScreen({
             )}
           </div>
 
+          {/* ✅ NEW: Bulk Assign Fabric - same tool as Bulk Quote Create's,
+              scoped to this quote's own rooms. Applying stages the change
+              into tableEditValues.fabricEdits (pending until "Save All
+              Changes" below creates a new version) - never writes straight
+              to the saved quote. */}
+          <div style={{ background: '#1a2a3a', border: '1px solid #4a6a8a', borderRadius: '8px', marginBottom: '24px', overflow: 'hidden' }}>
+            <button onClick={() => setShowFabricTool(!showFabricTool)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ color: '#7dd3fc', fontWeight: 'bold', fontSize: '13px' }}>🧵 BULK ASSIGN FABRIC</span>
+              <span style={{ color: '#888', fontSize: '14px' }}>{showFabricTool ? '▼' : '▶'}</span>
+            </button>
+            {showFabricTool && (
+              <div style={{ padding: '0 16px 16px 16px' }}>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                  <button
+                    onClick={() => setBulkFabricMode('fabric')}
+                    style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkFabricMode === 'fabric' ? '#0e7490' : '#0a0a0a', color: bulkFabricMode === 'fabric' ? '#fff' : '#888', border: bulkFabricMode === 'fabric' ? '1px solid #0e7490' : '1px solid #444' }}
+                  >
+                    Fabric Number
+                  </button>
+                  <button
+                    onClick={() => setBulkFabricMode('blindType')}
+                    style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkFabricMode === 'blindType' ? '#0e7490' : '#0a0a0a', color: bulkFabricMode === 'blindType' ? '#fff' : '#888', border: bulkFabricMode === 'blindType' ? '1px solid #0e7490' : '1px solid #444' }}
+                  >
+                    Blind Type (no fabric yet)
+                  </button>
+                </div>
+
+                {bulkFabricMode === 'fabric' ? (
+                  <input type="text" placeholder="e.g., 82086K, 82067E" value={bulkFabricInput} onChange={(e) => setBulkFabricInput(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', fontSize: '13px', background: '#1a1a1a', border: '1px solid #444', color: 'white', boxSizing: 'border-box', marginBottom: '10px' }} />
+                ) : (
+                  <div style={{ marginBottom: '10px' }}>
+                    <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '8px' }}>For a Min/Max price range instead of an exact price - select one or more:</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      {BLIND_TYPES.map(type => {
+                        const checked = bulkFabricBlindTypes.includes(type);
+                        return (
+                          <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', borderRadius: '6px', background: checked ? '#1a3a4a' : '#0a0a0a', border: checked ? '1px solid #4ade80' : '1px solid #444', cursor: 'pointer', fontSize: '13px', color: checked ? '#4ade80' : '#ccc' }}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setBulkFabricBlindTypes([...new Set([...bulkFabricBlindTypes, type])]);
+                                } else {
+                                  setBulkFabricBlindTypes(bulkFabricBlindTypes.filter(t => t !== type));
+                                }
+                              }}
+                              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                            />
+                            {type}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <FabricRoomChecklist
+                  items={fabricRoomItems}
+                  selectedIds={fabricSelectedRoomIds}
+                  toggleInSet={toggleFabricRoomId}
+                  setSelectedIds={setFabricSelectedRoomIds}
+                />
+                <button onClick={applyBulkFabricEdit} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#0e7490', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>
+                  Apply to {fabricSelectedRoomIds.size} Selected
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* ✅ FIXED: Save All Changes Button - Show if ANY values differ from "not edited" defaults, OR you're actively typing a not-yet-committed edit */}
-          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0 || (editingTableField && activeEditText !== '')) && (
+          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0 || Object.keys(tableEditValues.fabricEdits || {}).length > 0 || (editingTableField && activeEditText !== '')) && (
             <>
               {/* Visual indicator of pending changes */}
               <div style={{ padding: '12px', marginBottom: '12px', background: '#2a3a1a', border: '2px solid #4ade80', borderRadius: '6px', textAlign: 'center' }}>
                 <p style={{ color: '#4ade80', fontWeight: 'bold', margin: '0' }}>
-                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.solarCost !== null ? ', solar cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''}{Object.keys(tableEditValues.groupEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.groupEdits).length} window edit${Object.keys(tableEditValues.groupEdits).length > 1 ? 's' : ''}` : ''}{(tableEditValues.deletedRoomIds || new Set()).size > 0 ? `, ${(tableEditValues.deletedRoomIds || new Set()).size} room(s) removed` : ''}{editingTableField && activeEditText !== '' ? ' (still typing...)' : ''})
+                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.solarCost !== null ? ', solar cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''}{Object.keys(tableEditValues.groupEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.groupEdits).length} window edit${Object.keys(tableEditValues.groupEdits).length > 1 ? 's' : ''}` : ''}{(tableEditValues.deletedRoomIds || new Set()).size > 0 ? `, ${(tableEditValues.deletedRoomIds || new Set()).size} room(s) removed` : ''}{Object.keys(tableEditValues.fabricEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.fabricEdits).length} room fabric${Object.keys(tableEditValues.fabricEdits).length > 1 ? 's' : ''}` : ''}{editingTableField && activeEditText !== '' ? ' (still typing...)' : ''})
                 </p>
               </div>
 
@@ -1070,6 +1228,7 @@ export default function QuoteDetailScreen({
                   .filter(room => !(effectiveTableEditValues.deletedRoomIds || new Set()).has(room.id))
                   .map(room => ({
                     ...room,
+                    ...((effectiveTableEditValues.fabricEdits || {})[room.id] ? { fabricInput: (effectiveTableEditValues.fabricEdits || {})[room.id].fabricInput, blindTypes: (effectiveTableEditValues.fabricEdits || {})[room.id].blindTypes } : {}),
                     windowGroups: room.windowGroups.map((group, groupIdx) => {
                       const edit = (effectiveTableEditValues.groupEdits || {})[`${room.id}_${groupIdx}`];
                       if (!edit) return group;
@@ -1139,7 +1298,7 @@ export default function QuoteDetailScreen({
                 setEditingTableField(null);
 
                 // Reset edit values for next time
-                setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, groupEdits: {}, deletedRoomIds: new Set() });
+                setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, groupEdits: {}, deletedRoomIds: new Set(), fabricEdits: {} });
                 setActiveEditText('');
                 setActiveEditTextMax('');
                 setPriceEditMode('fixed');
