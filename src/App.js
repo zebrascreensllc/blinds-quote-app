@@ -13,7 +13,6 @@ import OrderAnalysis from './components/OrderAnalysis';
 import MenuScreen from './components/quote/MenuScreen';
 import HistoryScreen from './components/quote/HistoryScreen';
 import StatisticsScreen from './components/quote/StatisticsScreen';
-import QuoteFormScreen from './components/quote/QuoteFormScreen';
 import BulkQuoteFormScreen from './components/quote/BulkQuoteFormScreen';
 import QuoteDetailScreen from './components/quote/QuoteDetailScreen';
 import { subscribeToQuotes, saveQuoteRemote, deleteQuoteRemote } from './services/quoteSync';
@@ -35,24 +34,6 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   const [expandedClients, setExpandedClients] = useState({});
   const [selectedVersions, setSelectedVersions] = useState(new Set());
   const [editingQuote, setEditingQuote] = useState(null);
-  const [lastWidth, setLastWidth] = useState('');
-  const [lastHeight, setLastHeight] = useState('');
-  // ✅ NEW: Room collapse state
-  const [expandedRooms, setExpandedRooms] = useState(new Set());
-  // ✅ NEW: per-room Fabric Numbers / Blind Type section, collapsed by default -
-  // Bulk Assign Fabric handles the common case now, this stays available for
-  // the rare per-room exception without taking up space during normal entry.
-  const [expandedFabricSection, setExpandedFabricSection] = useState(new Set());
-  // ✅ NEW: per-window-group Surcharge Override section, collapsed by default -
-  // rarely used (auto-calculated surcharge covers the normal case), so it
-  // shouldn't take up space in every window group during normal entry.
-  const [expandedSurchargeOverride, setExpandedSurchargeOverride] = useState(new Set());
-  // ✅ NEW: Bulk-assign fabric OR blind-type-only (client hasn't picked exact fabric yet) to multiple rooms
-  const [showBulkAssign, setShowBulkAssign] = useState(false);
-  const [bulkMode, setBulkMode] = useState('fabric'); // 'fabric' | 'blindType'
-  const [bulkFabricInput, setBulkFabricInput] = useState('');
-  const [bulkBlindTypes, setBulkBlindTypes] = useState([]);
-  const [bulkSelectedRoomIds, setBulkSelectedRoomIds] = useState(new Set());
   // ✅ NEW: Edit pricing table fields
   const [editingTableField, setEditingTableField] = useState(null);
   // ✅ FIX: Use null as sentinel for "not edited this session" (distinct from 0 or any real value)
@@ -711,37 +692,6 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     <div>
       {currentView === 'menu' && (
         <MenuScreen onLogout={onLogout} quotes={quotes} resetForm={resetForm} setCurrentView={setCurrentView} setEditingQuote={setEditingQuote} />
-      )}
-      {currentView === 'quote' && (
-        <QuoteFormScreen
-          bulkBlindTypes={bulkBlindTypes}
-          bulkFabricInput={bulkFabricInput}
-          bulkMode={bulkMode}
-          bulkSelectedRoomIds={bulkSelectedRoomIds}
-          editingQuote={editingQuote}
-          expandedFabricSection={expandedFabricSection}
-          expandedRooms={expandedRooms}
-          expandedSurchargeOverride={expandedSurchargeOverride}
-          formData={formData}
-          generateQuote={generateQuote}
-          lastHeight={lastHeight}
-          lastWidth={lastWidth}
-          resetForm={resetForm}
-          setBulkBlindTypes={setBulkBlindTypes}
-          setBulkFabricInput={setBulkFabricInput}
-          setBulkMode={setBulkMode}
-          setBulkSelectedRoomIds={setBulkSelectedRoomIds}
-          setCurrentView={setCurrentView}
-          setEditingQuote={setEditingQuote}
-          setExpandedFabricSection={setExpandedFabricSection}
-          setExpandedRooms={setExpandedRooms}
-          setExpandedSurchargeOverride={setExpandedSurchargeOverride}
-          setFormData={setFormData}
-          setLastHeight={setLastHeight}
-          setLastWidth={setLastWidth}
-          setShowBulkAssign={setShowBulkAssign}
-          showBulkAssign={showBulkAssign}
-        />
       )}
       {currentView === 'bulkQuote' && (
         <BulkQuoteFormScreen
