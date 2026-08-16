@@ -285,6 +285,29 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     }));
   };
 
+  // ---- Deleting a single window - the "+ Add Window"/manual-entry flows
+  // both make it easy to end up with an extra window that needs removing,
+  // and neither this feature nor the original had any way to do that (only
+  // deleting the WHOLE sheet). Keeps at least one row - an empty sheet is
+  // a pointless state; delete the whole sheet from the list screen instead.
+  // Recomputes location indices for whoever's left, same as adding/renaming.
+  const deleteWindowRow = (rowId) => {
+    if (!activeSheet) return;
+    if (activeSheet.rows.length <= 1) {
+      alert("Can't delete the last window - a sheet needs at least one. Delete the whole sheet from the list instead if you don't need it.");
+      return;
+    }
+    const row = activeSheet.rows.find(r => r.id === rowId);
+    const label = (row?.locationBase || '').trim() || 'this window';
+    if (!window.confirm(`Delete "${label}" from this sheet?`)) return;
+    updateActiveSheet(sheet => ({
+      ...sheet,
+      rows: recomputeLocationIndices(sheet.rows.filter(r => r.id !== rowId)),
+      updatedDate: new Date().toISOString()
+    }));
+    if (expandedRowId === rowId) setExpandedRowId(null);
+  };
+
   const openSheet = (id) => {
     const sheet = sheets.find(s => s.id === id);
     setActiveSheetId(id);
@@ -619,6 +642,7 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
       updateRow={updateRow}
       updateRowLocation={updateRowLocation}
       addWindowRow={addWindowRow}
+      deleteWindowRow={deleteWindowRow}
       remoteLabels={remoteLabels}
       widthOutlierIds={widthOutlierIds}
       heightOutlierIds={heightOutlierIds}

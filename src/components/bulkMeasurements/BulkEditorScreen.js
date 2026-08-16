@@ -1,4 +1,5 @@
 import React from 'react';
+import { Trash2 } from 'lucide-react';
 import {
   MOTOR_OPTIONS,
   CASSETTE_OPTIONS,
@@ -77,6 +78,7 @@ export default function BulkEditorScreen({
   updateRow,
   updateRowLocation,
   addWindowRow,
+  deleteWindowRow,
   remoteLabels,
   widthOutlierIds,
   heightOutlierIds,
@@ -227,19 +229,28 @@ export default function BulkEditorScreen({
 
             return (
               <div key={row.id} style={{ background: '#242424', border: '1px solid #444', borderRadius: '8px', overflow: 'hidden' }}>
-                <button
-                  onClick={() => setExpandedRowId(isExpanded ? null : row.id)}
-                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'pointer', padding: '12px', textAlign: 'left' }}
-                >
-                  <span style={{ fontSize: '14px', fontWeight: 'bold', color: row.locationBase.trim() ? '#d4af37' : '#888' }}>
-                    {row.locationBase.trim() ? getLocationLabel(row) : '(new window - add a location)'}
-                    {row.comment && row.comment.trim() && <span style={{ marginLeft: '8px', fontSize: '13px' }} title={row.comment}>💬</span>}
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {!isExpanded && <span style={{ fontSize: '12px', color: summaryColor }}>{summaryText}</span>}
-                    <span style={{ color: '#888', fontSize: '14px' }}>{isExpanded ? '▼' : '▶'}</span>
-                  </span>
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '12px' }}>
+                  <button
+                    onClick={() => setExpandedRowId(isExpanded ? null : row.id)}
+                    style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left' }}
+                  >
+                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: row.locationBase.trim() ? '#d4af37' : '#888' }}>
+                      {row.locationBase.trim() ? getLocationLabel(row) : '(new window - add a location)'}
+                      {row.comment && row.comment.trim() && <span style={{ marginLeft: '8px', fontSize: '13px' }} title={row.comment}>💬</span>}
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {!isExpanded && <span style={{ fontSize: '12px', color: summaryColor }}>{summaryText}</span>}
+                      <span style={{ color: '#888', fontSize: '14px' }}>{isExpanded ? '▼' : '▶'}</span>
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => deleteWindowRow(row.id)}
+                    title="Delete this window"
+                    style={{ padding: '6px', background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
 
                 {isExpanded && (
                   <div style={{ padding: '0 12px 12px 12px' }}>
