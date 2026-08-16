@@ -153,6 +153,7 @@ export default function BulkEditorScreen({
   applyBulkMount,
 
   copyCSV,
+  shareCSV,
   exportCSV,
   exportExcel
 }) {
@@ -625,11 +626,16 @@ export default function BulkEditorScreen({
         </div>
 
         {/* 10. Export */}
-        <div style={{ display: 'flex', gap: '12px', marginTop: '8px', marginBottom: '12px' }}>
-          <button onClick={copyCSV} style={{ flex: 1, padding: '14px', borderRadius: '8px', background: '#d4af37', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
+        <div style={{ display: 'flex', gap: '12px', marginTop: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+          <button onClick={copyCSV} style={{ flex: '1 1 100px', padding: '14px', borderRadius: '8px', background: '#d4af37', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
             📋 Copy
           </button>
-          <button onClick={exportCSV} style={{ flex: 1, padding: '14px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
+          {typeof navigator.share === 'function' && (
+            <button onClick={shareCSV} style={{ flex: '1 1 100px', padding: '14px', borderRadius: '8px', background: '#0e7490', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
+              📤 Share
+            </button>
+          )}
+          <button onClick={exportCSV} style={{ flex: '1 1 100px', padding: '14px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
             ⬇️ CSV
           </button>
         </div>

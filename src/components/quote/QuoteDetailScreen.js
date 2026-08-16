@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, Edit2, Trash2 } from 'lucide-react';
+import { Copy, Check, Edit2, Trash2, Share2, Files } from 'lucide-react';
 import { PRICING_DATA } from '../../data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE } from '../../utils/constants';
 import { formatPrice, formatMoney, isRangeOverride, formatPriceOverride, filterNumericText, parseUnits } from '../../utils/formatters';
@@ -54,6 +54,7 @@ export default function QuoteDetailScreen({
   expandedPricingComparison,
   expandedPricingDetails,
   expandedQuoteTable,
+  duplicateQuote,
   loadQuoteForEdit,
   priceEditMode,
   quotes,
@@ -1337,25 +1338,56 @@ export default function QuoteDetailScreen({
             📤 Export Supplier CSV (Quote Confirmation)
           </button>
 
-          <div style={{ display: 'flex', gap: '12px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <button
               onClick={() => {
                 navigator.clipboard.writeText(copyText);
                 setCopiedId(selectedQuote.id);
                 setTimeout(() => setCopiedId(null), 2000);
               }}
-              style={{ flex: 1, paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}
+              style={{ flex: '1 1 90px', paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}
             >
               {copiedId === selectedQuote.id ? <Check size={16} /> : <Copy size={16} />}
               {copiedId === selectedQuote.id ? 'Copied!' : 'Copy'}
             </button>
 
+            {/* ✅ NEW: native share sheet (Messages/Mail/WhatsApp/etc) where the
+                browser supports it - skips the copy-then-switch-app-then-paste
+                round trip. Feature-detected, so it just doesn't render on
+                browsers without Web Share support (most desktop browsers). */}
+            {typeof navigator.share === 'function' && (
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.share({ title: selectedQuote.quoteName || 'Quote', text: copyText });
+                  } catch (err) {
+                    if (err.name !== 'AbortError') console.error('Share failed:', err);
+                  }
+                }}
+                title="Share"
+                style={{ padding: '12px', borderRadius: '8px', background: '#0e7490', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+              >
+                <Share2 size={16} />
+              </button>
+            )}
+
             <button
               onClick={() => loadQuoteForEdit(selectedQuote)}
-              style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px', background: '#4f46e5', color: '#fff', border: 'none', cursor: 'pointer' }}
+              style={{ flex: '1 1 90px', paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#4f46e5', color: '#fff', border: 'none', cursor: 'pointer' }}
             >
               <Edit2 size={16} />
               Edit
+            </button>
+
+            {/* ✅ NEW: clones this quote's client info + rooms into a fresh
+                Quote Create draft - a new quote, not a new version of this
+                one. Handy for a repeat client or a similar job. */}
+            <button
+              onClick={() => duplicateQuote(selectedQuote)}
+              title="Duplicate this quote"
+              style={{ padding: '12px', borderRadius: '8px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+            >
+              <Files size={16} />
             </button>
 
             <button
@@ -1365,7 +1397,7 @@ export default function QuoteDetailScreen({
                 const done = safeDeleteQuotes([selectedQuote.id], `Deleted ${selectedQuote.quoteName || 'quote'}`);
                 if (done) setSelectedQuote(null);
               }}
-              style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer' }}
+              style={{ padding: '12px', borderRadius: '8px', fontWeight: 'bold', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
             >
               <Trash2 size={16} />
             </button>

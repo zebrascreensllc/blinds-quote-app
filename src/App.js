@@ -507,61 +507,87 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     });
   };
 
+  // Normalizes a quote's rooms into the shape the form expects, filling in
+  // any fields missing from older/incomplete data. Shared by loadQuoteForEdit
+  // (editing this exact quote) and duplicateQuote (cloning it into a new one)
+  // so the two can never drift into handling old data differently.
+  const sanitizeQuoteRooms = (rooms) => {
+    const sanitized = (rooms || []).map(room => ({
+      ...room,
+      id: room.id || 1,
+      name: room.name || '',
+      fabricInput: room.fabricInput || '',
+      blindTypes: Array.isArray(room.blindTypes) ? room.blindTypes : ['Roller'],
+      windowGroups: (room.windowGroups || []).map(g => ({
+        ...g,
+        id: g.id || 1,
+        quantity: g.quantity || '',
+        width: g.width || '',
+        height: g.height || '',
+        controlType: g.controlType || 'Manual',
+        solar: g.solar || false,
+        mount: g.mount || 'Inside',
+        surchargeOverride: g.surchargeOverride !== undefined ? g.surchargeOverride : null
+      }))
+    }));
+    return sanitized.length > 0 ? sanitized : [{
+      id: 1,
+      name: '',
+      fabricInput: '',
+      blindTypes: ['Roller'],
+      windowGroups: [{
+        id: 1,
+        quantity: '',
+        width: '',
+        height: '',
+        controlType: 'Manual',
+        solar: false,
+        mount: 'Inside',
+        surchargeOverride: null
+      }]
+    }];
+  };
+
   const loadQuoteForEdit = (quote) => {
     try {
-      // Ensure rooms have proper structure
-      const rooms = (quote.rooms || []).map(room => ({
-        ...room,
-        id: room.id || 1,
-        name: room.name || '',
-        fabricInput: room.fabricInput || '',
-        blindTypes: Array.isArray(room.blindTypes) ? room.blindTypes : ['Roller'],
-        windowGroups: (room.windowGroups || []).map(g => ({
-          ...g,
-          id: g.id || 1,
-          quantity: g.quantity || '',
-          width: g.width || '',
-          height: g.height || '',
-          controlType: g.controlType || 'Manual',
-          solar: g.solar || false,
-          mount: g.mount || 'Inside',
-          surchargeOverride: g.surchargeOverride !== undefined ? g.surchargeOverride : null
-        }))
-      }));
-
       setFormData({
         clientName: quote.clientName || '',
         clientPhone: quote.clientPhone || '',
         location: quote.location || '',
         date: quote.date || new Date().toISOString().split('T')[0],
-        rooms: rooms.length > 0 ? rooms : [{
-          id: 1,
-          name: '',
-          fabricInput: '',
-          blindTypes: ['Roller'],
-          windowGroups: [{
-            id: 1,
-            quantity: '',
-            width: '',
-            height: '',
-            controlType: 'Manual',
-            solar: false,
-            mount: 'Inside',
-            surchargeOverride: null
-          }]
-        }]
+        rooms: sanitizeQuoteRooms(quote.rooms)
       });
       setEditingQuote(quote);
-      // ✅ Edit now goes through the bulk-first form (same formData/
+      // Edit goes through the bulk-first Quote Create form (same formData/
       // generateQuote underneath - generateQuote already branches on
-      // editingQuote to create a new version instead of a new quote,
-      // unchanged). QuoteFormScreen (the original form) is still reachable
-      // from the menu's own "New Quote" button, just no longer the target
-      // of "Edit" specifically.
+      // editingQuote to create a new version instead of a new quote).
       setCurrentView('bulkQuote');
     } catch (error) {
       console.error('Error loading quote for edit:', error);
       alert('❌ Error loading quote. Please try again.');
+    }
+  };
+
+  // ✅ NEW: clones an existing quote's client info + rooms into a fresh
+  // Quote Create draft - a brand new quote (own lineageId, v1), not a new
+  // version of the original. Handy for a repeat client or a similar job
+  // instead of rebuilding the room/fabric setup from scratch. editingQuote
+  // stays null so generateQuote treats this as a new quote, and the date
+  // resets to today rather than carrying over the original's date.
+  const duplicateQuote = (quote) => {
+    try {
+      setFormData({
+        clientName: quote.clientName || '',
+        clientPhone: quote.clientPhone || '',
+        location: quote.location || '',
+        date: new Date().toISOString().split('T')[0],
+        rooms: sanitizeQuoteRooms(quote.rooms)
+      });
+      setEditingQuote(null);
+      setCurrentView('bulkQuote');
+    } catch (error) {
+      console.error('Error duplicating quote:', error);
+      alert('❌ Error duplicating quote. Please try again.');
     }
   };
 
@@ -663,6 +689,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
             expandedPricingComparison={expandedPricingComparison}
             expandedPricingDetails={expandedPricingDetails}
             expandedQuoteTable={expandedQuoteTable}
+            duplicateQuote={duplicateQuote}
             loadQuoteForEdit={loadQuoteForEdit}
             priceEditMode={priceEditMode}
             quotes={quotes}

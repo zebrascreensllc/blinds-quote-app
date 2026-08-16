@@ -576,6 +576,18 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     }
   };
 
+  // ✅ NEW: native share sheet where supported - skips copy-then-switch-
+  // app-then-paste. Same validation gate as Copy/Download.
+  const shareCSV = async () => {
+    if (!validateSheetForExport()) return;
+    const csv = sheetToCSV(activeSheet, activeSheet.rows);
+    try {
+      await navigator.share({ title: exportFileLabel(activeSheet), text: csv });
+    } catch (err) {
+      if (err.name !== 'AbortError') console.error('Share failed:', err);
+    }
+  };
+
   const exportExcel = async () => {
     if (!validateSheetForExport()) return;
     try {
@@ -725,6 +737,7 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
       applyBulkMount={applyBulkMount}
 
       copyCSV={copyCSV}
+      shareCSV={shareCSV}
       exportCSV={exportCSV}
       exportExcel={exportExcel}
     />
