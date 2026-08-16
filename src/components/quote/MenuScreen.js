@@ -45,7 +45,7 @@ export default function MenuScreen({ onLogout, quotes, resetForm, setCurrentView
               </div>
               <div style={{ flex: 1 }}>
                 <h3 style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>Pull Existing Quote</h3>
-                <p style={{ color: '#aaa', fontSize: '14px' }}>Search & view past quotes ({quotes.filter(q => !q.archived).length})</p>
+                <p style={{ color: '#aaa', fontSize: '14px' }}>Search & view past quotes ({quotes.filter(q => !q.archived && !q.trashedAt).length})</p>
               </div>
               <div style={{ fontSize: '24px', color: '#666' }}>→</div>
             </div>

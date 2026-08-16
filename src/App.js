@@ -280,9 +280,21 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     setUndoBuffer({ quotes: JSON.parse(JSON.stringify(quotes)), label, at: new Date().toISOString() });
   };
 
-  // ✅ SAFETY: one funnel for ALL deletions. Warns clearly, names what will be lost,
-  // requires a second confirmation if it would remove every version for a client,
-  // and always stores an undo snapshot first.
+  // ✅ SAFETY: one funnel for ALL deletions. Warns clearly, names what will be
+  // lost, requires a second confirmation if it would remove every version for
+  // a client, and always stores an undo snapshot first.
+  //
+  // ✅ REAL 7-DAY TRASH: this used to hard-delete immediately (survivors were
+  // written straight back, which drops the removed docs from Firestore via
+  // updateQuotes' diffing) - the ONLY safety net was the single-slot,
+  // in-memory undoBuffer below, which is lost on reload or on another
+  // device. That directly contradicted this app's own UI text ("the app
+  // also keeps 7 days of automatic backups"), which was never actually
+  // backed by any code. Now a delete just sets trashedAt on the quote - it
+  // stays in Firestore, filtered out of History/Statistics/Order Analysis
+  // (see their `!q.trashedAt` filters), restorable from the Trash screen on
+  // any device, and only genuinely removed once the 7-day sweep below finds
+  // it past its expiry.
   const safeDeleteQuotes = (idsToDelete, description) => {
     const ids = new Set(idsToDelete);
     const doomed = quotes.filter(q => ids.has(q.id));
@@ -297,31 +309,73 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     const clientsBeingWiped = doomedClients.filter(c => !survivingClients.has(c));
 
     const nameList = doomed.map(q => `  • ${q.quoteName || q.version}`).join('\n');
-    const message = `Delete ${doomed.length} quote${doomed.length > 1 ? 's' : ''}?\n\n${nameList}\n\nThis cannot be undone from another device.`;
+    const message = `Delete ${doomed.length} quote${doomed.length > 1 ? 's' : ''}?\n\n${nameList}\n\nMoves to Trash for 7 days (restorable from any device), then permanently deleted.`;
 
     if (!window.confirm(message)) return false;
 
     // Second, louder confirmation when an entire client would disappear
     if (clientsBeingWiped.length > 0) {
       const warning =
-        `⚠️ WARNING — THIS REMOVES ENTIRE CLIENT${clientsBeingWiped.length > 1 ? 'S' : ''}\n\n` +
+        `⚠️ THIS REMOVES ENTIRE CLIENT${clientsBeingWiped.length > 1 ? 'S' : ''} FROM YOUR ACTIVE LIST\n\n` +
         clientsBeingWiped.map(c => `  • ${c}`).join('\n') +
-        `\n\nNo versions will remain for ${clientsBeingWiped.length > 1 ? 'these clients' : 'this client'}. ` +
-        `Everything for ${clientsBeingWiped.length > 1 ? 'them' : 'them'} will be gone from this list.\n\n` +
-        `Are you absolutely sure?`;
+        `\n\nNo active versions will remain for ${clientsBeingWiped.length > 1 ? 'these clients' : 'this client'} - ` +
+        `they'll sit in Trash for 7 days if you change your mind.\n\n` +
+        `Are you sure?`;
       if (!window.confirm(warning)) return false;
     }
 
     snapshotForUndo(description || `Deleted ${doomed.length} quote(s)`);
+    const trashedAt = new Date().toISOString();
     // .then() here (not await) deliberately keeps this function's return
     // value synchronous, since the buttons calling this rely on getting
     // true/false immediately to know whether to clear selection/close the
     // view. The cloud-sync outcome is still reported - just slightly after.
-    updateQuotes(survivors).then(result => {
+    updateQuotes(quotes.map(q => (ids.has(q.id) ? { ...q, trashedAt } : q))).then(result => {
       if (!result.success) alert(syncFailureMessage(result.errors));
     });
     return true;
   };
+
+  // ✅ NEW: bring a trashed quote back - just clears trashedAt, nothing else
+  // about the quote changes. Omits the key entirely (not setting it to
+  // undefined) so this stays Firestore-safe.
+  const restoreQuotes = (idsToRestore) => {
+    const ids = new Set(idsToRestore);
+    return updateQuotes(quotes.map(q => {
+      if (!ids.has(q.id)) return q;
+      const { trashedAt, ...rest } = q;
+      return rest;
+    }));
+  };
+
+  // ✅ NEW: skip the wait - immediately, permanently deletes (used by both
+  // "Delete Forever Now" in the Trash screen and the 7-day sweep below).
+  // This is the only path that actually removes a quote from Firestore.
+  const permanentlyDeleteQuotes = (idsToDelete) => {
+    const ids = new Set(idsToDelete);
+    return updateQuotes(quotes.filter(q => !ids.has(q.id)));
+  };
+
+  // ✅ NEW: 7-day sweep - since there's no server/cron for a client-only app,
+  // this runs opportunistically whenever quotes load or change, so the
+  // actual deletion happens "next time the app is open after 7 days have
+  // passed," not at the exact instant. Silent (no alert) since this is
+  // background cleanup, not a user-initiated action.
+  useEffect(() => {
+    if (!hasLoaded || quotes.length === 0) return;
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const expiredIds = quotes
+      .filter(q => q.trashedAt && (now - new Date(q.trashedAt).getTime()) > sevenDaysMs)
+      .map(q => q.id);
+    if (expiredIds.length === 0) return;
+    permanentlyDeleteQuotes(expiredIds).catch(err => console.error('Trash sweep failed:', err));
+    // Deliberately only reacts to quotes/hasLoaded - permanentlyDeleteQuotes
+    // is recreated every render (not memoized, matching this file's other
+    // handlers), but always closes over the current `quotes`, so omitting
+    // it here just avoids re-running this sweep on every unrelated render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quotes, hasLoaded]);
 
   // ✅ SAFETY: restore the pre-delete snapshot
   const undoLastDelete = () => {
@@ -330,6 +384,27 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       alert(result.success ? '✅ Restored. Your quotes are back.' : syncFailureMessage(result.errors));
     });
     setUndoBuffer(null);
+  };
+
+  // ✅ NEW: archive every version of a quote lineage - hides it from
+  // History/Statistics/Order Analysis without deleting it (no expiry,
+  // unlike Trash). Applies to the WHOLE lineage rather than just the one
+  // version being viewed, since leaving some versions archived and others
+  // not would still show the client in the active list.
+  const archiveQuoteLineage = (quote) => {
+    const lineageId = quote.lineageId || quote.id;
+    const versionCount = quotes.filter(q => (q.lineageId || q.id) === lineageId).length;
+    if (!window.confirm(`Archive "${quote.quoteName || quote.clientName}"?\n\nAll ${versionCount} version(s) will be hidden from your active list and Statistics - never deleted. Unarchive anytime from History > Archived.`)) return;
+    updateQuotes(quotes.map(q => ((q.lineageId || q.id) === lineageId ? { ...q, archived: true } : q))).then(result => {
+      if (!result.success) alert(syncFailureMessage(result.errors));
+    });
+    setSelectedQuote(null);
+    setCurrentView('history');
+  };
+
+  const unarchiveQuoteLineage = (quote) => {
+    const lineageId = quote.lineageId || quote.id;
+    return updateQuotes(quotes.map(q => ((q.lineageId || q.id) === lineageId ? { ...q, archived: false } : q)));
   };
 
   // ✅ BACKUP: download every quote as a JSON file
@@ -689,6 +764,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
             expandedPricingComparison={expandedPricingComparison}
             expandedPricingDetails={expandedPricingDetails}
             expandedQuoteTable={expandedQuoteTable}
+            archiveQuoteLineage={archiveQuoteLineage}
             duplicateQuote={duplicateQuote}
             loadQuoteForEdit={loadQuoteForEdit}
             priceEditMode={priceEditMode}
@@ -718,7 +794,9 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
             importBackup={importBackup}
             loadError={loadError}
             loadQuoteForEdit={loadQuoteForEdit}
+            permanentlyDeleteQuotes={permanentlyDeleteQuotes}
             quotes={quotes}
+            restoreQuotes={restoreQuotes}
             safeDeleteQuotes={safeDeleteQuotes}
             searchQuery={searchQuery}
             selectedVersions={selectedVersions}
@@ -729,6 +807,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
             setSelectedVersions={setSelectedVersions}
             undoBuffer={undoBuffer}
             undoLastDelete={undoLastDelete}
+            unarchiveQuoteLineage={unarchiveQuoteLineage}
           />
         )
       )}

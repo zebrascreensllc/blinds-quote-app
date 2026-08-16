@@ -32,7 +32,7 @@ const getLatestQuoteVersions = (quotesToProcess) => {
 
 // Statistics - relocated from App.js's renderStatistics with no logic changes.
 export default function StatisticsScreen({ quotes, setCurrentView }) {
-  const activeQuotes = quotes.filter(q => !q.archived);
+  const activeQuotes = quotes.filter(q => !q.archived && !q.trashedAt);
   // Only the latest version of each quote lineage
   const latestQuotes = getLatestQuoteVersions(activeQuotes);
 

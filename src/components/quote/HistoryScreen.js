@@ -1,5 +1,11 @@
-import React from 'react';
-import { ArrowLeft, Search, Edit2, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowLeft, Search, Edit2, ChevronDown, ChevronUp, RotateCcw, Trash2 } from 'lucide-react';
+
+const daysRemaining = (trashedAt) => {
+  const elapsedMs = Date.now() - new Date(trashedAt).getTime();
+  const daysElapsed = Math.floor(elapsedMs / (24 * 60 * 60 * 1000));
+  return Math.max(0, 7 - daysElapsed);
+};
 
 // Quote History - relocated from App.js's renderHistory. The original
 // function returned renderQuoteDetail() inline whenever selectedQuote was
@@ -15,7 +21,9 @@ export default function HistoryScreen({
   importBackup,
   loadError,
   loadQuoteForEdit,
+  permanentlyDeleteQuotes,
   quotes,
+  restoreQuotes,
   safeDeleteQuotes,
   searchQuery,
   selectedVersions,
@@ -25,11 +33,19 @@ export default function HistoryScreen({
   setSelectedQuote,
   setSelectedVersions,
   undoBuffer,
-  undoLastDelete
+  undoLastDelete,
+  unarchiveQuoteLineage
 }) {
-  const activeQuotes = quotes.filter(q => !q.archived);
-  const groupedByClient = {};
+  // ✅ NEW: Active/Trash/Archived tabs - local, resets to Active whenever
+  // History is reopened (this component unmounts when navigating away),
+  // which is the desired default every time.
+  const [viewMode, setViewMode] = useState('active');
 
+  const activeQuotes = quotes.filter(q => !q.archived && !q.trashedAt);
+  const trashedQuotes = quotes.filter(q => q.trashedAt);
+  const archivedQuotes = quotes.filter(q => q.archived && !q.trashedAt);
+
+  const groupedByClient = {};
   activeQuotes.forEach(quote => {
     const clientKey = `${quote.clientName} - ${quote.location}`;
     if (!groupedByClient[clientKey]) {
@@ -50,6 +66,26 @@ export default function HistoryScreen({
     client.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const filteredTrashed = trashedQuotes
+    .filter(q => `${q.clientName} - ${q.location}`.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => new Date(b.trashedAt) - new Date(a.trashedAt));
+
+  const filteredArchived = archivedQuotes
+    .filter(q => `${q.clientName} - ${q.location}`.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => new Date(b.updatedDate) - new Date(a.updatedDate));
+
+  const tabStyle = (active) => ({
+    flex: 1,
+    padding: '10px',
+    borderRadius: '6px',
+    fontSize: '13px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    background: active ? '#d4af37' : '#2a2a2a',
+    color: active ? '#000' : '#aaa',
+    border: active ? 'none' : '1px solid #444'
+  });
+
   return (
     <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
@@ -58,6 +94,12 @@ export default function HistoryScreen({
             <ArrowLeft size={24} color="#aaa" />
           </button>
           <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff', fontFamily: 'Georgia, serif' }}>Quote History</h2>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+          <button onClick={() => setViewMode('active')} style={tabStyle(viewMode === 'active')}>Active ({activeQuotes.length})</button>
+          <button onClick={() => setViewMode('trash')} style={tabStyle(viewMode === 'trash')}>Trash ({trashedQuotes.length})</button>
+          <button onClick={() => setViewMode('archived')} style={tabStyle(viewMode === 'archived')}>Archived ({archivedQuotes.length})</button>
         </div>
 
         <div style={{ marginBottom: '32px', position: 'relative' }}>
@@ -117,18 +159,18 @@ export default function HistoryScreen({
             </label>
           </div>
           <p style={{ color: '#64748b', fontSize: '11px', margin: '8px 0 0 0' }}>
-            Tip: tap Copy and paste into Notes or email it to yourself. The app also keeps 7 days of automatic backups on this device.
+            Tip: tap Copy and paste into Notes or email it to yourself. Deleted quotes also sit in Trash for 7 days before they're gone for good.
           </p>
         </div>
 
-        {selectedVersions.size > 0 && (
+        {viewMode === 'active' && selectedVersions.size > 0 && (
           <button onClick={() => {
             // ✅ Goes through the safe delete funnel: names what will be lost,
             // double-confirms if a whole client would vanish, and saves an undo snapshot
             const done = safeDeleteQuotes([...selectedVersions], `Deleted ${selectedVersions.size} selected version(s)`);
             if (done) {
               setSelectedVersions(new Set());
-              alert('✅ Deleted. If that was a mistake, use "Undo Last Delete" at the top of this screen.');
+              alert('✅ Moved to Trash. If that was a mistake, use "Undo Last Delete" above, or restore it from the Trash tab within 7 days.');
             }
           }} style={{ width: '100%', padding: '12px', marginBottom: '16px', borderRadius: '8px', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>
             Delete {selectedVersions.size} Selected
@@ -145,64 +187,127 @@ export default function HistoryScreen({
           <div style={{ textAlign: 'center', paddingTop: '64px', paddingBottom: '64px' }}>
             <p style={{ color: '#888', fontSize: '18px' }}>Loading your quotes...</p>
           </div>
-        ) : activeQuotes.length === 0 ? (
-          <div style={{ textAlign: 'center', paddingTop: '64px', paddingBottom: '64px' }}>
-            <p style={{ color: '#888', fontSize: '18px' }}>No quotes created yet</p>
-          </div>
-        ) : filteredClients.length === 0 ? (
-          <div style={{ textAlign: 'center', paddingTop: '64px', paddingBottom: '64px' }}>
-            <p style={{ color: '#888', fontSize: '18px' }}>No quotes found for "{searchQuery}"</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {filteredClients.map(clientName => (
-              <div key={clientName} style={{ background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', overflow: 'hidden' }}>
-                <button
-                  onClick={() => setExpandedClients({...expandedClients, [clientName]: !expandedClients[clientName]})}
-                  style={{ width: '100%', padding: '16px', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                >
-                  <div>
-                    <p style={{ fontWeight: 'bold', color: '#fff', fontSize: '18px', marginBottom: '4px' }}>{clientName}</p>
-                    <p style={{ color: '#888', fontSize: '14px' }}>{groupedByClient[clientName].length} version(s)</p>
-                  </div>
-                  {expandedClients[clientName] ? <ChevronUp size={24} color="#d4af37" /> : <ChevronDown size={24} color="#d4af37" />}
-                </button>
+        ) : viewMode === 'active' ? (
+          activeQuotes.length === 0 ? (
+            <div style={{ textAlign: 'center', paddingTop: '64px', paddingBottom: '64px' }}>
+              <p style={{ color: '#888', fontSize: '18px' }}>No quotes created yet</p>
+            </div>
+          ) : filteredClients.length === 0 ? (
+            <div style={{ textAlign: 'center', paddingTop: '64px', paddingBottom: '64px' }}>
+              <p style={{ color: '#888', fontSize: '18px' }}>No quotes found for "{searchQuery}"</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {filteredClients.map(clientName => (
+                <div key={clientName} style={{ background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', overflow: 'hidden' }}>
+                  <button
+                    onClick={() => setExpandedClients({...expandedClients, [clientName]: !expandedClients[clientName]})}
+                    style={{ width: '100%', padding: '16px', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                  >
+                    <div>
+                      <p style={{ fontWeight: 'bold', color: '#fff', fontSize: '18px', marginBottom: '4px' }}>{clientName}</p>
+                      <p style={{ color: '#888', fontSize: '14px' }}>{groupedByClient[clientName].length} version(s)</p>
+                    </div>
+                    {expandedClients[clientName] ? <ChevronUp size={24} color="#d4af37" /> : <ChevronDown size={24} color="#d4af37" />}
+                  </button>
 
-                {expandedClients[clientName] && (
-                  <div style={{ background: '#1a1a1a', borderTop: '1px solid #444', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {groupedByClient[clientName].map(quote => (
-                      <div key={quote.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: '#2a2a2a', borderRadius: '6px' }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedVersions.has(quote.id)}
-                          onChange={(e) => {
-                            const newSet = new Set(selectedVersions);
-                            if (e.target.checked) {
-                              newSet.add(quote.id);
-                            } else {
-                              newSet.delete(quote.id);
-                            }
-                            setSelectedVersions(newSet);
-                          }}
-                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                        />
-                        <button
-                          onClick={() => setSelectedQuote(quote)}
-                          style={{ flex: 1, textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', paddingLeft: '0' }}
-                        >
-                          <p style={{ color: '#d4af37', fontWeight: 'bold', fontSize: '14px', marginBottom: '2px' }}>{quote.quoteName}</p>
-                          <p style={{ color: '#888', fontSize: '12px' }}>{quote.date}</p>
-                        </button>
-                        <button onClick={() => loadQuoteForEdit(quote)} style={{ padding: '6px', borderRadius: '4px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>
-                          <Edit2 size={16} />
-                        </button>
-                      </div>
-                    ))}
+                  {expandedClients[clientName] && (
+                    <div style={{ background: '#1a1a1a', borderTop: '1px solid #444', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {groupedByClient[clientName].map(quote => (
+                        <div key={quote.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: '#2a2a2a', borderRadius: '6px' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedVersions.has(quote.id)}
+                            onChange={(e) => {
+                              const newSet = new Set(selectedVersions);
+                              if (e.target.checked) {
+                                newSet.add(quote.id);
+                              } else {
+                                newSet.delete(quote.id);
+                              }
+                              setSelectedVersions(newSet);
+                            }}
+                            style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                          />
+                          <button
+                            onClick={() => setSelectedQuote(quote)}
+                            style={{ flex: 1, textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', paddingLeft: '0' }}
+                          >
+                            <p style={{ color: '#d4af37', fontWeight: 'bold', fontSize: '14px', marginBottom: '2px' }}>{quote.quoteName}</p>
+                            <p style={{ color: '#888', fontSize: '12px' }}>{quote.date}</p>
+                          </button>
+                          <button onClick={() => loadQuoteForEdit(quote)} style={{ padding: '6px', borderRadius: '4px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>
+                            <Edit2 size={16} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )
+        ) : viewMode === 'trash' ? (
+          filteredTrashed.length === 0 ? (
+            <div style={{ textAlign: 'center', paddingTop: '64px', paddingBottom: '64px' }}>
+              <p style={{ color: '#888', fontSize: '18px' }}>Trash is empty</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {filteredTrashed.map(quote => {
+                const remaining = daysRemaining(quote.trashedAt);
+                return (
+                  <div key={quote.id} style={{ background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', padding: '14px' }}>
+                    <p style={{ color: '#d4af37', fontWeight: 'bold', fontSize: '14px', marginBottom: '2px' }}>{quote.quoteName || quote.clientName}</p>
+                    <p style={{ color: '#888', fontSize: '12px', marginBottom: '10px' }}>
+                      {quote.clientName} - {quote.location} • {remaining > 0 ? `${remaining} day${remaining === 1 ? '' : 's'} left before it's gone for good` : 'Being permanently deleted soon'}
+                    </p>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={() => restoreQuotes([quote.id])}
+                        style={{ flex: 1, padding: '10px', borderRadius: '6px', background: '#4ade80', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                      >
+                        <RotateCcw size={14} /> Restore
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`Permanently delete "${quote.quoteName || quote.clientName}" right now? This cannot be undone.`)) {
+                            permanentlyDeleteQuotes([quote.id]);
+                          }
+                        }}
+                        style={{ padding: '10px 14px', borderRadius: '6px', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <Trash2 size={14} /> Delete Forever
+                      </button>
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )
+        ) : (
+          filteredArchived.length === 0 ? (
+            <div style={{ textAlign: 'center', paddingTop: '64px', paddingBottom: '64px' }}>
+              <p style={{ color: '#888', fontSize: '18px' }}>No archived quotes</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {filteredArchived.map(quote => (
+                <div key={quote.id} style={{ background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', padding: '14px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ flex: 1 }}>
+                    <p style={{ color: '#d4af37', fontWeight: 'bold', fontSize: '14px', marginBottom: '2px' }}>{quote.quoteName || quote.clientName}</p>
+                    <p style={{ color: '#888', fontSize: '12px' }}>{quote.clientName} - {quote.location}</p>
+                  </div>
+                  <button
+                    onClick={() => unarchiveQuoteLineage(quote)}
+                    style={{ padding: '10px 14px', borderRadius: '6px', background: '#4ade80', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <RotateCcw size={14} /> Unarchive
+                  </button>
+                </div>
+              ))}
+            </div>
+          )
         )}
       </div>
     </div>

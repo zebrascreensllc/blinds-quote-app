@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, Edit2, Trash2, Share2, Files } from 'lucide-react';
+import { Copy, Check, Edit2, Trash2, Share2, Files, Archive } from 'lucide-react';
 import { PRICING_DATA } from '../../data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE } from '../../utils/constants';
 import { formatPrice, formatMoney, isRangeOverride, formatPriceOverride, filterNumericText, parseUnits } from '../../utils/formatters';
@@ -54,6 +54,7 @@ export default function QuoteDetailScreen({
   expandedPricingComparison,
   expandedPricingDetails,
   expandedQuoteTable,
+  archiveQuoteLineage,
   duplicateQuote,
   loadQuoteForEdit,
   priceEditMode,
@@ -1388,6 +1389,18 @@ export default function QuoteDetailScreen({
               style={{ padding: '12px', borderRadius: '8px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
             >
               <Files size={16} />
+            </button>
+
+            {/* ✅ NEW: hides every version of this quote from your active
+                list/Statistics without deleting anything - unlike Delete
+                (moves to Trash, 7-day expiry), Archive keeps it forever
+                until you unarchive it from History > Archived. */}
+            <button
+              onClick={() => archiveQuoteLineage(selectedQuote)}
+              title="Archive this quote"
+              style={{ padding: '12px', borderRadius: '8px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+            >
+              <Archive size={16} />
             </button>
 
             <button

@@ -89,7 +89,7 @@ export default function OrderAnalysis({ quotes, onBack, uid }) {
   const latestQuotes = () => {
     const map = new Map();
     (quotes || []).forEach(q => {
-      if (q.archived) return;
+      if (q.archived || q.trashedAt) return;
       const key = q.lineageId || q.id;
       const existing = map.get(key);
       if (!existing || new Date(q.updatedDate) > new Date(existing.updatedDate)) {
