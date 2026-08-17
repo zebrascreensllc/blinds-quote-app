@@ -4,7 +4,7 @@ import { PRICING_DATA } from '../../data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE } from '../../utils/constants';
 import { formatMoney, isRangeOverride, parseUnits } from '../../utils/formatters';
 import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal } from '../../utils/pricing';
-import { expandQuoteIntoRows, sheetToCSV } from '../../utils/measurementUtils';
+import { generateInvoiceDocx, buildInvoiceLineItems } from '../../utils/invoiceExport';
 import CurrentPricingSection from './CurrentPricingSection';
 
 const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
@@ -814,27 +814,44 @@ export default function QuoteDetailScreen({
           )}
 
           <button
-            onClick={() => {
-              // ✅ NEW: quick "send to supplier for quote confirmation" export.
-              // Reuses the same tested row-expansion + CSV logic as the Supplier
-              // Measurements tool, but carries over the quote's own rough
-              // width/height as-is (prefillMeasurements: true) since the point
-              // here is a fast confirmation pass, not precise measurements.
-              const rows = expandQuoteIntoRows(selectedQuote, { prefillMeasurements: true });
-              const csv = sheetToCSV({ address: selectedQuote.location }, rows);
-              const blob = new Blob([csv], { type: 'text/csv' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `${(selectedQuote.quoteName || 'quote').replace(/[^a-z0-9]/gi, '_')}_supplier_confirmation.csv`;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              setTimeout(() => URL.revokeObjectURL(url), 1000);
+            onClick={async () => {
+              // ✅ NEW: real Word invoice matching the business's reference
+              // template - client-facing (no Width/Height columns, those
+              // stay in Supplier Measurements), one line per window, Motor/
+              // Solar/Hub as their own summary lines, then Total/Tax/
+              // Discount/Grand Total/Advance/Remaining Balance, then the
+              // fixed Terms & Conditions / Warranty Coverage pages.
+              const { hasRangePricing } = buildInvoiceLineItems(selectedQuote);
+              if (hasRangePricing) {
+                if (!window.confirm('Some windows still show an estimated price range (no exact fabric picked yet). The invoice will use the low end of that range for those windows.\n\nContinue anyway?')) return;
+              }
+
+              const advanceInput = window.prompt('Advance Payment (defaults to half of Grand Total - edit if different):', formatMoney(grandMin / 2));
+              if (advanceInput === null) return;
+              const advanceAmount = parseFloat(advanceInput) || 0;
+
+              const discountInput = window.prompt('Discount (optional - enter 0 if none):', '0');
+              if (discountInput === null) return;
+              const discountAmount = parseFloat(discountInput) || 0;
+
+              try {
+                const blob = await generateInvoiceDocx(selectedQuote, { advanceAmount, discountAmount });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${(selectedQuote.quoteName || 'quote').replace(/[^a-z0-9]/gi, '_')}_invoice.docx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              } catch (err) {
+                console.error('Invoice generation failed:', err);
+                alert('❌ Could not create the invoice. Please try again.');
+              }
             }}
             style={{ width: '100%', padding: '12px', marginBottom: '12px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#0e7490', color: '#fff', border: 'none', cursor: 'pointer' }}
           >
-            📤 Export Supplier CSV (Quote Confirmation)
+            🧾 Create Invoice
           </button>
 
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
