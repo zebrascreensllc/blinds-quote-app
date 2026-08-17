@@ -98,14 +98,31 @@ export function validateMeasurementFormat(text) {
 }
 
 /**
+ * Derives a "room family" from a location name by stripping a trailing
+ * " <number>" - e.g. "Living 1" / "Living 2" / "Living 3" all normalize to
+ * "Living". Rooms named the exact same thing already group correctly
+ * without this (that's the common case, e.g. a quote-derived "Living Room"
+ * on every window in it); this exists for Bulk Measurements' manual entry,
+ * where each window's Location is typed individually and someone numbering
+ * them by hand ("Master 1", "Master 2"...) still expects them compared as
+ * one room, not treated as 4 unrelated single-window "rooms".
+ */
+function normalizeRoomKey(locationBase) {
+  const trimmed = (locationBase || '').trim();
+  const stripped = trimmed.replace(/\s+\d+$/, '');
+  return stripped || trimmed;
+}
+
+/**
  * Given all rows on a sheet, finds rows whose width/height is an outlier
- * compared to the median of other windows in the SAME room (locationBase).
- * Only compares rooms with 2+ parseable measurements. Returns a Set of row ids.
+ * compared to the median of other windows in the SAME room (locationBase,
+ * normalized - see normalizeRoomKey). Only compares rooms with 2+ parseable
+ * measurements. Returns a Set of row ids.
  */
 export function findRoomSizeOutliers(rows, field) {
   const byRoom = {};
   rows.forEach(row => {
-    const key = row.locationBase;
+    const key = normalizeRoomKey(row.locationBase);
     const parsed = validateMeasurementFormat(row[field]);
     if (parsed.valid && parsed.decimal !== null) {
       if (!byRoom[key]) byRoom[key] = [];
@@ -343,16 +360,23 @@ export function recomputeLocationIndices(rows) {
 /** Returns the list of room names that currently have 2+ DIFFERENT fabric
  * numbers among their rows (all non-empty). Used to warn before accepting -
  * 99.9% of the time a room should use exactly one fabric. */
+/** Returns normalized room keys (see normalizeRoomKey) that have mixed
+ * fabric - callers must normalize a row's own locationBase the same way
+ * before checking membership (e.g. findRoomsWithMixedFabric(rows).has(...)
+ * needs normalizeRoomKey(row.locationBase), not the raw value). */
 export function findRoomsWithMixedFabric(rows) {
   const byRoom = {};
   rows.forEach(row => {
     const fabric = (row.fabricNumber || '').trim();
     if (!fabric) return;
-    if (!byRoom[row.locationBase]) byRoom[row.locationBase] = new Set();
-    byRoom[row.locationBase].add(fabric);
+    const key = normalizeRoomKey(row.locationBase);
+    if (!byRoom[key]) byRoom[key] = new Set();
+    byRoom[key].add(fabric);
   });
   return Object.entries(byRoom).filter(([, set]) => set.size > 1).map(([room]) => room);
 }
+
+export { normalizeRoomKey };
 
 // ---- Completeness check (required before Copy/Download) -------------------
 

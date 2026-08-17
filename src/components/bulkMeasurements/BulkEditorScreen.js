@@ -8,6 +8,7 @@ import {
   getLocationLabel,
   getIncompleteFields,
   findRoomsWithMixedFabric,
+  normalizeRoomKey,
   buildRowExportFields
 } from '../../utils/measurementUtils';
 
@@ -79,6 +80,7 @@ export default function BulkEditorScreen({
   updateRowLocation,
   addWindowRow,
   deleteWindowRow,
+  moveWindowRow,
   remoteLabels,
   widthOutlierIds,
   heightOutlierIds,
@@ -219,6 +221,7 @@ export default function BulkEditorScreen({
             const heightOutlierKey = warningKey([row.id, 'height', row.height]);
             const showHeightWarning = heightCheck.valid && heightOutlierIds.has(row.id) && !acknowledgedWarnings.has(heightOutlierKey);
             const isExpanded = expandedRowId === row.id;
+            const isFirstRow = rowIndex === 0;
             const isLastRow = rowIndex === rows.length - 1;
 
             const missing = [!row.width.trim() && 'width', !row.height.trim() && 'height'].filter(Boolean);
@@ -230,31 +233,53 @@ export default function BulkEditorScreen({
 
             return (
               <div key={row.id} style={{ background: '#242424', border: '1px solid #444', borderRadius: '8px', overflow: 'hidden' }}>
+                {/* ✅ FIX: delete used to sit right next to the collapse
+                    chevron on the far right, so a tap meant to collapse the
+                    card could land on Delete instead. Moved next to the
+                    location name (far left) - collapse (right) and delete
+                    (left) are now as far apart as the card allows. */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '12px' }}>
-                  <button
-                    onClick={() => setExpandedRowId(isExpanded ? null : row.id)}
-                    style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left' }}
-                  >
-                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: row.locationBase.trim() ? '#d4af37' : '#888' }}>
-                      {getLocationLabel(row)}
-                      {row.comment && row.comment.trim() && <span style={{ marginLeft: '8px', fontSize: '13px' }} title={row.comment}>💬</span>}
-                    </span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {!isExpanded && <span style={{ fontSize: '12px', color: summaryColor }}>{summaryText}</span>}
-                      <span style={{ color: '#888', fontSize: '14px' }}>{isExpanded ? '▼' : '▶'}</span>
-                    </span>
-                  </button>
+                  <span style={{ fontSize: '14px', fontWeight: 'bold', color: row.locationBase.trim() ? '#d4af37' : '#888', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                    {getLocationLabel(row)}
+                    {row.comment && row.comment.trim() && <span style={{ marginLeft: '8px', fontSize: '13px' }} title={row.comment}>💬</span>}
+                  </span>
                   <button
                     onClick={() => deleteWindowRow(row.id)}
                     title="Delete this window"
                     style={{ padding: '6px', background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={14} />
+                  </button>
+                  <button
+                    onClick={() => setExpandedRowId(isExpanded ? null : row.id)}
+                    style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                  >
+                    {!isExpanded && <span style={{ fontSize: '12px', color: summaryColor }}>{summaryText}</span>}
+                    <span style={{ color: '#888', fontSize: '14px' }}>{isExpanded ? '▼' : '▶'}</span>
                   </button>
                 </div>
 
                 {isExpanded && (
                   <div style={{ padding: '0 12px 12px 12px' }}>
+                    {/* ✅ NEW: manual reordering - up/down instead of drag-
+                        and-drop, since drag targets are unreliable on a
+                        touch screen inside a scrolling list. */}
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                      <button
+                        onClick={() => moveWindowRow(row.id, 'up')}
+                        disabled={isFirstRow}
+                        style={{ flex: 1, padding: '8px', borderRadius: '6px', background: '#1a1a1a', border: '1px solid #444', color: isFirstRow ? '#555' : '#ccc', cursor: isFirstRow ? 'default' : 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                      >
+                        ↑ Move Up
+                      </button>
+                      <button
+                        onClick={() => moveWindowRow(row.id, 'down')}
+                        disabled={isLastRow}
+                        style={{ flex: 1, padding: '8px', borderRadius: '6px', background: '#1a1a1a', border: '1px solid #444', color: isLastRow ? '#555' : '#ccc', cursor: isLastRow ? 'default' : 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                      >
+                        ↓ Move Down
+                      </button>
+                    </div>
                     <div style={{ marginBottom: '10px' }}>
                       <label style={labelStyle}>Location (e.g. Living Room)</label>
                       <input
@@ -599,7 +624,7 @@ export default function BulkEditorScreen({
                 const f = buildRowExportFields(row, idx, remoteLabels);
                 const incompleteFields = getIncompleteFields(row);
                 const isIncomplete = incompleteFields.length > 0;
-                const mixedFabricWarning = roomsWithMixedFabric.has(row.locationBase);
+                const mixedFabricWarning = roomsWithMixedFabric.has(normalizeRoomKey(row.locationBase));
                 return (
                   <tr key={row.id} style={{ background: isIncomplete ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
                     <td style={stickyBodyCellStyle(isIncomplete)}>{f.location}</td>

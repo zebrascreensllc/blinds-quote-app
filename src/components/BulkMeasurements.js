@@ -316,6 +316,26 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     if (expandedRowId === rowId) setExpandedRowId(null);
   };
 
+  // ✅ NEW: manual reordering - swaps a window with its immediate neighbor.
+  // Recomputes location indices afterward since same-name grouping and the
+  // "Window N" fallback for unnamed windows both number rows by array
+  // order, so moving a row changes numbering for it and its new neighbors.
+  const moveWindowRow = (rowId, direction) => {
+    if (!activeSheet) return;
+    const rows = activeSheet.rows;
+    const idx = rows.findIndex(r => r.id === rowId);
+    if (idx === -1) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= rows.length) return;
+    const newRows = [...rows];
+    [newRows[idx], newRows[targetIdx]] = [newRows[targetIdx], newRows[idx]];
+    updateActiveSheet(sheet => ({
+      ...sheet,
+      rows: recomputeLocationIndices(newRows),
+      updatedDate: new Date().toISOString()
+    }));
+  };
+
   const openSheet = (id) => {
     const sheet = sheets.find(s => s.id === id);
     setActiveSheetId(id);
@@ -663,6 +683,7 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
       updateRowLocation={updateRowLocation}
       addWindowRow={addWindowRow}
       deleteWindowRow={deleteWindowRow}
+      moveWindowRow={moveWindowRow}
       remoteLabels={remoteLabels}
       widthOutlierIds={widthOutlierIds}
       heightOutlierIds={heightOutlierIds}
