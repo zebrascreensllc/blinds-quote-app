@@ -9,6 +9,7 @@ export const getPricingSnapshot = () => ({
   MOTOR_COST_SUPPLIER: 50,
   SOLAR_COST_CLIENT: 40,
   SOLAR_COST_SUPPLIER: 22,
+  HUB_COST: 65,
   MISC_EXPENSE: 4.50,
   SHIPPING_COST: 42,
   REMOTE_6CH: 7,
@@ -24,11 +25,14 @@ export const getPricingSnapshot = () => ({
   CREATED_DATE: new Date().toISOString()
 });
 
+export const DEFAULT_HUB = { included: false, quantity: 1, price: 65 };
+
 export const INITIAL_FORM_STATE = {
   clientName: '',
   clientPhone: '',
   location: '',
   date: new Date().toISOString().split('T')[0],
+  hub: DEFAULT_HUB,
   rooms: [{
     id: 1,
     name: '',

@@ -311,6 +311,20 @@ export const autoDetectBlindTypes = (fabricInput, fabricData = null) => {
 // from Motor here (the Pricing Comparison panel bundles them into one
 // "Motor Cost" figure) since Order Analysis tracks them as separate line
 // items to compare against the supplier's actual invoice.
+// ✅ NEW: Hub is a quote-level charge (one smart-home hub can cover many
+// motorized windows, unlike Motor/Solar which are per-window) - not part of
+// calculateGroupQuote's per-window math at all. quantity*price, or 0 if Hub
+// isn't included on this quote. A price of exactly 0 means "complimentary"
+// (included but not charged) - callers that display this should check for
+// that explicitly rather than just hiding a $0 row.
+export const getHubTotal = (quote) => {
+  const hub = quote?.hub;
+  if (!hub || !hub.included) return 0;
+  const qty = parseInt(hub.quantity) || 1;
+  const price = typeof hub.price === 'number' ? hub.price : 0;
+  return qty * price;
+};
+
 export const computeQuoteFinancials = (quote) => {
   const rooms = quote.rooms || [];
   const storedPricing = quote.pricing || null;
@@ -380,6 +394,10 @@ export const computeQuoteFinancials = (quote) => {
   const effectiveSolarCost = typeof quote.editedPrices?.solarCost === 'number' ? quote.editedPrices.solarCost : defaultSolarCostClient;
   const motorGrandTotal = motorCount * effectiveMotorCost;
   const solarGrandTotal = solarCount * effectiveSolarCost;
+  // Hub has no known supplier-cost figure (unlike Motor/Solar), so it's only
+  // added to revenue/profit, never to appGeneratedCosts - fabricating a
+  // supplier cost would be worse than omitting one.
+  const hubTotal = getHubTotal(quote);
 
   const appGeneratedCosts = {
     fabric: fabricCost,
@@ -392,14 +410,16 @@ export const computeQuoteFinancials = (quote) => {
 
   return {
     appGeneratedCosts,
-    // Revenue actually charged to the client (window + motor + solar, no
-    // tax) - uses the MIN side of any still-ranged pricing, matching how the
-    // rest of the app treats an un-resolved range as its conservative low end.
-    revenueSubtotal: totalMin + motorGrandTotal + solarGrandTotal,
-    revenueSubtotalMax: totalMax + motorGrandTotal + solarGrandTotal,
-    appEstimatedProfit: (totalMin + motorGrandTotal + solarGrandTotal) - appGeneratedCosts.total,
+    // Revenue actually charged to the client (window + motor + solar + hub,
+    // no tax) - uses the MIN side of any still-ranged pricing, matching how
+    // the rest of the app treats an un-resolved range as its conservative
+    // low end.
+    revenueSubtotal: totalMin + motorGrandTotal + solarGrandTotal + hubTotal,
+    revenueSubtotalMax: totalMax + motorGrandTotal + solarGrandTotal + hubTotal,
+    appEstimatedProfit: (totalMin + motorGrandTotal + solarGrandTotal + hubTotal) - appGeneratedCosts.total,
     motorCount,
-    solarCount
+    solarCount,
+    hubTotal
   };
 };
 

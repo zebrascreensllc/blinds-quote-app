@@ -441,6 +441,63 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
           </button>
         </BulkToolPanel>
 
+        {/* ✅ NEW: Hub - a smart-home hub covers many motorized windows (not
+            per-window like Motor/Solar), so this only shows once there's at
+            least one motorized window, and is a single quote-level charge
+            rather than a per-window bulk-assign tool. Quantity auto-suggests
+            1 per 20 motors when first turned on (large jobs need a 2nd hub),
+            editable afterward. A price of $0 means complimentary - shown
+            everywhere downstream as "Complimentary" rather than "$0". */}
+        {motorGroupItems.length > 0 && (() => {
+          const hub = formData.hub || { included: false, quantity: 1, price: 65 };
+          const motorWindowCount = motorGroupItems.reduce((sum, i) => sum + (parseInt(i.group.quantity) || 0), 0);
+          const suggestedQty = Math.max(1, Math.ceil(motorWindowCount / 20));
+          return (
+            <>
+              <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>Hub</p>
+              <div style={{ background: '#2a1a2a', border: '1px solid #8a4a7a', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', marginBottom: hub.included ? '12px' : 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={hub.included}
+                    onChange={(e) => {
+                      const included = e.target.checked;
+                      setFormData({ ...formData, hub: { ...hub, included, quantity: included && hub.quantity === 1 ? suggestedQty : hub.quantity } });
+                    }}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  />
+                  <span style={{ color: '#f0abfc', fontWeight: 'bold', fontSize: '13px' }}>Include Hub ({motorWindowCount} motorized window{motorWindowCount === 1 ? '' : 's'})</span>
+                </label>
+                {hub.included && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={labelStyle}>Quantity</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={hub.quantity}
+                        onChange={(e) => setFormData({ ...formData, hub: { ...hub, quantity: parseInt(e.target.value) || 1 } })}
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Price per Hub</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={hub.price}
+                        onChange={(e) => setFormData({ ...formData, hub: { ...hub, price: e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0) } })}
+                        style={inputStyle}
+                      />
+                      <p style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>{hub.price === 0 ? 'Complimentary (not charged)' : `Total: $${(hub.quantity * hub.price).toFixed(2)}`}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          );
+        })()}
+
         {/* 8. Review table */}
         <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px', marginTop: '8px' }}>Review</p>
         <div style={{ overflowX: 'auto', marginBottom: '24px', border: '1px solid #444', borderRadius: '8px' }}>

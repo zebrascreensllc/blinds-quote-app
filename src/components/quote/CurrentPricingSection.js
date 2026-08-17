@@ -26,6 +26,7 @@ export default function CurrentPricingSection({
   groupEdits,
   motorCount,
   motorGrandTotal,
+  hubTotal,
   priceEditMode,
   selectedQuote,
   setActiveEditText,
@@ -525,7 +526,22 @@ export default function CurrentPricingSection({
                 );
               })()}
 
-              {(motorCount > 0 || solarCount > 0) && (
+              {/* ✅ NEW: Hub - a quote-level charge (not per-window), so it's a
+                  plain display row rather than the pencil-edit pattern Motor/
+                  Solar/Tax use. To change it, use Edit (re-opens Quote
+                  Create's Hub section) rather than editing here directly. */}
+              {selectedQuote.hub?.included && (
+                <div style={{ background: '#3a2a3a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#aaa' }}>
+                    Hub{selectedQuote.hub.quantity > 1 ? ` (${selectedQuote.hub.quantity})` : ''}:
+                  </span>
+                  <span style={{ color: hubTotal === 0 ? '#4ade80' : '#fff', fontWeight: 'bold' }}>
+                    {hubTotal === 0 ? 'Complimentary' : `$${formatMoney(hubTotal)}`}
+                  </span>
+                </div>
+              )}
+
+              {(motorCount > 0 || solarCount > 0 || selectedQuote.hub?.included) && (
                 <div style={{ background: '#2a2a3a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
                   <span style={{ color: '#ccc' }}>Subtotal (before tax):</span>
                   <span style={{ color: '#ccc' }}>{formatPrice(subtotalMin, subtotalMax)}</span>

@@ -3,7 +3,7 @@ import { Copy, Check, Edit2, Trash2, Share2, Files, Archive } from 'lucide-react
 import { PRICING_DATA } from '../../data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE } from '../../utils/constants';
 import { formatMoney, isRangeOverride, parseUnits } from '../../utils/formatters';
-import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric, autoDetectBlindTypes } from '../../utils/pricing';
+import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal } from '../../utils/pricing';
 import { expandQuoteIntoRows, sheetToCSV } from '../../utils/measurementUtils';
 import CurrentPricingSection from './CurrentPricingSection';
 
@@ -348,13 +348,17 @@ export default function QuoteDetailScreen({
       if (typeof saved === 'number') return saved;                // Previously saved edit
       return storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE;    // Default
     })();
+    // ✅ NEW: Hub is a quote-level charge (not per-window like Motor/Solar,
+    // see getHubTotal) - taxed and added into Grand Total the same way.
+    const hubTotal = getHubTotal(selectedQuote);
+
     // ✅ BUGFIX (the main issue reported): Motor and Solar totals were never
     // actually added into the taxable base or Grand Total before - they were
     // just informational rows sitting next to numbers that didn't include them.
-    // Tax now applies to Window + Motor + Solar together, and Grand Total
-    // reflects that same combined amount, not just the window cost.
-    const subtotalMin = totalMin + motorGrandTotal + solarGrandTotal;
-    const subtotalMax = totalMax + motorGrandTotal + solarGrandTotal;
+    // Tax now applies to Window + Motor + Solar + Hub together, and Grand
+    // Total reflects that same combined amount, not just the window cost.
+    const subtotalMin = totalMin + motorGrandTotal + solarGrandTotal + hubTotal;
+    const subtotalMax = totalMax + motorGrandTotal + solarGrandTotal + hubTotal;
     const taxMin = subtotalMin * taxRate;
     const taxMax = subtotalMax * taxRate;
     const grandMin = subtotalMin + taxMin;
@@ -416,7 +420,10 @@ export default function QuoteDetailScreen({
       if (solarCount > 0) {
         text += `Solar ${solarCount} cost total: $${formatMoney(solarGrandTotal)}\n`;
       }
-      if (motorCount > 0 || solarCount > 0) {
+      if (hubTotal > 0 || selectedQuote.hub?.included) {
+        text += `Hub${selectedQuote.hub?.quantity > 1 ? ` (${selectedQuote.hub.quantity})` : ''}: ${hubTotal === 0 ? 'Complimentary' : `$${formatMoney(hubTotal)}`}\n`;
+      }
+      if (motorCount > 0 || solarCount > 0 || selectedQuote.hub?.included) {
         text += `Subtotal (before tax): ${formatTextPrice(subtotalMin, subtotalMax)}\n`;
       }
       text += `Sales Tax (${formatMoney(taxRate * 100)}%): ${formatTextPrice(taxMin, taxMax)}\n`;
@@ -565,6 +572,7 @@ export default function QuoteDetailScreen({
             groupEdits={groupEdits}
             motorCount={motorCount}
             motorGrandTotal={motorGrandTotal}
+            hubTotal={hubTotal}
             priceEditMode={priceEditMode}
             selectedQuote={selectedQuote}
             setActiveEditText={setActiveEditText}

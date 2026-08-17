@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, TrendingUp } from 'lucide-react';
 import { PRICING_DATA } from '../../data/pricingData';
-import { calculateGroupQuote, getBlindTypeFromFabric } from '../../utils/pricing';
+import { calculateGroupQuote, getBlindTypeFromFabric, getHubTotal } from '../../utils/pricing';
 import { isRangeOverride } from '../../utils/formatters';
 import { subscribeToAnalysisEntries } from '../../services/analysisSync';
 
@@ -121,6 +121,10 @@ export default function StatisticsScreen({ quotes, setCurrentView, uid }) {
         }
       });
     });
+
+    // Hub has no known supplier cost (see getHubTotal), so its full charge
+    // is added straight to profit, once per quote - not per window.
+    quoteProfit += getHubTotal(quote);
 
     stats.monthlyStats[monthKey].profit += quoteProfit;
     stats.totalProfit += quoteProfit;

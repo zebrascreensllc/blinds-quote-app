@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
 import { PRICING_DATA } from './data/pricingData';
-import { getPricingSnapshot } from './utils/constants';
+import { getPricingSnapshot, DEFAULT_HUB } from './utils/constants';
 import { getQuoteNamePrefix, getNextVersion } from './utils/pricing';
 
 // ✅ NEW (Phase 2): Supplier Measurements - fully isolated feature, own files,
@@ -51,6 +51,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     clientPhone: '',
     location: '',
     date: new Date().toISOString().split('T')[0],
+    hub: DEFAULT_HUB,
     rooms: [{
       id: 1,
       name: '',
@@ -543,6 +544,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       clientPhone: '',
       location: '',
       date: new Date().toISOString().split('T')[0],
+      hub: DEFAULT_HUB,
       rooms: [{
         id: 1,
         name: '',
@@ -603,6 +605,13 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     }];
   };
 
+  // Normalizes hub - older quotes saved before this field existed just
+  // won't have it at all, so this fills in the same default a brand new
+  // quote starts with rather than leaving it undefined.
+  const sanitizeHub = (hub) => (hub && typeof hub === 'object'
+    ? { included: !!hub.included, quantity: parseInt(hub.quantity) || 1, price: typeof hub.price === 'number' ? hub.price : DEFAULT_HUB.price }
+    : DEFAULT_HUB);
+
   const loadQuoteForEdit = (quote) => {
     try {
       setFormData({
@@ -610,6 +619,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         clientPhone: quote.clientPhone || '',
         location: quote.location || '',
         date: quote.date || new Date().toISOString().split('T')[0],
+        hub: sanitizeHub(quote.hub),
         rooms: sanitizeQuoteRooms(quote.rooms)
       });
       setEditingQuote(quote);
@@ -636,6 +646,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         clientPhone: quote.clientPhone || '',
         location: quote.location || '',
         date: new Date().toISOString().split('T')[0],
+        hub: sanitizeHub(quote.hub),
         rooms: sanitizeQuoteRooms(quote.rooms)
       });
       setEditingQuote(null);
