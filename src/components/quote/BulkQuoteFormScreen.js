@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Trash2 } from 'lucide-react';
-import { autoDetectBlindTypes, getHeightSurcharge, getWidthSurcharge } from '../../utils/pricing';
+import { autoDetectBlindTypes, getHeightSurcharge, getWidthSurcharge, findDiscontinuedFabrics } from '../../utils/pricing';
 
 const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
 
@@ -150,6 +150,13 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
     if (bulkMode === 'fabric') {
       const fabricValue = bulkFabricInput.trim();
       if (!fabricValue) { alert('Enter a fabric number first.'); return; }
+      // ✅ NEW: hard block, not a warning - these are out of stock with no
+      // more orders being accepted, unlike an unrecognized-fabric typo.
+      const discontinued = findDiscontinuedFabrics(fabricValue);
+      if (discontinued.length > 0) {
+        alert(`${discontinued.join(', ')} ${discontinued.length > 1 ? 'are' : 'is'} out of stock - no longer available to order. Please choose a different fabric.`);
+        return;
+      }
       const detectedTypes = autoDetectBlindTypes(fabricValue);
       newRooms = formData.rooms.map(room =>
         fabricSelectedRoomIds.has(room.id) ? { ...room, fabricInput: fabricValue, blindTypes: detectedTypes } : room

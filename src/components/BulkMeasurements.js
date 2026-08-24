@@ -28,7 +28,7 @@ import { sheetToExcelBuffer } from '../utils/xlsxExport';
 // zero-pricing-import isolation - imported here in the container only,
 // never into measurementUtils.js itself, and only for Bulk Measurements
 // (the original Supplier Measurements feature is intentionally untouched).
-import { isFabricValid } from '../utils/pricing';
+import { isFabricValid, findDiscontinuedFabrics } from '../utils/pricing';
 import { PRICING_DATA } from '../data/pricingData';
 
 // Same identity/export-naming convention as SupplierMeasurements.js.
@@ -376,12 +376,21 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     if (!value) { alert('Enter a fabric number first.'); return; }
     if (fabricSelectedRowIds.size === 0) { alert('Select at least one window first.'); return; }
 
-    // ✅ NEW: check the fabric number against the actual catalog before
-    // applying, same isFabricValid check the quote side already uses to
-    // flag unrecognized fabrics. A typo here (e.g. "fdsafw3") previously
-    // applied silently with zero warning - now it's a confirm, not a hard
-    // block, since a genuinely new fabric not yet in the system is still a
-    // real, valid thing to send to the supplier.
+    // ✅ NEW: discontinued fabrics are a hard block, not a warning - out of
+    // stock, no more orders regardless of whether the number itself is
+    // spelled right.
+    const discontinued = findDiscontinuedFabrics(value);
+    if (discontinued.length > 0) {
+      alert(`${discontinued.join(', ')} ${discontinued.length > 1 ? 'are' : 'is'} out of stock - no longer available to order. Please choose a different fabric.`);
+      return;
+    }
+
+    // Check the fabric number against the actual catalog before applying,
+    // same isFabricValid check the quote side already uses to flag
+    // unrecognized fabrics. A typo here (e.g. "fdsafw3") previously applied
+    // silently with zero warning - now it's a confirm, not a hard block,
+    // since a genuinely new fabric not yet in the system is still a real,
+    // valid thing to send to the supplier.
     if (!isFabricValid(value, PRICING_DATA)) {
       if (!window.confirm(`"${value}" is not in the fabric list - it may be a typo.\n\nApply it anyway?`)) return;
     }

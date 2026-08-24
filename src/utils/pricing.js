@@ -21,6 +21,21 @@ export const getHeightSurcharge = (height, pricing = null) => {
   return 0;
 };
 
+// ✅ NEW: fabrics that still exist in PRICING_DATA (isFabricValid returns
+// true for them - they're real catalog entries) but are out of stock with
+// no more orders being taken. Distinct from "invalid" - an invalid fabric
+// might be a typo (soft warning, still allowed), a discontinued one is a
+// hard block regardless of spelling.
+export const DISCONTINUED_FABRICS = ['82032D', '82032E'];
+
+/** Given a comma-separated fabric input (room.fabricInput's own format),
+ * returns which of the entered numbers are discontinued - empty array if
+ * none. Case-insensitive, same as isFabricValid. */
+export const findDiscontinuedFabrics = (fabricInput) => {
+  const numbers = (fabricInput || '').split(',').map(f => f.trim().toUpperCase()).filter(f => f);
+  return numbers.filter(n => DISCONTINUED_FABRICS.includes(n));
+};
+
 // Check if fabric is valid
 export const isFabricValid = (fabricNum, fabricData = null) => {
   const data = fabricData || PRICING_DATA;

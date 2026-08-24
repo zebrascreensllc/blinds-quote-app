@@ -3,7 +3,7 @@ import { Copy, Check, Edit2, Trash2, Share2, Files, Archive } from 'lucide-react
 import { PRICING_DATA } from '../../data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE } from '../../utils/constants';
 import { formatMoney, isRangeOverride, parseUnits } from '../../utils/formatters';
-import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal } from '../../utils/pricing';
+import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics } from '../../utils/pricing';
 import { generateInvoiceDocx, buildInvoiceLineItems } from '../../utils/invoiceExport';
 import CurrentPricingSection from './CurrentPricingSection';
 
@@ -169,6 +169,12 @@ export default function QuoteDetailScreen({
       if (bulkFabricMode === 'fabric') {
         const fabricValue = bulkFabricInput.trim();
         if (!fabricValue) { alert('Enter a fabric number first.'); return; }
+        // ✅ NEW: hard block, not a warning - out of stock, no more orders.
+        const discontinued = findDiscontinuedFabrics(fabricValue);
+        if (discontinued.length > 0) {
+          alert(`${discontinued.join(', ')} ${discontinued.length > 1 ? 'are' : 'is'} out of stock - no longer available to order. Please choose a different fabric.`);
+          return;
+        }
         edit = { fabricInput: fabricValue, blindTypes: autoDetectBlindTypes(fabricValue) };
         appliedLabel = `fabric "${fabricValue}"`;
       } else {
@@ -239,6 +245,12 @@ export default function QuoteDetailScreen({
 
     // Check for invalid fabrics
     const invalidFabrics = [];
+    // ✅ NEW: separate from "invalid" - these fabrics ARE real catalog
+    // entries (isFabricValid returns true), just out of stock. Surfaces on
+    // an already-saved quote too, not just at the moment of applying one -
+    // a quote saved before a fabric was discontinued would otherwise show
+    // no warning at all when reopened.
+    const discontinuedFabricsFound = [];
     effectiveRooms.forEach((room, roomIndex) => {
       const fabricNumbers = room.fabricInput.split(',').map(f => f.trim()).filter(f => f);
       const fabricData = storedPricing?.PRICING_DATA || PRICING_DATA;
@@ -247,6 +259,9 @@ export default function QuoteDetailScreen({
         if (!isFabricValid(fabricNum, fabricData)) {
           invalidFabrics.push({ fabric: fabricNum, room: room.name || `Room ${roomIndex + 1}` });
         }
+      });
+      findDiscontinuedFabrics(room.fabricInput).forEach(fabricNum => {
+        discontinuedFabricsFound.push({ fabric: fabricNum, room: room.name || `Room ${roomIndex + 1}` });
       });
     });
 
@@ -453,6 +468,27 @@ export default function QuoteDetailScreen({
               <div style={{ background: '#2a1a1a', padding: '8px 12px', borderRadius: '4px', borderLeft: '3px solid #ff6b6b' }}>
                 {invalidFabrics.map((item, idx) => (
                   <p key={idx} style={{ fontSize: '11px', color: '#ffdddd', margin: '4px 0' }}>
+                    • <strong>{item.fabric}</strong> ({item.room})
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ✅ NEW: Discontinued Fabrics Warning - separate from invalid,
+              these are real catalog fabrics that are just out of stock. */}
+          {discontinuedFabricsFound.length > 0 && (
+            <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#3a2a1a', border: '2px solid #f59e0b', padding: '16px' }}>
+              <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#f59e0b', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '16px' }}>⚠️</span>
+                OUT-OF-STOCK FABRICS ON THIS QUOTE
+              </p>
+              <p style={{ fontSize: '11px', color: '#fcd9a0', marginBottom: '8px', fontStyle: 'italic' }}>
+                These fabrics are no longer available to order - if this job hasn't shipped yet, confirm a replacement with the client before ordering:
+              </p>
+              <div style={{ background: '#2a1a0a', padding: '8px 12px', borderRadius: '4px', borderLeft: '3px solid #f59e0b' }}>
+                {discontinuedFabricsFound.map((item, idx) => (
+                  <p key={idx} style={{ fontSize: '11px', color: '#fde3b8', margin: '4px 0' }}>
                     • <strong>{item.fabric}</strong> ({item.room})
                   </p>
                 ))}
