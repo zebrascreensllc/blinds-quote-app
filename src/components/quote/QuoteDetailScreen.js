@@ -5,6 +5,8 @@ import { BUSINESS_NAME, SALES_TAX_RATE } from '../../utils/constants';
 import { formatMoney, isRangeOverride, parseUnits } from '../../utils/formatters';
 import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics } from '../../utils/pricing';
 import { generateInvoiceDocx, buildInvoiceLineItems } from '../../utils/invoiceExport';
+import { expandQuoteIntoRows } from '../../utils/measurementUtils';
+import { sheetToExcelBuffer } from '../../utils/xlsxExport';
 import CurrentPricingSection from './CurrentPricingSection';
 
 const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
@@ -888,6 +890,37 @@ export default function QuoteDetailScreen({
             style={{ width: '100%', padding: '12px', marginBottom: '12px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#0e7490', color: '#fff', border: 'none', cursor: 'pointer' }}
           >
             🧾 Create Invoice
+          </button>
+
+          <button
+            onClick={async () => {
+              // ✅ NEW: quick "send to supplier for quote" export - same
+              // Excel-with-highlighting format Supplier Measurements already
+              // uses (sheetToExcelBuffer), reusing the same row-expansion
+              // that used to feed the CSV export this replaced. Carries
+              // over the quote's own rough width/height as-is
+              // (prefillMeasurements: true), since this is a fast
+              // confirmation pass, not precise measurements.
+              try {
+                const rows = expandQuoteIntoRows(selectedQuote, { prefillMeasurements: true });
+                const buffer = await sheetToExcelBuffer({ address: selectedQuote.location }, rows);
+                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${(selectedQuote.quoteName || 'quote').replace(/[^a-z0-9]/gi, '_')}_supplier_quote.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              } catch (err) {
+                console.error('Excel export failed:', err);
+                alert('❌ Could not create the Excel file. Please try again.');
+              }
+            }}
+            style={{ width: '100%', padding: '12px', marginBottom: '12px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#1d6f42', color: '#fff', border: 'none', cursor: 'pointer' }}
+          >
+            📊 Download Excel for Supplier (with highlighting)
           </button>
 
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
