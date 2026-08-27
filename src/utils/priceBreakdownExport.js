@@ -41,9 +41,19 @@ export async function generatePriceBreakdownExcel(quote) {
     });
   });
 
+  // ✅ FIX: summary rows used to put the label under "Type" (column E) and
+  // the value under "Price" (column F, the last one) - on a phone, most
+  // spreadsheet apps only show the first 2-3 columns without scrolling
+  // right, so every summary row (including Total) looked blank unless you
+  // scrolled. Merging the row into one full-width cell with "Label: $Value"
+  // combined means it's readable starting from column A, no scrolling
+  // needed on any screen size.
   const summaryRow = (label, value, bold = false) => {
-    const row = ws.addRow({ type: label, price: value });
-    if (bold) row.font = { bold: true };
+    const row = ws.addRow([]);
+    ws.mergeCells(`A${row.number}:F${row.number}`);
+    const cell = row.getCell(1);
+    cell.value = `${label}: ${value}`;
+    if (bold) cell.font = { bold: true };
     return row;
   };
 
