@@ -64,7 +64,10 @@ export function buildInvoiceLineItems(quote) {
       for (let i = 0; i < quantity; i++) {
         items.push({
           location: room.name || 'Room',
+          width: group.width || '',
+          height: group.height || '',
           motorSmart: group.controlType === 'Motor' ? 'Smart' : 'Manual',
+          solar: !!group.solar,
           unitPrice: perWindowPrice
         });
       }
@@ -160,9 +163,12 @@ function buildInvoiceNumber(quote) {
  * from generateInvoiceDocx so it can be exercised directly in a Node test
  * with real logo bytes from disk, without needing the browser's fetch API.
  */
-export function buildInvoiceDocument(quote, { advanceAmount = 0, discountAmount = 0 } = {}, logoBytes) {
-  const { items } = buildInvoiceLineItems(quote);
-
+/**
+ * Cost math shared by the invoice and the price breakdown Excel - keeping
+ * this in one place means the two can never disagree on Motor/Solar/Hub/
+ * Tax/Grand Total for the same quote.
+ */
+export function computeInvoiceTotals(quote, items, { advanceAmount = 0, discountAmount = 0 } = {}) {
   const storedPricing = quote.pricing || null;
   const motorCount = items.filter(it => it.motorSmart === 'Smart').length;
   const solarCount = (quote.rooms || []).reduce((sum, room) => sum + room.windowGroups.filter(g => g.solar).reduce((s2, g) => s2 + (parseInt(g.quantity) || 0), 0), 0);
@@ -178,6 +184,19 @@ export function buildInvoiceDocument(quote, { advanceAmount = 0, discountAmount 
   const salesTax = total * taxRate;
   const grandTotal = total + salesTax - discountAmount;
   const remainingBalance = grandTotal - advanceAmount;
+
+  return {
+    motorCount, solarCount, effectiveMotorCost, effectiveSolarCost, motorGrandTotal, solarGrandTotal, hubTotal,
+    itemsSubtotal, total, taxRate, salesTax, grandTotal, remainingBalance
+  };
+}
+
+export function buildInvoiceDocument(quote, { advanceAmount = 0, discountAmount = 0 } = {}, logoBytes) {
+  const { items } = buildInvoiceLineItems(quote);
+  const {
+    motorCount, solarCount, effectiveMotorCost, effectiveSolarCost, motorGrandTotal, solarGrandTotal, hubTotal,
+    total, taxRate, salesTax, grandTotal, remainingBalance
+  } = computeInvoiceTotals(quote, items, { advanceAmount, discountAmount });
 
   const headerTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },

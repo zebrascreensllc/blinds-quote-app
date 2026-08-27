@@ -7,6 +7,7 @@ import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric, autoDetectB
 import { generateInvoiceDocx, buildInvoiceLineItems } from '../../utils/invoiceExport';
 import { expandQuoteIntoRows } from '../../utils/measurementUtils';
 import { sheetToExcelBuffer } from '../../utils/xlsxExport';
+import { generatePriceBreakdownExcel } from '../../utils/priceBreakdownExport';
 import CurrentPricingSection from './CurrentPricingSection';
 
 const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
@@ -923,24 +924,43 @@ export default function QuoteDetailScreen({
             📊 Download Excel for Supplier (with highlighting)
           </button>
 
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(copyText);
-                setCopiedId(selectedQuote.id);
-                setTimeout(() => setCopiedId(null), 2000);
-              }}
-              style={{ flex: '1 1 90px', paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}
-            >
-              {copiedId === selectedQuote.id ? <Check size={16} /> : <Copy size={16} />}
-              {copiedId === selectedQuote.id ? 'Copied!' : 'Copy'}
-            </button>
+          {/* ✅ NEW: client-facing detail breakdown - same per-window prices
+              Copy/Share already communicate as text, but as a proper
+              spreadsheet with dimensions and one row per window, for the
+              occasional client who wants the math spelled out. */}
+          <button
+            onClick={async () => {
+              try {
+                const buffer = await generatePriceBreakdownExcel(selectedQuote);
+                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${(selectedQuote.quoteName || 'quote').replace(/[^a-z0-9]/gi, '_')}_price_breakdown.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              } catch (err) {
+                console.error('Price breakdown export failed:', err);
+                alert('❌ Could not create the Excel file. Please try again.');
+              }
+            }}
+            style={{ width: '100%', padding: '12px', marginBottom: '12px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#7c3aed', color: '#fff', border: 'none', cursor: 'pointer' }}
+          >
+            📈 Download Price Breakdown (Excel)
+          </button>
 
-            {/* ✅ NEW: native share sheet (Messages/Mail/WhatsApp/etc) where the
-                browser supports it - skips the copy-then-switch-app-then-paste
-                round trip. Feature-detected, so it just doesn't render on
-                browsers without Web Share support (most desktop browsers). */}
-            {typeof navigator.share === 'function' && (
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            {/* ✅ CONSOLIDATED: Copy and Share used to both render side by
+                side, but they did the same job - get this quote's text
+                somewhere else - with Share strictly the more convenient of
+                the two wherever it's available (skips the copy-then-switch-
+                app-then-paste round trip, and its own native sheet already
+                offers a Copy option too). Now only one shows: Share when
+                the browser supports it, Copy as the fallback when it
+                doesn't (mainly desktop browsers). */}
+            {typeof navigator.share === 'function' ? (
               <button
                 onClick={async () => {
                   try {
@@ -949,10 +969,22 @@ export default function QuoteDetailScreen({
                     if (err.name !== 'AbortError') console.error('Share failed:', err);
                   }
                 }}
-                title="Share"
-                style={{ padding: '12px', borderRadius: '8px', background: '#0e7490', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                style={{ flex: '1 1 90px', paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}
               >
                 <Share2 size={16} />
+                Share
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(copyText);
+                  setCopiedId(selectedQuote.id);
+                  setTimeout(() => setCopiedId(null), 2000);
+                }}
+                style={{ flex: '1 1 90px', paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}
+              >
+                {copiedId === selectedQuote.id ? <Check size={16} /> : <Copy size={16} />}
+                {copiedId === selectedQuote.id ? 'Copied!' : 'Copy'}
               </button>
             )}
 
@@ -969,10 +1001,11 @@ export default function QuoteDetailScreen({
                 one. Handy for a repeat client or a similar job. */}
             <button
               onClick={() => duplicateQuote(selectedQuote)}
-              title="Duplicate this quote"
-              style={{ padding: '12px', borderRadius: '8px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+              title="Start a brand new, separate quote using this one's rooms as a starting point"
+              style={{ flex: '1 1 90px', paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer' }}
             >
               <Files size={16} />
+              Duplicate
             </button>
 
             {/* ✅ NEW: hides every version of this quote from your active

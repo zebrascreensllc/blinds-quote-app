@@ -70,6 +70,87 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     }]
   });
 
+  // ✅ NEW: draft auto-save. Unlike quotes (Firestore, offline-persisted,
+  // survives an app kill mid-write) and Bulk Measurements/Order Analysis
+  // (every field writes straight to Firestore too), formData for an
+  // in-progress Quote Create/Edit lives ONLY in this React state until
+  // "Generate Quote" is actually clicked - a phone screen timing out, the
+  // browser reclaiming a backgrounded tab, or the app being force-closed
+  // mid-conversation loses everything typed so far with no way back. This
+  // mirrors it into localStorage (this device only - it never touches
+  // Firestore, so it can never create a phantom quote) so it can be
+  // offered back the next time the app opens.
+  const draftKey = `blindsQuoteDraft_${uid}`;
+
+  const hasDraftContent = (data) => {
+    if (!data) return false;
+    if (data.clientName?.trim() || data.clientPhone?.trim() || data.location?.trim()) return true;
+    return (data.rooms || []).some(room =>
+      room.name?.trim() || room.fabricInput?.trim() ||
+      room.windowGroups?.some(g => (g.quantity && String(g.quantity).trim()) || g.width?.trim() || g.height?.trim())
+    );
+  };
+
+  // Restore-on-load - runs once when uid becomes available (app open/login),
+  // not on every render, so this can't re-prompt mid-session.
+  useEffect(() => {
+    if (!uid) return;
+    try {
+      const saved = localStorage.getItem(draftKey);
+      if (!saved) return;
+      const draft = JSON.parse(saved);
+      if (!hasDraftContent(draft.formData)) {
+        localStorage.removeItem(draftKey);
+        return;
+      }
+      const name = draft.formData.clientName?.trim() || 'an unnamed client';
+      if (window.confirm(`Found an unsaved quote draft for ${name} from ${new Date(draft.savedAt).toLocaleString()} - looks like the app closed before it was generated.\n\nResume it?`)) {
+        setFormData(draft.formData);
+        if (draft.editingQuoteId) {
+          // The quote list may not have loaded yet - re-resolved once it
+          // has, in the separate effect below.
+          setPendingEditingQuoteId(draft.editingQuoteId);
+        }
+        setCurrentView('bulkQuote');
+      } else {
+        localStorage.removeItem(draftKey);
+      }
+    } catch (e) {
+      console.error('Could not read saved draft:', e);
+      localStorage.removeItem(draftKey);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid]);
+
+  const [pendingEditingQuoteId, setPendingEditingQuoteId] = useState(null);
+  useEffect(() => {
+    if (!pendingEditingQuoteId || quotes.length === 0) return;
+    const match = quotes.find(q => q.id === pendingEditingQuoteId);
+    if (match) setEditingQuote(match);
+    setPendingEditingQuoteId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingEditingQuoteId, quotes]);
+
+  // Mirror formData to localStorage on every change (debounced) - lightweight
+  // and synchronous, so this never needs its own success/failure handling
+  // the way a network write would.
+  useEffect(() => {
+    if (!uid) return;
+    const timeout = setTimeout(() => {
+      if (hasDraftContent(formData)) {
+        try {
+          localStorage.setItem(draftKey, JSON.stringify({ formData, editingQuoteId: editingQuote?.id || null, savedAt: new Date().toISOString() }));
+        } catch (e) {
+          console.error('Could not save draft:', e);
+        }
+      } else {
+        localStorage.removeItem(draftKey);
+      }
+    }, 500);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData, uid, editingQuote]);
+
   // ✅ CLOUD SYNC: quotes now come from Firestore in real time, not localStorage.
   // This ONE listener replaces the old load-on-mount + save-on-change +
   // rolling-backup effects entirely - Firestore's own durability and offline
@@ -562,6 +643,11 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         }]
       }]
     });
+    // Whether this reset is a successful Generate, an explicit Cancel, or
+    // starting a fresh blank quote, the draft this replaces is no longer
+    // useful - clearing it here (one choke point) stops it from resurfacing
+    // as a stale "resume?" prompt next time the app opens.
+    try { localStorage.removeItem(`blindsQuoteDraft_${uid}`); } catch (e) { /* ignore */ }
   };
 
   // Normalizes a quote's rooms into the shape the form expects, filling in
