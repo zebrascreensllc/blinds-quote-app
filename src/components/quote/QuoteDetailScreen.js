@@ -791,6 +791,23 @@ export default function QuoteDetailScreen({
                 const newVersionNumber = versionNumber + 1;
                 const newVersionString = `v${newVersionNumber}`;
 
+                // ✅ NEW: multi-device conflict guard. This screen's `quotes` came
+                // from THIS device's Firestore listener, which may already have
+                // picked up a newer version saved from another device/tab (e.g.
+                // laptop) while this device was mid-edit on an older one. Saving
+                // from stale data here wouldn't fail - it would silently create
+                // a version based on the OLD data, easy to mistake for "my edit
+                // didn't save" when really a different device's newer version is
+                // what's showing elsewhere. Warn before that happens.
+                const lineageId = selectedQuote.lineageId || selectedQuote.id;
+                const newestExistingVersion = quotes
+                  .filter(q => (q.lineageId || q.id) === lineageId)
+                  .reduce((max, q) => Math.max(max, parseVersion(q.version)), 0);
+                if (newestExistingVersion > versionNumber) {
+                  const proceed = window.confirm(`A newer version (v${newestExistingVersion}) of this quote already exists - probably saved from another device or browser tab while you were editing this v${versionNumber}.\n\nSaving now will create v${newVersionNumber} from THIS older data, which could lose whatever changed in v${newestExistingVersion}.\n\nRecommended: close this without saving, reopen the quote to get the latest version, then redo your edit there.\n\nSave anyway from this older version?`);
+                  if (!proceed) return;
+                }
+
                 // ✅ FIX #1 (continued): Update quoteName string too - it has the OLD version baked in!
                 // e.g. "John-Dallas-Roller-quote-v1" -> "John-Dallas-Roller-quote-v2"
                 const oldQuoteName = selectedQuote.quoteName || '';
