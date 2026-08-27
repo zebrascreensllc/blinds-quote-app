@@ -650,14 +650,19 @@ export default function BulkEditorScreen({
           </table>
         </div>
 
-        {/* 10. Export */}
+        {/* 10. Export - Copy and Share did the same job (get the CSV text
+            somewhere else), with Share strictly more convenient wherever
+            it's available (skips copy-then-switch-app-then-paste, and its
+            own native share sheet already offers a Copy option). Same
+            consolidation as the quote view: only one shows. */}
         <div style={{ display: 'flex', gap: '12px', marginTop: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
-          <button onClick={copyCSV} style={{ flex: '1 1 100px', padding: '14px', borderRadius: '8px', background: '#d4af37', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
-            📋 Copy
-          </button>
-          {typeof navigator.share === 'function' && (
-            <button onClick={shareCSV} style={{ flex: '1 1 100px', padding: '14px', borderRadius: '8px', background: '#0e7490', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
+          {typeof navigator.share === 'function' ? (
+            <button onClick={shareCSV} style={{ flex: '1 1 100px', padding: '14px', borderRadius: '8px', background: '#d4af37', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
               📤 Share
+            </button>
+          ) : (
+            <button onClick={copyCSV} style={{ flex: '1 1 100px', padding: '14px', borderRadius: '8px', background: '#d4af37', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
+              📋 Copy
             </button>
           )}
           <button onClick={exportCSV} style={{ flex: '1 1 100px', padding: '14px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>
