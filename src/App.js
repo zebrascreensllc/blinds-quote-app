@@ -403,11 +403,20 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   // undefined) so this stays Firestore-safe.
   const restoreQuotes = (idsToRestore) => {
     const ids = new Set(idsToRestore);
+    // ✅ FIX: this was the only Trash/Archive-style action with no failure
+    // feedback at all - if the sync failed (offline, permission error), the
+    // button just silently did nothing, same failure class as every other
+    // "checkpoint operation with no success check" bug this app has hit.
+    // Every sibling action here (safeDeleteQuotes, undoLastDelete,
+    // archiveQuoteLineage) already reports a failed sync; this now matches.
     return updateQuotes(quotes.map(q => {
       if (!ids.has(q.id)) return q;
       const { trashedAt, ...rest } = q;
       return rest;
-    }));
+    })).then(result => {
+      if (!result.success) alert(syncFailureMessage(result.errors));
+      return result;
+    });
   };
 
   // ✅ NEW: skip the wait - immediately, permanently deletes (used by both
@@ -466,7 +475,12 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
 
   const unarchiveQuoteLineage = (quote) => {
     const lineageId = quote.lineageId || quote.id;
-    return updateQuotes(quotes.map(q => ((q.lineageId || q.id) === lineageId ? { ...q, archived: false } : q)));
+    // ✅ FIX: same gap as restoreQuotes above - had no failure feedback at
+    // all, unlike its sibling archiveQuoteLineage. Matched to it now.
+    return updateQuotes(quotes.map(q => ((q.lineageId || q.id) === lineageId ? { ...q, archived: false } : q))).then(result => {
+      if (!result.success) alert(syncFailureMessage(result.errors));
+      return result;
+    });
   };
 
   // ✅ BACKUP: download every quote as a JSON file

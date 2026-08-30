@@ -12,13 +12,28 @@ export const parseUnits = (input) => {
   }
   
   // Handle format like "83in 12/16" or "83 12/16" or "83.75"
-  const fractionalMatch = input.match(/(\d+)\s*(?:in|")?(?:\s+(\d+)\/(\d+))?/);
+  // ✅ FIX: the "in"/quote marker and the fraction used to sit in two
+  // separately-optional pieces (`\s*(?:in|")?` then its own `(?:\s+...)?`),
+  // so the first `\s*` greedily ate the single space between the whole
+  // number and the fraction, leaving nothing for the fraction group's
+  // `\s+` to match - the WHOLE fraction (e.g. "12/16") silently vanished
+  // for the single most common input shape, "83 12/16", with no error and
+  // no visible sign anything was wrong (parseUnits('83 12/16') returned 83,
+  // not 83.75). Nesting the marker+fraction inside ONE optional group fixes
+  // it - either that whole chunk matches or none of it does. Also added a
+  // decimal branch ("40.5") for the same reason, and matched "IN" against
+  // the already-uppercased input instead of lowercase "in", which never
+  // matched. This fed directly into width/height surcharge tier lookups
+  // and the same-size price-matching check - a `40 1/2` input has been
+  // silently pricing as a plain `40` since this was written.
+  const fractionalMatch = input.match(/(\d+)(?:\.(\d+))?(?:\s*(?:IN|")?\s*(\d+)\/(\d+))?/);
   if (fractionalMatch && !input.includes("'") && !input.includes("FT")) {
     const inches = parseInt(fractionalMatch[1]) || 0;
-    const numerator = fractionalMatch[2] ? parseInt(fractionalMatch[2]) : 0;
-    const denominator = fractionalMatch[3] ? parseInt(fractionalMatch[3]) : 1;
+    const decimalPart = fractionalMatch[2] ? parseFloat(`0.${fractionalMatch[2]}`) : 0;
+    const numerator = fractionalMatch[3] ? parseInt(fractionalMatch[3]) : 0;
+    const denominator = fractionalMatch[4] ? parseInt(fractionalMatch[4]) : 1;
     const fraction = denominator > 0 ? numerator / denominator : 0;
-    return inches + fraction;
+    return inches + decimalPart + fraction;
   }
   
   // Match just inches or feet
