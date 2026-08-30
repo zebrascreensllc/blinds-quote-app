@@ -3,7 +3,7 @@ import { Copy, Check, Edit2, Trash2, Share2, Files, Archive } from 'lucide-react
 import { PRICING_DATA } from '../../data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE } from '../../utils/constants';
 import { formatMoney, isRangeOverride, parseUnits } from '../../utils/formatters';
-import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics } from '../../utils/pricing';
+import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics, findClosestFabricMatch } from '../../utils/pricing';
 import { generateInvoiceDocx, buildInvoiceLineItems } from '../../utils/invoiceExport';
 import { expandQuoteIntoRows } from '../../utils/measurementUtils';
 import { sheetToExcelBuffer } from '../../utils/xlsxExport';
@@ -11,6 +11,18 @@ import { generatePriceBreakdownExcel } from '../../utils/priceBreakdownExport';
 import CurrentPricingSection from './CurrentPricingSection';
 
 const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
+
+// Parses a version string safely - handles corrupted/missing versions.
+// Module-level (not defined inside the Save handler) so the render-time
+// "a newer version exists elsewhere" banner below can use the exact same
+// logic as the Save-time conflict guard, instead of two copies drifting.
+const parseVersion = (version) => {
+  if (typeof version === 'string') {
+    const num = parseInt(version.replace(/[^0-9]/g, ''));
+    return isNaN(num) ? 1 : num;
+  }
+  return parseInt(version) || 1;
+};
 
 // Same checkbox-list pattern as BulkQuoteFormScreen.js's RowChecklist -
 // duplicated locally (not imported) so this quote-view tool stays isolated
@@ -61,6 +73,7 @@ export default function QuoteDetailScreen({
   archiveQuoteLineage,
   duplicateQuote,
   loadQuoteForEdit,
+  pendingSyncQuoteIds,
   priceEditMode,
   quotes,
   safeDeleteQuotes,
@@ -93,6 +106,27 @@ export default function QuoteDetailScreen({
   try {
     const rooms = selectedQuote.rooms;
     const storedPricing = selectedQuote.pricing || null; // Use stored pricing or null (fallback to defaults)
+
+    // ✅ NEW: "a newer version exists elsewhere" - computed at render time
+    // (not just inside Save All Changes' click handler) so it shows up the
+    // moment you open a version that's already stale, before you've typed
+    // anything, and updates live if `quotes` changes while this screen is
+    // still open (e.g. another device saves a newer version right now -
+    // `quotes` is the same live Firestore-listener prop everywhere else in
+    // this app reads it from). Root cause this addresses: two devices
+    // editing the same quote at once doesn't fail the later save - it
+    // silently creates a version from stale data, which looked exactly
+    // like "my edit didn't save" in a real report.
+    const viewingVersionNumber = parseVersion(selectedQuote.version);
+    const quoteLineageId = selectedQuote.lineageId || selectedQuote.id;
+    let newestVersionElsewhere = viewingVersionNumber;
+    let newestVersionElsewhereQuote = null;
+    quotes.forEach(q => {
+      if ((q.lineageId || q.id) !== quoteLineageId) return;
+      const v = parseVersion(q.version);
+      if (v > newestVersionElsewhere) { newestVersionElsewhere = v; newestVersionElsewhereQuote = q; }
+    });
+    const isViewingStaleVersion = newestVersionElsewhereQuote !== null;
 
     // ✅ NEW: pending structural edits (Qty/Width/Height/Type/Solar per
     // window group, and whole-room deletions) - same "pending until Save"
@@ -178,6 +212,17 @@ export default function QuoteDetailScreen({
         if (discontinued.length > 0) {
           alert(`${discontinued.join(', ')} ${discontinued.length > 1 ? 'are' : 'is'} out of stock - no longer available to order. Please choose a different fabric.`);
           return;
+        }
+        // ✅ NEW: catch a typo at the moment it's applied, not just after the
+        // fact on the (already-saved) invalid-fabric banner below - most
+        // "not in the system" hits are one mistyped character, not a
+        // genuinely new fabric. Soft warning only (same as the existing
+        // invalid-fabric banner) since a real new number IS possible.
+        const typoWarnings = fabricValue.split(',').map(f => f.trim()).filter(f => f)
+          .filter(f => !isFabricValid(f)).map(f => ({ fabric: f, suggestion: findClosestFabricMatch(f) })).filter(w => w.suggestion);
+        if (typoWarnings.length > 0) {
+          const lines = typoWarnings.map(w => `"${w.fabric}" - did you mean "${w.suggestion}"?`).join('\n');
+          if (!window.confirm(`This doesn't look like a real catalog fabric:\n\n${lines}\n\nApply "${fabricValue}" anyway?`)) return;
         }
         edit = { fabricInput: fabricValue, blindTypes: autoDetectBlindTypes(fabricValue) };
         appliedLabel = `fabric "${fabricValue}"`;
@@ -286,7 +331,11 @@ export default function QuoteDetailScreen({
 
       fabricNumbers.forEach(fabricNum => {
         if (!isFabricValid(fabricNum, fabricData)) {
-          invalidFabrics.push({ fabric: fabricNum, room: room.name || `Room ${roomIndex + 1}` });
+          // ✅ NEW: suggest the closest real catalog number, if one is close
+          // enough to plausibly be a typo (see findClosestFabricMatch) -
+          // most "invalid fabric" hits are a mistyped digit/letter in an
+          // otherwise-real number, not a genuinely new one.
+          invalidFabrics.push({ fabric: fabricNum, room: room.name || `Room ${roomIndex + 1}`, suggestion: findClosestFabricMatch(fabricNum, fabricData) });
         }
       });
       findDiscontinuedFabrics(room.fabricInput).forEach(fabricNum => {
@@ -483,10 +532,47 @@ export default function QuoteDetailScreen({
     return (
       <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
         <div style={{ maxWidth: '600px', margin: '0 auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-            <h3 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff' }}>{selectedQuote.quoteName}</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
+            <div>
+              <h3 style={{ fontSize: '28px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>{selectedQuote.quoteName}</h3>
+              {/* ✅ NEW: "Synced"/"Pending sync" - whether THIS version's last
+                  write has actually been acknowledged by Firestore's servers,
+                  not just queued locally. updateQuotes resolving "success" only
+                  means the write reached the local offline cache (that's what
+                  makes editing work with zero signal) - this is the one place
+                  that shows whether it's ACTUALLY reached the cloud yet, which
+                  matters most exactly when signal is weak. */}
+              {pendingSyncQuoteIds?.has(selectedQuote.id) ? (
+                <p style={{ fontSize: '11px', color: '#f0d78c', margin: 0, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span>🟡</span> Pending sync - saved on this device, still reaching the cloud
+                </p>
+              ) : (
+                <p style={{ fontSize: '11px', color: '#4ade80', margin: 0, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span>✅</span> Synced
+                </p>
+              )}
+            </div>
             <button onClick={() => setSelectedQuote(null)} style={{ fontSize: '24px', color: '#aaa', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
           </div>
+
+          {/* ✅ NEW: live "a newer version exists elsewhere" banner - shows the
+              moment you open a stale version (before typing anything), and
+              updates on its own if another device saves a newer one while
+              this screen stays open, since `quotes` is the same live
+              Firestore-listener data every other screen reads from. */}
+          {isViewingStaleVersion && (
+            <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#3a3a1a', border: '2px solid #d4af37', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <p style={{ fontSize: '12px', color: '#f0d78c', margin: 0 }}>
+                <strong>⚠️ You're viewing v{viewingVersionNumber}, but v{newestVersionElsewhere} of this quote already exists</strong> - probably saved from another device or tab. Editing here risks overwriting it.
+              </p>
+              <button
+                onClick={() => setSelectedQuote(newestVersionElsewhereQuote)}
+                style={{ padding: '8px 14px', borderRadius: '6px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', whiteSpace: 'nowrap' }}
+              >
+                View v{newestVersionElsewhere} instead
+              </button>
+            </div>
+          )}
 
           {/* Invalid Fabrics Warning */}
           {invalidFabrics.length > 0 && (
@@ -501,7 +587,7 @@ export default function QuoteDetailScreen({
               <div style={{ background: '#2a1a1a', padding: '8px 12px', borderRadius: '4px', borderLeft: '3px solid #ff6b6b' }}>
                 {invalidFabrics.map((item, idx) => (
                   <p key={idx} style={{ fontSize: '11px', color: '#ffdddd', margin: '4px 0' }}>
-                    • <strong>{item.fabric}</strong> ({item.room})
+                    • <strong>{item.fabric}</strong> ({item.room}){item.suggestion && <span style={{ color: '#ffcc66' }}> — did you mean <strong>{item.suggestion}</strong>?</span>}
                   </p>
                 ))}
               </div>
@@ -807,34 +893,15 @@ export default function QuoteDetailScreen({
                     })
                   }));
 
-                // ✅ FIX #1: Parse version string safely - handles corrupted versions
-                const parseVersion = (version) => {
-                  if (typeof version === 'string') {
-                    // Extract ONLY numbers from version string
-                    const num = parseInt(version.replace(/[^0-9]/g, ''));
-                    return isNaN(num) ? 1 : num;
-                  }
-                  return parseInt(version) || 1;
-                };
-
                 const versionNumber = parseVersion(selectedQuote.version);
                 const newVersionNumber = versionNumber + 1;
                 const newVersionString = `v${newVersionNumber}`;
 
-                // ✅ NEW: multi-device conflict guard. This screen's `quotes` came
-                // from THIS device's Firestore listener, which may already have
-                // picked up a newer version saved from another device/tab (e.g.
-                // laptop) while this device was mid-edit on an older one. Saving
-                // from stale data here wouldn't fail - it would silently create
-                // a version based on the OLD data, easy to mistake for "my edit
-                // didn't save" when really a different device's newer version is
-                // what's showing elsewhere. Warn before that happens.
-                const lineageId = selectedQuote.lineageId || selectedQuote.id;
-                const newestExistingVersion = quotes
-                  .filter(q => (q.lineageId || q.id) === lineageId)
-                  .reduce((max, q) => Math.max(max, parseVersion(q.version)), 0);
-                if (newestExistingVersion > versionNumber) {
-                  const proceed = window.confirm(`A newer version (v${newestExistingVersion}) of this quote already exists - probably saved from another device or browser tab while you were editing this v${versionNumber}.\n\nSaving now will create v${newVersionNumber} from THIS older data, which could lose whatever changed in v${newestExistingVersion}.\n\nRecommended: close this without saving, reopen the quote to get the latest version, then redo your edit there.\n\nSave anyway from this older version?`);
+                // ✅ Multi-device conflict guard - reuses the same live check
+                // the banner up top already shows, so the warning here always
+                // matches what you'd have already seen on screen.
+                if (isViewingStaleVersion) {
+                  const proceed = window.confirm(`A newer version (v${newestVersionElsewhere}) of this quote already exists - probably saved from another device or browser tab while you were editing this v${versionNumber}.\n\nSaving now will create v${newVersionNumber} from THIS older data, which could lose whatever changed in v${newestVersionElsewhere}.\n\nRecommended: close this without saving, reopen the quote to get the latest version, then redo your edit there.\n\nSave anyway from this older version?`);
                   if (!proceed) return;
                 }
 

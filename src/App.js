@@ -22,6 +22,10 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   // ✅ SAFETY: guards against overwriting stored quotes before the initial load finishes
   const [hasLoaded, setHasLoaded] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  // ✅ NEW: quote ids whose latest write hasn't been acknowledged by
+  // Firestore's servers yet - see the sync effect below for why this
+  // matters for a business that's often on weak/no signal.
+  const [pendingSyncQuoteIds, setPendingSyncQuoteIds] = useState(new Set());
   // ✅ SAFETY: holds a snapshot so the most recent delete can be undone
   const [undoBuffer, setUndoBuffer] = useState(null);
   const [selectedQuote, setSelectedQuote] = useState(null);
@@ -161,8 +165,17 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     if (!uid) return;
     const unsubscribe = subscribeToQuotes(
       uid,
-      (remoteQuotes) => {
+      (remoteQuotes, pendingWriteIds) => {
         setQuotes(remoteQuotes);
+        // ✅ NEW: which quotes have a write still sitting in the local
+        // offline cache, not yet acknowledged by Firestore's servers - the
+        // basis for the "Synced"/"Pending sync" indicator on Quote Detail.
+        // Matters most exactly when this business needs it most: on-site
+        // with weak/no signal, `updateQuotes` still resolves "success"
+        // immediately (that's what makes offline editing work at all), but
+        // success only means "queued locally," not "actually reached the
+        // cloud yet."
+        if (pendingWriteIds) setPendingSyncQuoteIds(pendingWriteIds);
         setHasLoaded(true);
         setLoadError(null);
       },
@@ -827,6 +840,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
             archiveQuoteLineage={archiveQuoteLineage}
             duplicateQuote={duplicateQuote}
             loadQuoteForEdit={loadQuoteForEdit}
+            pendingSyncQuoteIds={pendingSyncQuoteIds}
             priceEditMode={priceEditMode}
             quotes={quotes}
             safeDeleteQuotes={safeDeleteQuotes}

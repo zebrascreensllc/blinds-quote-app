@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Trash2 } from 'lucide-react';
-import { autoDetectBlindTypes, getHeightSurcharge, getWidthSurcharge, findDiscontinuedFabrics } from '../../utils/pricing';
+import { autoDetectBlindTypes, getHeightSurcharge, getWidthSurcharge, findDiscontinuedFabrics, isFabricValid, findClosestFabricMatch } from '../../utils/pricing';
 
 const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
 
@@ -156,6 +156,17 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
       if (discontinued.length > 0) {
         alert(`${discontinued.join(', ')} ${discontinued.length > 1 ? 'are' : 'is'} out of stock - no longer available to order. Please choose a different fabric.`);
         return;
+      }
+      // ✅ NEW: catch a typo'd fabric number at the moment it's entered,
+      // before it's ever saved into the quote - previously this only
+      // surfaced later, reactively, on the Quote Detail screen's own
+      // invalid-fabric banner. Soft warning only, same reasoning as that
+      // banner: a genuinely new fabric not yet in the catalog is possible.
+      const typoWarnings = fabricValue.split(',').map(f => f.trim()).filter(f => f)
+        .filter(f => !isFabricValid(f)).map(f => ({ fabric: f, suggestion: findClosestFabricMatch(f) })).filter(w => w.suggestion);
+      if (typoWarnings.length > 0) {
+        const lines = typoWarnings.map(w => `"${w.fabric}" - did you mean "${w.suggestion}"?`).join('\n');
+        if (!window.confirm(`This doesn't look like a real catalog fabric:\n\n${lines}\n\nApply "${fabricValue}" anyway?`)) return;
       }
       const detectedTypes = autoDetectBlindTypes(fabricValue);
       newRooms = formData.rooms.map(room =>

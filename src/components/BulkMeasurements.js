@@ -28,7 +28,7 @@ import { sheetToExcelBuffer } from '../utils/xlsxExport';
 // zero-pricing-import isolation - imported here in the container only,
 // never into measurementUtils.js itself, and only for Bulk Measurements
 // (the original Supplier Measurements feature is intentionally untouched).
-import { isFabricValid, findDiscontinuedFabrics } from '../utils/pricing';
+import { isFabricValid, findDiscontinuedFabrics, findClosestFabricMatch } from '../utils/pricing';
 import { PRICING_DATA } from '../data/pricingData';
 
 // Same identity/export-naming convention as SupplierMeasurements.js.
@@ -392,7 +392,11 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     // since a genuinely new fabric not yet in the system is still a real,
     // valid thing to send to the supplier.
     if (!isFabricValid(value, PRICING_DATA)) {
-      if (!window.confirm(`"${value}" is not in the fabric list - it may be a typo.\n\nApply it anyway?`)) return;
+      // ✅ NEW: suggest the closest real catalog number when one is close
+      // enough to plausibly be the typo (see findClosestFabricMatch).
+      const suggestion = findClosestFabricMatch(value, PRICING_DATA);
+      const suggestionLine = suggestion ? ` Did you mean "${suggestion}"?` : '';
+      if (!window.confirm(`"${value}" is not in the fabric list - it may be a typo.${suggestionLine}\n\nApply it anyway?`)) return;
     }
 
     const newRows = activeSheet.rows.map(r => (fabricSelectedRowIds.has(r.id) ? { ...r, fabricNumber: value } : r));

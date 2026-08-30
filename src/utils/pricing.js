@@ -40,12 +40,60 @@ export const findDiscontinuedFabrics = (fabricInput) => {
 export const isFabricValid = (fabricNum, fabricData = null) => {
   const data = fabricData || PRICING_DATA;
   const searchNum = (fabricNum || '').toUpperCase();
-  
+
   for (const type of Object.keys(data)) {
     const fabric = data[type].find(f => (f.number || '').toUpperCase() === searchNum);
     if (fabric) return true;
   }
   return false;
+};
+
+// Plain edit-distance between two strings - used only by
+// findClosestFabricMatch below, kept local since nothing else needs it.
+const levenshteinDistance = (a, b) => {
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+};
+
+/** Suggests the closest real catalog fabric number for an unrecognized
+ * input - e.g. "82096K" (typo) -> "82086K" (real). Returns null if the
+ * input is already valid, blank, or nothing in the catalog is close
+ * enough. The distance budget is deliberately tight (at most 2 edits, and
+ * never more than a third of the input's own length) so a genuinely new
+ * fabric number that just isn't in the catalog yet never gets a wild,
+ * misleading guess - this only catches near-misses, not "closest of
+ * whatever exists" for something totally different. */
+export const findClosestFabricMatch = (fabricNum, fabricData = null) => {
+  const data = fabricData || PRICING_DATA;
+  const searchNum = (fabricNum || '').trim().toUpperCase();
+  if (!searchNum || isFabricValid(searchNum, data)) return null;
+
+  let best = null;
+  let bestDistance = Infinity;
+  Object.keys(data).forEach(type => {
+    (data[type] || []).forEach(fabric => {
+      const candidate = (fabric.number || '').toUpperCase();
+      if (!candidate) return;
+      const distance = levenshteinDistance(searchNum, candidate);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = candidate;
+      }
+    });
+  });
+
+  const maxAllowed = Math.min(2, Math.floor(searchNum.length / 3));
+  return best && bestDistance <= maxAllowed ? best : null;
 };
 
 // Get price for specific fabric

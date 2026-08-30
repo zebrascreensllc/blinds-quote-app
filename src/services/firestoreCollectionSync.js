@@ -8,6 +8,15 @@ import { db } from '../firebase';
  * on THIS device or any other device signed into the same account. This one
  * listener is the entire mechanism behind "auto sync across devices."
  *
+ * onUpdate receives (items, pendingWriteIds) - pendingWriteIds is a Set of
+ * item.id values whose write hasn't been acknowledged by Firestore's
+ * servers yet (still sitting in the local offline cache, e.g. no signal).
+ * Existing callers that only use the first argument are unaffected.
+ * `includeMetadataChanges: true` is what makes the callback fire AGAIN
+ * purely when a write flips from pending to acknowledged (the data itself
+ * doesn't change) - without it, a "pending" status could get stuck showing
+ * forever even after the write actually reached the server.
+ *
  * Returns an unsubscribe function - call it when the component using this
  * unmounts, so the listener doesn't keep running after it's no longer needed.
  */
@@ -16,9 +25,13 @@ export function subscribeToCollection(uid, collectionName, onUpdate, onError) {
   const q = query(colRef);
   return onSnapshot(
     q,
+    { includeMetadataChanges: true },
     (snapshot) => {
       const items = snapshot.docs.map(d => d.data());
-      onUpdate(items);
+      const pendingWriteIds = new Set(
+        snapshot.docs.filter(d => d.metadata.hasPendingWrites).map(d => d.id)
+      );
+      onUpdate(items, pendingWriteIds);
     },
     (error) => {
       console.error(`Sync error on ${collectionName}:`, error);
