@@ -169,6 +169,7 @@ export default function QuoteDetailScreen({
 
       let edit;
       let appliedLabel;
+      const newClearedPriceKeys = new Set(tableEditValues.clearedPriceKeys || []);
       if (bulkFabricMode === 'fabric') {
         const fabricValue = bulkFabricInput.trim();
         if (!fabricValue) { alert('Enter a fabric number first.'); return; }
@@ -180,6 +181,31 @@ export default function QuoteDetailScreen({
         }
         edit = { fabricInput: fabricValue, blindTypes: autoDetectBlindTypes(fabricValue) };
         appliedLabel = `fabric "${fabricValue}"`;
+
+        // ✅ NEW: a manually-typed price ESTIMATE (a Min-Max range, set back
+        // when there was no exact fabric yet) goes stale the moment a real
+        // fabric is assigned - it was only ever a placeholder for "we don't
+        // know the exact price yet." Never drop it silently (same rule as
+        // every other price change in this screen) - ask first, and only
+        // for RANGE overrides; a deliberate FIXED custom price is left
+        // alone since that's an intentional quote, not a placeholder.
+        const staleRangeKeys = [];
+        fabricSelectedRoomIds.forEach(roomId => {
+          const room = effectiveRooms.find(r => r.id === roomId);
+          if (!room) return;
+          room.windowGroups.forEach((group, groupIdx) => {
+            const priceKey = `${roomId}_${groupIdx}`;
+            const pending = tableEditValues.perWindowPrices[priceKey];
+            const saved = selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
+            const effective = (typeof pending === 'number' || isRangeOverride(pending)) ? pending : saved;
+            if (isRangeOverride(effective)) staleRangeKeys.push(priceKey);
+          });
+        });
+        if (staleRangeKeys.length > 0) {
+          const plural = staleRangeKeys.length > 1;
+          const clearThem = window.confirm(`${staleRangeKeys.length} window${plural ? 's' : ''} in the selected room(s) still ${plural ? 'have' : 'has a'} manually-set price ESTIMATE${plural ? 's' : ''} (a range) from before this fabric was chosen.\n\nClear ${plural ? 'those estimates' : 'that estimate'} now so the new version shows exact pricing from "${fabricValue}" instead of the old range?\n\nCancel keeps the old estimate exactly as it is.`);
+          if (clearThem) staleRangeKeys.forEach(k => newClearedPriceKeys.add(k));
+        }
       } else {
         if (bulkFabricBlindTypes.length === 0) { alert('Select at least one blind type first.'); return; }
         edit = { fabricInput: '', blindTypes: [...bulkFabricBlindTypes] };
@@ -190,7 +216,7 @@ export default function QuoteDetailScreen({
       fabricSelectedRoomIds.forEach(roomId => { newFabricEdits[roomId] = edit; });
 
       const count = fabricSelectedRoomIds.size;
-      setTableEditValues({ ...tableEditValues, fabricEdits: newFabricEdits });
+      setTableEditValues({ ...tableEditValues, fabricEdits: newFabricEdits, clearedPriceKeys: newClearedPriceKeys });
       setBulkFabricInput('');
       setBulkFabricBlindTypes([]);
       setFabricSelectedRoomIds(new Set());
@@ -318,7 +344,11 @@ export default function QuoteDetailScreen({
         // totals use that instead.
         const priceKey = `${room.id}_${groupIdx}`;
         const pendingPrice = tableEditValues.perWindowPrices[priceKey];
-        const savedPrice = selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
+        // ✅ NEW: a key just cleared via "Bulk Assign Fabric" (stale Min/Max
+        // estimate replaced by a newly-assigned exact fabric) no longer
+        // counts as a saved override, so totals immediately reflect the
+        // fresh calculated price instead of the discarded estimate.
+        const savedPrice = (tableEditValues.clearedPriceKeys || new Set()).has(priceKey) ? undefined : selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
         const overridePrice = (typeof pendingPrice === 'number' || isRangeOverride(pendingPrice)) ? pendingPrice
           : ((typeof savedPrice === 'number' || isRangeOverride(savedPrice)) ? savedPrice : null);
 
@@ -821,9 +851,17 @@ export default function QuoteDetailScreen({
                 // ✅ IMPORTANT: Merge with previously saved edits, don't overwrite them!
                 // If a prior version already had per-window prices edited, and this save
                 // only touches motor cost, we must not lose those earlier per-window edits.
+                // ✅ NEW: except keys explicitly cleared just now via "Bulk Assign Fabric"
+                // (a stale Min/Max estimate replaced by a newly-assigned exact fabric) -
+                // those are deliberately dropped instead of carried forward, so the new
+                // version shows the freshly-calculated price instead of the old estimate.
+                const clearedPriceKeysNow = effectiveTableEditValues.clearedPriceKeys || new Set();
+                const carriedForwardPrices = Object.fromEntries(
+                  Object.entries(selectedQuote.editedPrices?.perWindowPrices || {}).filter(([k]) => !clearedPriceKeysNow.has(k))
+                );
                 const mergedEditedPrices = {
                   perWindowPrices: {
-                    ...(selectedQuote.editedPrices?.perWindowPrices || {}),
+                    ...carriedForwardPrices,
                     ...Object.fromEntries(Object.entries(effectiveTableEditValues.perWindowPrices).filter(([, v]) => typeof v === 'number' || isRangeOverride(v)))
                   },
                   motorCost: typeof effectiveTableEditValues.motorCost === 'number' ? effectiveTableEditValues.motorCost : selectedQuote.editedPrices?.motorCost,
@@ -854,7 +892,7 @@ export default function QuoteDetailScreen({
                 setEditingTableField(null);
 
                 // Reset edit values for next time
-                setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, groupEdits: {}, deletedRoomIds: new Set(), fabricEdits: {} });
+                setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, groupEdits: {}, deletedRoomIds: new Set(), fabricEdits: {}, clearedPriceKeys: new Set() });
                 setActiveEditText('');
                 setActiveEditTextMax('');
                 setPriceEditMode('fixed');

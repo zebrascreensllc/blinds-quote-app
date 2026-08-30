@@ -93,7 +93,11 @@ export default function CurrentPricingSection({
                   const isEditingSize = editingTableField === sizeFieldKey;
                   const isEditingType = editingTableField === typeFieldKey;
 
-                  const savedPrice = selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
+                  // A key just cleared via "Bulk Assign Fabric" (stale Min/Max
+                  // estimate replaced by a newly-assigned exact fabric) no
+                  // longer counts as a saved override - the room card shows
+                  // the fresh calculated price immediately, before saving.
+                  const savedPrice = (tableEditValues.clearedPriceKeys || new Set()).has(priceKey) ? undefined : selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
                   const hasSavedPrice = typeof savedPrice === 'number' || isRangeOverride(savedPrice);
                   const basePrice = hasSavedPrice ? savedPrice : perWindowMin;
 

@@ -37,7 +37,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   const [editingTableField, setEditingTableField] = useState(null);
   // ✅ FIX: Use null as sentinel for "not edited this session" (distinct from 0 or any real value)
   // activeEditText = the RAW TEXT currently in whichever input is open (text input, not number input - avoids mobile keyboard bugs)
-  const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, groupEdits: {}, deletedRoomIds: new Set(), fabricEdits: {} });
+  const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, groupEdits: {}, deletedRoomIds: new Set(), fabricEdits: {}, clearedPriceKeys: new Set() });
   const [activeEditText, setActiveEditText] = useState('');
   // ✅ NEW: for range-priced windows, editing uses two separate Min/Max boxes
   // instead of one text field with a typed hyphen - simpler and fully
@@ -544,7 +544,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   // ✅ CRITICAL FIX: Reset editing state when viewing a different quote
   useEffect(() => {
     // Reset editing state whenever a different quote is selected
-    setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, groupEdits: {}, deletedRoomIds: new Set(), fabricEdits: {} });
+    setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, groupEdits: {}, deletedRoomIds: new Set(), fabricEdits: {}, clearedPriceKeys: new Set() });
     setEditingTableField(null);
     setActiveEditText('');
     setActiveEditTextMax('');
