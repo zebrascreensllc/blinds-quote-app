@@ -1,14 +1,11 @@
 import React, { useState } from 'react';
-import { Copy, Check, Edit2, Trash2, Share2, Files, Archive } from 'lucide-react';
 import { PRICING_DATA } from '../../data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE } from '../../utils/constants';
 import { formatMoney, isRangeOverride, parseUnits } from '../../utils/formatters';
 import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics, findClosestFabricMatch } from '../../utils/pricing';
-import { generateInvoiceDocx, buildInvoiceLineItems } from '../../utils/invoiceExport';
-import { expandQuoteIntoRows } from '../../utils/measurementUtils';
-import { sheetToExcelBuffer } from '../../utils/xlsxExport';
-import { generatePriceBreakdownExcel } from '../../utils/priceBreakdownExport';
 import CurrentPricingSection from './CurrentPricingSection';
+import PricingDetailsSection from './PricingDetailsSection';
+import QuoteActionButtons from './QuoteActionButtons';
 
 const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
 
@@ -615,103 +612,20 @@ export default function QuoteDetailScreen({
             </div>
           )}
 
-          {/* Pricing Details Section - Collapsible (default collapsed) */}
-          {storedPricing && storedPricing.PROFIT_PER_WINDOW && (
-            <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#1a3a3a', border: '1px solid #4a7a6a', padding: '16px' }}>
-              <button onClick={() => setExpandedPricingDetails(!expandedPricingDetails)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '0', marginBottom: expandedPricingDetails ? '12px' : '0' }}>
-                <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#d4af37', marginBottom: '0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>📋 PRICING DETAILS (Used for this quote)</span>
-                  <span style={{ color: '#888', fontSize: '14px' }}>{expandedPricingDetails ? '▼' : '▶'}</span>
-                </p>
-              </button>
-
-              {expandedPricingDetails && (
-                <>
-                  <p style={{ fontSize: '11px', color: '#aaa', marginBottom: '12px', fontStyle: 'italic' }}>✅ All fabric prices, profit margins, and surcharges captured and locked for this quote</p>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '12px' }}>
-                    <div>
-                      <p style={{ color: '#888', marginBottom: '4px' }}>Profit Per Window:</p>
-                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.PROFIT_PER_WINDOW}</p>
-                    </div>
-                    <div>
-                      <p style={{ color: '#888', marginBottom: '4px' }}>Captured Date:</p>
-                      <p style={{ color: '#fff', fontWeight: 'bold' }}>{storedPricing?.CREATED_DATE ? new Date(storedPricing.CREATED_DATE).toLocaleDateString() : selectedQuote?.createdDate ? new Date(selectedQuote.createdDate).toLocaleDateString() : 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p style={{ color: '#888', marginBottom: '4px' }}>Width Surcharge (41-55"):</p>
-                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.WIDTH_SURCHARGES?.["41-55"] ?? 45}</p>
-                    </div>
-                    <div>
-                      <p style={{ color: '#888', marginBottom: '4px' }}>Height Surcharge (&gt;90"):</p>
-                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.HEIGHT_SURCHARGE ?? 37}</p>
-                    </div>
-                    <div>
-                      <p style={{ color: '#888', marginBottom: '4px' }}>Motor Cost (Client):</p>
-                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.MOTOR_COST_CLIENT ?? 80}</p>
-                    </div>
-                    <div>
-                      <p style={{ color: '#888', marginBottom: '4px' }}>Solar Cost (Client):</p>
-                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.SOLAR_COST_CLIENT ?? 40}</p>
-                    </div>
-                    <div>
-                      <p style={{ color: '#888', marginBottom: '4px' }}>Misc Expense:</p>
-                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.MISC_EXPENSE ?? 4.50}</p>
-                    </div>
-                    <div>
-                      <p style={{ color: '#888', marginBottom: '4px' }}>Shipping Cost:</p>
-                      <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.SHIPPING_COST ?? 42}</p>
-                    </div>
-                    <div style={{ gridColumn: '1 / -1', paddingTop: '8px', borderTop: '1px solid #4a7a6a' }}>
-                      <p style={{ color: '#d4af37', fontSize: '11px', fontWeight: 'bold' }}>📦 Fabric Prices: LOCKED ({storedPricing.PRICING_DATA ? Object.keys(storedPricing.PRICING_DATA).length : 'N/A'} blind types)</p>
-                      <p style={{ color: '#888', fontSize: '11px', marginTop: '4px' }}>All fabric costs are captured and will not change even if you update prices later</p>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* ✅ PRICING COMPARISON - same structure as "📋 PRICING DETAILS" above */}
-          <div style={{ borderRadius: '8px', marginBottom: '24px', background: '#1a3a3a', border: '1px solid #4a7a6a', padding: '16px' }}>
-            <button onClick={() => setExpandedPricingComparison(!expandedPricingComparison)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '0', marginBottom: expandedPricingComparison ? '12px' : '0' }}>
-              <p style={{ fontSize: '12px', fontWeight: 'bold', color: '#d4af37', marginBottom: '0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>📊 PRICING COMPARISON (Supplier Only)</span>
-                <span style={{ color: '#888', fontSize: '14px' }}>{expandedPricingComparison ? '▼' : '▶'}</span>
-              </p>
-            </button>
-
-            {expandedPricingComparison && (
-              <>
-                <p style={{ fontSize: '11px', color: '#aaa', marginBottom: '12px', fontStyle: 'italic' }}>💡 Internal cost/profit breakdown. Not shown to clients.</p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '12px' }}>
-                  <div>
-                    <p style={{ color: '#888', marginBottom: '4px' }}>Fabric Cost (Supplier Cost):</p>
-                    <p style={{ color: '#fff', fontWeight: 'bold' }}>${formatMoney(overallFabricCost)}</p>
-                  </div>
-                  <div>
-                    <p style={{ color: '#888', marginBottom: '4px' }}>Shipping Cost:</p>
-                    <p style={{ color: '#fff', fontWeight: 'bold' }}>${formatMoney(overallShippingCost)}</p>
-                  </div>
-                  <div>
-                    <p style={{ color: '#888', marginBottom: '4px' }}>Motor Cost (Supplier Cost):</p>
-                    <p style={{ color: '#fff', fontWeight: 'bold' }}>${formatMoney(overallMotorSupplierCost)}</p>
-                  </div>
-                  <div>
-                    <p style={{ color: '#888', marginBottom: '4px' }}>Solar Cost (Supplier Cost):</p>
-                    <p style={{ color: '#fff', fontWeight: 'bold' }}>${formatMoney(overallSolarSupplierCost)}</p>
-                  </div>
-                  <div style={{ gridColumn: '1 / -1', paddingTop: '8px', borderTop: '1px solid #4a7a6a' }}>
-                    <p style={{ color: '#888', marginBottom: '4px' }}>Overall Expected Cost (Supplier Side, no profit):</p>
-                    <p style={{ color: '#ffaa00', fontWeight: 'bold', fontSize: '13px' }}>${formatMoney(overallSupplierCost)}</p>
-                  </div>
-                  <div style={{ gridColumn: '1 / -1', paddingTop: '8px', borderTop: '1px solid #4a7a6a' }}>
-                    <p style={{ color: '#d4af37', fontSize: '11px', fontWeight: 'bold' }}>💰 PROFIT: ${formatMoney(pricingComparisonProfit)}</p>
-                    <p style={{ color: '#888', fontSize: '11px', marginTop: '4px' }}>Total price to client minus the overall supplier cost above</p>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+          <PricingDetailsSection
+            storedPricing={storedPricing}
+            expandedPricingDetails={expandedPricingDetails}
+            setExpandedPricingDetails={setExpandedPricingDetails}
+            selectedQuote={selectedQuote}
+            expandedPricingComparison={expandedPricingComparison}
+            setExpandedPricingComparison={setExpandedPricingComparison}
+            overallFabricCost={overallFabricCost}
+            overallShippingCost={overallShippingCost}
+            overallMotorSupplierCost={overallMotorSupplierCost}
+            overallSolarSupplierCost={overallSolarSupplierCost}
+            overallSupplierCost={overallSupplierCost}
+            pricingComparisonProfit={pricingComparisonProfit}
+          />
 
           <CurrentPricingSection
             activeEditText={activeEditText}
@@ -974,186 +888,18 @@ export default function QuoteDetailScreen({
             </>
           )}
 
-          <button
-            onClick={async () => {
-              // ✅ NEW: real Word invoice matching the business's reference
-              // template - client-facing (no Width/Height columns, those
-              // stay in Supplier Measurements), one line per window, Motor/
-              // Solar/Hub as their own summary lines, then Total/Tax/
-              // Discount/Grand Total/Advance/Remaining Balance, then the
-              // fixed Terms & Conditions / Warranty Coverage pages.
-              const { hasRangePricing } = buildInvoiceLineItems(selectedQuote);
-              if (hasRangePricing) {
-                if (!window.confirm('Some windows still show an estimated price range (no exact fabric picked yet). The invoice will use the low end of that range for those windows.\n\nContinue anyway?')) return;
-              }
-
-              const advanceInput = window.prompt('Advance Payment (defaults to half of Grand Total - edit if different):', formatMoney(grandMin / 2));
-              if (advanceInput === null) return;
-              const advanceAmount = parseFloat(advanceInput) || 0;
-
-              const discountInput = window.prompt('Discount (optional - enter 0 if none):', '0');
-              if (discountInput === null) return;
-              const discountAmount = parseFloat(discountInput) || 0;
-
-              try {
-                const blob = await generateInvoiceDocx(selectedQuote, { advanceAmount, discountAmount });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${(selectedQuote.quoteName || 'quote').replace(/[^a-z0-9]/gi, '_')}_invoice.docx`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(() => URL.revokeObjectURL(url), 1000);
-              } catch (err) {
-                console.error('Invoice generation failed:', err);
-                alert('❌ Could not create the invoice. Please try again.');
-              }
-            }}
-            style={{ width: '100%', padding: '12px', marginBottom: '12px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#0e7490', color: '#fff', border: 'none', cursor: 'pointer' }}
-          >
-            🧾 Create Invoice
-          </button>
-
-          <button
-            onClick={async () => {
-              // ✅ NEW: quick "send to supplier for quote" export - same
-              // Excel-with-highlighting format Supplier Measurements already
-              // uses (sheetToExcelBuffer), reusing the same row-expansion
-              // that used to feed the CSV export this replaced. Carries
-              // over the quote's own rough width/height as-is
-              // (prefillMeasurements: true), since this is a fast
-              // confirmation pass, not precise measurements.
-              try {
-                const rows = expandQuoteIntoRows(selectedQuote, { prefillMeasurements: true });
-                const buffer = await sheetToExcelBuffer({ address: selectedQuote.location }, rows);
-                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${(selectedQuote.quoteName || 'quote').replace(/[^a-z0-9]/gi, '_')}_supplier_quote.xlsx`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(() => URL.revokeObjectURL(url), 1000);
-              } catch (err) {
-                console.error('Excel export failed:', err);
-                alert('❌ Could not create the Excel file. Please try again.');
-              }
-            }}
-            style={{ width: '100%', padding: '12px', marginBottom: '12px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#1d6f42', color: '#fff', border: 'none', cursor: 'pointer' }}
-          >
-            📊 Download Excel for Supplier (with highlighting)
-          </button>
-
-          {/* ✅ NEW: client-facing detail breakdown - same per-window prices
-              Copy/Share already communicate as text, but as a proper
-              spreadsheet with dimensions and one row per window, for the
-              occasional client who wants the math spelled out. */}
-          <button
-            onClick={async () => {
-              try {
-                const buffer = await generatePriceBreakdownExcel(selectedQuote);
-                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${(selectedQuote.quoteName || 'quote').replace(/[^a-z0-9]/gi, '_')}_price_breakdown.xlsx`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(() => URL.revokeObjectURL(url), 1000);
-              } catch (err) {
-                console.error('Price breakdown export failed:', err);
-                alert('❌ Could not create the Excel file. Please try again.');
-              }
-            }}
-            style={{ width: '100%', padding: '12px', marginBottom: '12px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#7c3aed', color: '#fff', border: 'none', cursor: 'pointer' }}
-          >
-            📈 Download Price Breakdown (Excel)
-          </button>
-
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {/* ✅ CONSOLIDATED: Copy and Share used to both render side by
-                side, but they did the same job - get this quote's text
-                somewhere else - with Share strictly the more convenient of
-                the two wherever it's available (skips the copy-then-switch-
-                app-then-paste round trip, and its own native sheet already
-                offers a Copy option too). Now only one shows: Share when
-                the browser supports it, Copy as the fallback when it
-                doesn't (mainly desktop browsers). */}
-            {typeof navigator.share === 'function' ? (
-              <button
-                onClick={async () => {
-                  try {
-                    await navigator.share({ title: selectedQuote.quoteName || 'Quote', text: copyText });
-                  } catch (err) {
-                    if (err.name !== 'AbortError') console.error('Share failed:', err);
-                  }
-                }}
-                style={{ flex: '1 1 90px', paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}
-              >
-                <Share2 size={16} />
-                Share
-              </button>
-            ) : (
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(copyText);
-                  setCopiedId(selectedQuote.id);
-                  setTimeout(() => setCopiedId(null), 2000);
-                }}
-                style={{ flex: '1 1 90px', paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}
-              >
-                {copiedId === selectedQuote.id ? <Check size={16} /> : <Copy size={16} />}
-                {copiedId === selectedQuote.id ? 'Copied!' : 'Copy'}
-              </button>
-            )}
-
-            <button
-              onClick={() => loadQuoteForEdit(selectedQuote)}
-              style={{ flex: '1 1 90px', paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#4f46e5', color: '#fff', border: 'none', cursor: 'pointer' }}
-            >
-              <Edit2 size={16} />
-              Edit
-            </button>
-
-            {/* ✅ NEW: clones this quote's client info + rooms into a fresh
-                Quote Create draft - a new quote, not a new version of this
-                one. Handy for a repeat client or a similar job. */}
-            <button
-              onClick={() => duplicateQuote(selectedQuote)}
-              title="Start a brand new, separate quote using this one's rooms as a starting point"
-              style={{ flex: '1 1 90px', paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer' }}
-            >
-              <Files size={16} />
-              Duplicate
-            </button>
-
-            {/* ✅ NEW: hides every version of this quote from your active
-                list/Statistics without deleting anything - unlike Delete
-                (moves to Trash, 7-day expiry), Archive keeps it forever
-                until you unarchive it from History > Archived. */}
-            <button
-              onClick={() => archiveQuoteLineage(selectedQuote)}
-              title="Archive this quote"
-              style={{ padding: '12px', borderRadius: '8px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-            >
-              <Archive size={16} />
-            </button>
-
-            <button
-              onClick={() => {
-                // ✅ BUGFIX: this previously deleted instantly with NO confirmation.
-                // Now it warns, names the quote, and stores an undo snapshot.
-                const done = safeDeleteQuotes([selectedQuote.id], `Deleted ${selectedQuote.quoteName || 'quote'}`);
-                if (done) setSelectedQuote(null);
-              }}
-              style={{ padding: '12px', borderRadius: '8px', fontWeight: 'bold', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-            >
-              <Trash2 size={16} />
-            </button>
-          </div>
+          <QuoteActionButtons
+            archiveQuoteLineage={archiveQuoteLineage}
+            copiedId={copiedId}
+            copyText={copyText}
+            duplicateQuote={duplicateQuote}
+            grandMin={grandMin}
+            loadQuoteForEdit={loadQuoteForEdit}
+            safeDeleteQuotes={safeDeleteQuotes}
+            selectedQuote={selectedQuote}
+            setCopiedId={setCopiedId}
+            setSelectedQuote={setSelectedQuote}
+          />
         </div>
       </div>
     );
