@@ -68,9 +68,9 @@ function BulkToolPanel({ title, icon, bg, border, accentColor, isOpen, onToggle,
 // Bulk-first rebuild of SheetEditorScreen.js, trialed as a separate feature -
 // same measurementUtils.js formulas/validation/export, same data model,
 // deliberately different layout: (1) width/height/comment inline in a table
-// for every window, (2)-(7) one bulk-assign tool per remaining field in the
-// order requested, (8) a read-only review table showing everything together,
-// (9) the same Copy/CSV/Excel export as the original feature.
+// for every window, (2)-(9) one bulk-assign tool per remaining field in the
+// order requested, (10) a read-only review table showing everything together,
+// (11) the same Copy/CSV/Excel export as the original feature.
 export default function BulkEditorScreen({
   activeSheet,
   onBack,
@@ -153,6 +153,9 @@ export default function BulkEditorScreen({
   mountSelectedRowIds,
   setMountSelectedRowIds,
   applyBulkMount,
+
+  showHubTool,
+  setShowHubTool,
 
   copyCSV,
   shareCSV,
@@ -537,7 +540,7 @@ export default function BulkEditorScreen({
           <p style={{ color: '#888', fontSize: '11px', marginTop: '8px' }}>Select windows above, then tap a group to assign them all at once (channel numbers are set automatically), or Unassign to clear their remote group.</p>
         </BulkToolPanel>
 
-        {/* 6. Bulk Assign Cassette */}
+        {/* 7. Bulk Assign Cassette */}
         <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>7. Bulk Assign Cassette</p>
         <BulkToolPanel title="Bulk Assign Cassette" icon="🧱" bg="#1a2a2a" border="#4a8a7a" accentColor="#5eead4" isOpen={showCassetteTool} onToggle={() => setShowCassetteTool(!showCassetteTool)}>
           <label style={labelStyle}>Set Cassette to</label>
@@ -600,8 +603,27 @@ export default function BulkEditorScreen({
           </button>
         </BulkToolPanel>
 
-        {/* 8. Review table - read-only, same fields the export actually uses */}
-        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px', marginTop: '8px' }}>9. Review</p>
+        {/* 9. Hub - one count for the WHOLE order (a smart-home hub covers
+            many windows, it isn't tied to any single one), so this is a
+            single sheet-level field, not a "select windows, apply" bulk
+            tool like everything above it. Exports as one summary row after
+            all the windows - "HUB | 2" - not a column repeated on every
+            row. Saves live, same pattern as the Address field above. */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>9. Hub</p>
+        <BulkToolPanel title="Hub" icon="🛜" bg="#1a2a1a" border="#4a8a5a" accentColor="#86efac" isOpen={showHubTool} onToggle={() => setShowHubTool(!showHubTool)}>
+          <label style={labelStyle}>Hub Count for this order (blank = no hub)</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="e.g. 1, 2, 3"
+            value={activeSheet.hub || ''}
+            onChange={(e) => updateActiveSheet(sheet => ({ ...sheet, hub: e.target.value }))}
+            style={inputStyle}
+          />
+        </BulkToolPanel>
+
+        {/* 10. Review table - read-only, same fields the export actually uses */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px', marginTop: '8px' }}>10. Review</p>
         <div style={{ overflowX: 'auto', marginBottom: '24px', border: '1px solid #444', borderRadius: '8px' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ background: '#1a1a1a' }}>
@@ -646,11 +668,20 @@ export default function BulkEditorScreen({
                   </tr>
                 );
               })}
+              {/* Mirrors the export's own Hub summary row - one row for the
+                  whole order, not a column repeated on every window. */}
+              {(activeSheet.hub || '').trim() && (
+                <tr>
+                  <td style={{ ...stickyBodyCellStyle(false), background: 'rgba(250,204,21,0.25)' }}>HUB</td>
+                  <td style={{ ...cellStyle, background: 'rgba(250,204,21,0.25)', fontWeight: 'bold' }}>{activeSheet.hub.trim()}</td>
+                  <td style={cellStyle} colSpan={9} />
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
 
-        {/* 10. Export - Copy and Share did the same job (get the CSV text
+        {/* 11. Export - Copy and Share did the same job (get the CSV text
             somewhere else), with Share strictly more convenient wherever
             it's available (skips copy-then-switch-app-then-paste, and its
             own native share sheet already offers a Copy option). Same

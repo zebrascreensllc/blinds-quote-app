@@ -62,5 +62,17 @@ export async function sheetToExcelBuffer(sheet, rows) {
     if (f.hasNonDefaultMount) highlight('mount');
   });
 
+  // ✅ NEW: Hub is one count for the whole order (a smart-home hub covers
+  // many windows, it isn't per-window), so it's a single highlighted summary
+  // row after every window - "HUB | 2" - not a column repeated on every row.
+  const hubCount = (sheet?.hub || '').trim();
+  if (hubCount) {
+    const hubRow = ws.addRow({ clientName: 'HUB', location: hubCount });
+    ['clientName', 'location'].forEach(key => {
+      hubRow.getCell(key).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: YELLOW } };
+      hubRow.getCell(key).font = { bold: true };
+    });
+  }
+
   return workbook.xlsx.writeBuffer();
 }

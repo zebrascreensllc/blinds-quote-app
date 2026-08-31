@@ -97,6 +97,7 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
   const [showRemoteTool, setShowRemoteTool] = useState(false);
   const [showCassetteTool, setShowCassetteTool] = useState(false);
   const [showMountTool, setShowMountTool] = useState(false);
+  const [showHubTool, setShowHubTool] = useState(false);
 
   const [acknowledgedWarnings, setAcknowledgedWarnings] = useState(new Set());
 
@@ -561,6 +562,7 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     alert(`Set Mount = "${effectiveMount}" for ${count} window${count > 1 ? 's' : ''}.`);
   };
 
+
   // ---- Export (identical rules/logic to the original feature) ----
   const validateSheetForExport = () => {
     if (!activeSheet) return false;
@@ -769,6 +771,9 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
       mountSelectedRowIds={mountSelectedRowIds}
       setMountSelectedRowIds={setMountSelectedRowIds}
       applyBulkMount={applyBulkMount}
+
+      showHubTool={showHubTool}
+      setShowHubTool={setShowHubTool}
 
       copyCSV={copyCSV}
       shareCSV={shareCSV}

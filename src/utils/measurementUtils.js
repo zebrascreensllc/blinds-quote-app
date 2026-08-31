@@ -18,6 +18,12 @@ const CASSETTE_S1 = 'Fabric inserted top (S1) and Type C Fabric wrapped';
 const CASSETTE_S3 = 'Fabric inserted top (S3 PLUS) and Type C Fabric wrapped';
 export const CASSETTE_OPTIONS = [
   'Fabric Wrapped (V3) and Type C Fabric wrapped',
+  'Fabric Wrapped (V3) - White and Type C Fabric wrapped',
+  'Fabric Wrapped (V3) - Grey and Type C Fabric wrapped',
+  'Fabric Wrapped (V3) - Black and Type C Fabric wrapped',
+  '(V3) - White and Type C Fabric wrapped',
+  '(V3) - Grey and Type C Fabric wrapped',
+  '(V3) - Black and Type C Fabric wrapped',
   CASSETTE_S1,
   CASSETTE_S3,
   'Custom'
@@ -31,7 +37,9 @@ export const MOUNT_OPTIONS = [
   'Inside',
   'Inside-side',
   'Inside - No deduction',
+  'Inside - Side Mount - with Brackets',
   'Outside - No deduction',
+  'Outside - No Deduction - with Brackets',
   'Outside - stand deduction'
 ];
 export const DEFAULT_MOUNT = 'Inside';
@@ -459,6 +467,14 @@ export function sheetToCSV(sheet, rows) {
       f.remote, f.cassette, f.mount, f.fabricNumber, f.width, f.height, f.blindType
     ].map(escapeCsv).join(','));
   });
+
+  // ✅ NEW: Hub is one count for the whole order (a smart-home hub covers
+  // many windows, it isn't per-window), so it's a single summary row after
+  // every window - "HUB, 2" - not a column repeated on every row.
+  const hubCount = (sheet?.hub || '').trim();
+  if (hubCount) {
+    lines.push(['', 'HUB', hubCount, '', '', '', '', '', '', '', '', '', ''].map(escapeCsv).join(','));
+  }
 
   return lines.join('\n');
 }
