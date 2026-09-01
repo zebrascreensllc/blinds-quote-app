@@ -62,9 +62,19 @@ export default function HistoryScreen({
     });
   });
 
-  const filteredClients = Object.keys(groupedByClient).filter(client =>
-    client.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // ✅ FIX: client groups previously showed in whatever order Firestore
+  // happened to return them (effectively oldest-created-quote-first) - the
+  // clients you're actively working are the ones you need to find fastest,
+  // so this now sorts by each group's own most recently updated version,
+  // newest first. (Versions WITHIN a group still sort oldest-to-newest
+  // above - that's a different, correct ordering: v1 before v2 before v3.)
+  const filteredClients = Object.keys(groupedByClient)
+    .filter(client => client.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      const latestA = Math.max(...groupedByClient[a].map(q => new Date(q.updatedDate || q.createdDate || 0).getTime()));
+      const latestB = Math.max(...groupedByClient[b].map(q => new Date(q.updatedDate || q.createdDate || 0).getTime()));
+      return latestB - latestA;
+    });
 
   const filteredTrashed = trashedQuotes
     .filter(q => `${q.clientName} - ${q.location}`.toLowerCase().includes(searchQuery.toLowerCase()))
