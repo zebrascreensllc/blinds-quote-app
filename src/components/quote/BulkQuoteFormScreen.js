@@ -88,6 +88,15 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
   // `${room.id}_${groupIndex}` like the rest of this screen's per-group state.
   const [expandedSurchargeOverride, setExpandedSurchargeOverride] = useState(new Set());
 
+  // ✅ FIX: accordion for Rooms, same pattern Supplier Measurements already
+  // has for its windows (one card open at a time, "Next" advances and
+  // collapses the current one to a one-line summary) - this screen never
+  // had it, so every room stayed fully expanded and stacked the page taller
+  // with each one added. Starts on the first room since this component
+  // remounts fresh every time Quote Create is opened (currentView switch,
+  // not a toggle), so there's no stale state to worry about across sessions.
+  const [expandedRoomId, setExpandedRoomId] = useState(formData.rooms[0]?.id ?? null);
+
   const toggleInSet = (key, currentSet, setter) => {
     const s = new Set(currentSet);
     if (s.has(key)) s.delete(key); else s.add(key);
@@ -104,12 +113,16 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
         windowGroups: [{ id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null }]
       }]
     });
+    // Same "newly added item auto-expands" convention Supplier Measurements
+    // already uses for addWindowRow.
+    setExpandedRoomId(newRoomId);
   };
 
   const deleteRoom = (roomIndex) => {
     const newRooms = [...formData.rooms];
-    newRooms.splice(roomIndex, 1);
+    const [removed] = newRooms.splice(roomIndex, 1);
     setFormData({ ...formData, rooms: newRooms });
+    if (expandedRoomId === removed.id) setExpandedRoomId(null);
   };
 
   const updateRoomName = (roomIndex, name) => {
@@ -254,17 +267,45 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
           <input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} style={{ ...inputStyle, fontSize: '16px', padding: '12px' }} />
         </div>
 
-        {/* 4. Rooms - name + Qty/Width/Height only */}
+        {/* 4. Rooms - name + Qty/Width/Height only. Accordion, same pattern
+            as Supplier Measurements: only the current room's card is open,
+            with a "Next Room" button advancing to the next one - finished
+            rooms collapse to a one-line summary instead of staying
+            expanded and pushing everything else down the page. */}
         <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>Rooms</p>
-        {formData.rooms.map((room, roomIndex) => (
+        {formData.rooms.map((room, roomIndex) => {
+          const isExpanded = expandedRoomId === room.id;
+          const isLastRoom = roomIndex === formData.rooms.length - 1;
+          const totalQty = room.windowGroups.reduce((sum, g) => sum + (parseInt(g.quantity) || 0), 0);
+          const sizes = [...new Set(room.windowGroups.filter(g => g.width && g.height).map(g => `${g.width}x${g.height}`))].join(', ');
+          const summaryText = totalQty > 0
+            ? `${totalQty} window${totalQty > 1 ? 's' : ''}${sizes ? ` • ${sizes}` : ''}`
+            : 'No windows yet';
+
+          return (
           <div key={room.id} style={{ background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-              <input type="text" placeholder="Room Name" value={room.name} onChange={(e) => updateRoomName(roomIndex, e.target.value)} style={{ ...inputStyle, fontWeight: 'bold' }} />
-              <button onClick={() => deleteRoom(roomIndex)} style={{ padding: '10px', borderRadius: '6px', background: '#b91c1c', border: 'none', color: '#fff', cursor: 'pointer', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: isExpanded ? '12px' : '0' }}>
+              {isExpanded ? (
+                <input type="text" placeholder="Room Name" value={room.name} onChange={(e) => updateRoomName(roomIndex, e.target.value)} style={{ ...inputStyle, fontWeight: 'bold', flex: 1 }} />
+              ) : (
+                <span style={{ flex: 1, minWidth: 0, fontWeight: 'bold', fontSize: '14px', color: room.name.trim() ? '#d4af37' : '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {room.name.trim() || `Room ${roomIndex + 1}`}
+                </span>
+              )}
+              <button onClick={() => deleteRoom(roomIndex)} title="Delete this room" style={{ padding: '10px', borderRadius: '6px', background: '#b91c1c', border: 'none', color: '#fff', cursor: 'pointer', flexShrink: 0 }}>
                 <Trash2 size={16} />
+              </button>
+              <button
+                onClick={() => setExpandedRoomId(isExpanded ? null : room.id)}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', flexShrink: 0 }}
+              >
+                {!isExpanded && <span style={{ fontSize: '12px', color: '#888', whiteSpace: 'nowrap' }}>{summaryText}</span>}
+                <span style={{ color: '#888', fontSize: '14px' }}>{isExpanded ? '▼' : '▶'}</span>
               </button>
             </div>
 
+            {isExpanded && (
+            <>
             {room.windowGroups.map((group, groupIndex) => {
               // ✅ NEW: parity with the original Quote Generator's per-window-
               // group Surcharge Override - same collapsed-by-default panel,
@@ -337,8 +378,27 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
             <button onClick={() => addWindowGroup(roomIndex)} style={{ width: '100%', padding: '10px', marginTop: '4px', borderRadius: '6px', color: '#888', fontWeight: 'bold', fontSize: '13px', background: 'transparent', border: '2px dashed #555', cursor: 'pointer' }}>
               + Add Window Group
             </button>
+
+            {!isLastRoom ? (
+              <button
+                onClick={() => setExpandedRoomId(formData.rooms[roomIndex + 1].id)}
+                style={{ width: '100%', padding: '10px', marginTop: '10px', borderRadius: '6px', background: '#4ade80', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
+              >
+                Next Room →
+              </button>
+            ) : (
+              <button
+                onClick={() => setExpandedRoomId(null)}
+                style={{ width: '100%', padding: '10px', marginTop: '10px', borderRadius: '6px', background: '#333', color: '#ccc', border: '1px solid #555', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
+              >
+                ✓ Last Room - Done
+              </button>
+            )}
+            </>
+            )}
           </div>
-        ))}
+          );
+        })}
         <button onClick={addRoom} style={{ width: '100%', padding: '14px', borderRadius: '8px', color: '#888', fontWeight: 'bold', fontSize: '15px', background: 'transparent', border: '2px dashed #666', cursor: 'pointer', marginBottom: '24px' }}>
           + Add Room
         </button>

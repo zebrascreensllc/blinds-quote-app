@@ -68,12 +68,30 @@ export default function HistoryScreen({
   // so this now sorts by each group's own most recently updated version,
   // newest first. (Versions WITHIN a group still sort oldest-to-newest
   // above - that's a different, correct ordering: v1 before v2 before v3.)
+  // ✅ FIX: a plain Math.max(...dates) breaks silently the moment ANY quote
+  // in a group has a missing/malformed date (an older, pre-migration quote,
+  // for example) - Math.max propagates a single NaN to the whole group,
+  // and comparing NaN in a sort callback is neither positive nor negative,
+  // so the browser is free to leave that group wherever it originally was -
+  // exactly the "sort doesn't seem to do anything" symptom. This skips any
+  // date that fails to parse instead of letting one bad value poison the
+  // whole comparison, and falls back to version number as a tiebreaker so
+  // a genuinely dateless group still sorts predictably instead of randomly.
+  const latestValidTime = (list) => list.reduce((max, q) => {
+    const t = new Date(q.updatedDate || q.createdDate || 0).getTime();
+    return isNaN(t) ? max : Math.max(max, t);
+  }, 0);
+  const highestVersion = (list) => list.reduce((max, q) => {
+    const v = parseInt(String(q.version || '').replace(/[^0-9]/g, ''), 10);
+    return isNaN(v) ? max : Math.max(max, v);
+  }, 0);
   const filteredClients = Object.keys(groupedByClient)
     .filter(client => client.toLowerCase().includes(searchQuery.toLowerCase()))
     .sort((a, b) => {
-      const latestA = Math.max(...groupedByClient[a].map(q => new Date(q.updatedDate || q.createdDate || 0).getTime()));
-      const latestB = Math.max(...groupedByClient[b].map(q => new Date(q.updatedDate || q.createdDate || 0).getTime()));
-      return latestB - latestA;
+      const latestA = latestValidTime(groupedByClient[a]);
+      const latestB = latestValidTime(groupedByClient[b]);
+      if (latestA !== latestB) return latestB - latestA;
+      return highestVersion(groupedByClient[b]) - highestVersion(groupedByClient[a]);
     });
 
   const filteredTrashed = trashedQuotes
