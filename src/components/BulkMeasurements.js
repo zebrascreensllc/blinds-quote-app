@@ -404,6 +404,18 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
     const count = fabricSelectedRowIds.size;
     setFabricSelectedRowIds(new Set());
+    // ✅ FIX: this was the only bulk-assign tool in this file whose input
+    // never cleared after a successful apply - both fabric bulk-assign
+    // tools on the Quote side (QuoteDetailScreen.js, BulkQuoteFormScreen.js)
+    // already reset theirs; this one didn't. Tapping back into a field that
+    // still holds the old value (instead of a fresh blank box) and typing
+    // the new fabric number without first clearing it inserts/appends
+    // instead of replacing - e.g. typing "82141D" into a box still showing
+    // "82141C" can produce "82141C82141D", which correctly fails validation
+    // but then applies that GARBLED value once confirmed "anyway" - not the
+    // fabric you actually meant, and easy to mistake for "the change didn't
+    // take" when you look at the row afterward.
+    setBulkFabricInput('');
     alert(`Applied "${value}" to ${count} window${count > 1 ? 's' : ''}. Any room with more than one fabric number will show a warning below.`);
   };
 
