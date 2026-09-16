@@ -14,6 +14,13 @@
 export const MOTOR_OPTIONS = ['Manual', 'motor-recharge', 'motor-Zigbee', 'motor-wire-zigbee', 'Custom'];
 export const DEFAULT_MOTOR_TYPE = 'motor-Zigbee';
 
+// ✅ NEW: Solar went from a plain yes/no to naming which panel/wire was
+// used - blank/false means "no solar", same falsy-check semantics every
+// existing consumer already relies on (row.solar is read with a plain
+// `if (row.solar)` everywhere, so this is a drop-in superset, not a
+// breaking change to any existing check).
+export const SOLAR_PANEL_OPTIONS = ['AOK', 'G3 - Regular wire', 'G3 - 1meter wire'];
+
 const CASSETTE_S1 = 'Fabric inserted top (S1) and Type C Fabric wrapped';
 const CASSETTE_S3 = 'Fabric inserted top (S3 PLUS) and Type C Fabric wrapped';
 export const CASSETTE_OPTIONS = [
@@ -269,7 +276,12 @@ export function expandQuoteIntoRows(quote, options = {}) {
           motor: isMotor ? DEFAULT_MOTOR_TYPE : 'Manual',
           motorCustomText: '',
           motorSide: '', // '' = Right (default, not written to export), 'Left' = the exception
-          solar: !!group.solar,
+          // ✅ FIX: `!!group.solar` coerced away which panel/wire was
+          // actually selected on the quote side, collapsing it to a plain
+          // boolean before the supplier sheet - the supplier needs to know
+          // WHICH panel to include, not just that one is needed. Keep the
+          // real value (a panel name string, legacy `true`, or `false`).
+          solar: group.solar || false,
           remoteGroup: null,
           remoteChannel: null, // explicit channel number, assigned at the moment a group is set (see getNextRemoteChannel) - NOT derived from table position
           cassette: cassetteDefault,
@@ -426,7 +438,10 @@ export function buildRowExportFields(row, idx, remoteLabels) {
   const isMotor = row.motor !== 'Manual';
   const variants = [];
   if (row.motorSide === 'Left') variants.push('Left side');
-  if (row.solar) variants.push('Solar');
+  // row.solar now names the specific panel/wire (e.g. "AOK") instead of a
+  // plain yes/no - the supplier needs to know which one to ship. A legacy
+  // `true` (an older saved row from before this changed) just shows "Solar".
+  if (row.solar) variants.push(typeof row.solar === 'string' ? `Solar - ${row.solar}` : 'Solar');
   const manualSmart = (isMotor ? 'Smart' : 'Manual') + (variants.length ? ' - ' + variants.join(' - ') : '');
   const motorType = isMotor ? (row.motor === 'Custom' ? row.motorCustomText : row.motor) : '';
   const cassette = row.cassette === 'Custom' ? row.cassetteCustomText : row.cassette;

@@ -68,7 +68,7 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
   const [bulkFabricInput, setBulkFabricInput] = useState('');
   const [bulkMotorValue, setBulkMotorValue] = useState(DEFAULT_MOTOR_TYPE);
   const [bulkMotorCustomText, setBulkMotorCustomText] = useState('');
-  const [bulkSolarValue, setBulkSolarValue] = useState(false);
+  const [bulkSolarValue, setBulkSolarValue] = useState('');
   const [bulkMotorSideValue, setBulkMotorSideValue] = useState(''); // '' = Right (default), 'Left' = the exception
   const [bulkCassetteValue, setBulkCassetteValue] = useState(DEFAULT_CASSETTE);
   const [bulkCassetteCustomText, setBulkCassetteCustomText] = useState('');
@@ -466,7 +466,7 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
     const count = solarSelectedRowIds.size;
     setSolarSelectedRowIds(new Set());
-    alert(`Set Solar = ${bulkSolarValue ? 'Yes' : 'No'} for ${count} window${count > 1 ? 's' : ''}.`);
+    alert(`Set Solar = ${bulkSolarValue || 'No'} for ${count} window${count > 1 ? 's' : ''}.`);
   };
 
   // ---- Bulk motor side tool - parity with the original feature's per-row

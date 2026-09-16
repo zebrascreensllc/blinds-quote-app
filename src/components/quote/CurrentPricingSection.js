@@ -4,6 +4,13 @@ import { SALES_TAX_RATE } from '../../utils/constants';
 import { formatPrice, formatMoney, isRangeOverride, formatPriceOverride, filterNumericText } from '../../utils/formatters';
 import { calculateGroupQuote, getBlindTypeFromFabric } from '../../utils/pricing';
 
+// ✅ NEW: Solar went from a plain yes/no to naming which panel/wire was
+// used - blank means "no solar", same falsy-check semantics every existing
+// consumer already relies on. Local to this file, not imported from
+// measurementUtils.js's own copy - same deliberate Quote/Supplier
+// Measurements isolation the rest of this screen's option lists follow.
+const SOLAR_PANEL_OPTIONS = ['AOK', 'G3 - Regular wire', 'G3 - 1meter wire'];
+
 // Extracted from QuoteDetailScreen.js (was ~1440 lines - this section alone
 // was ~550 of them) as a close relocation, not a rewrite: same variable
 // names, same structure, only the closed-over values are now explicit props
@@ -243,17 +250,16 @@ export default function CurrentPricingSection({
                                 <option value="Motor">Motor</option>
                               </select>
                               {group.controlType === 'Motor' && (
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#ccc', cursor: 'pointer' }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={!!group.solar}
-                                    onChange={(e) => {
-                                      setTableEditValues({ ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [priceKey]: { ...groupEditForRow, solar: e.target.checked } } });
-                                    }}
-                                    style={{ width: '12px', height: '12px' }}
-                                  />
-                                  Solar
-                                </label>
+                                <select
+                                  value={group.solar || ''}
+                                  onChange={(e) => {
+                                    setTableEditValues({ ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [priceKey]: { ...groupEditForRow, solar: e.target.value } } });
+                                  }}
+                                  style={{ padding: '2px 4px', borderRadius: '4px', fontSize: '10px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                                >
+                                  <option value="">No Solar</option>
+                                  {SOLAR_PANEL_OPTIONS.map(opt => <option key={opt} value={opt}>Solar - {opt}</option>)}
+                                </select>
                               )}
                               <button
                                 onClick={() => setEditingTableField(null)}
@@ -264,7 +270,10 @@ export default function CurrentPricingSection({
                             </span>
                           ) : (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                              {motorType}{group.solar ? '+Solar' : ''}
+                              {/* group.solar used to be a plain `true`/`false` - an older
+                                  saved quote can still have the bare `true`, so only show
+                                  the "(type)" parenthetical when it's an actual panel name. */}
+                              {motorType}{group.solar ? `+Solar${typeof group.solar === 'string' ? ` (${group.solar})` : ''}` : ''}
                               <button
                                 onClick={() => setEditingTableField(typeFieldKey)}
                                 style={{ padding: '1px 3px', borderRadius: '2px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '9px' }}

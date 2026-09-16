@@ -4,6 +4,7 @@ import {
   MOTOR_OPTIONS,
   CASSETTE_OPTIONS,
   MOUNT_OPTIONS,
+  SOLAR_PANEL_OPTIONS,
   validateMeasurementFormat,
   getLocationLabel,
   getIncompleteFields,
@@ -432,20 +433,10 @@ export default function BulkEditorScreen({
         <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>4. Bulk Assign Solar</p>
         <BulkToolPanel title="Bulk Assign Solar (motorized windows only)" icon="☀️" bg="#2a2a1a" border="#8a8a4a" accentColor="#fde047" isOpen={showSolarTool} onToggle={() => setShowSolarTool(!showSolarTool)}>
           <label style={labelStyle}>Set Solar to</label>
-          <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
-            <button
-              onClick={() => setBulkSolarValue(false)}
-              style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: !bulkSolarValue ? '#0e7490' : '#1a1a1a', color: !bulkSolarValue ? '#fff' : '#888', border: !bulkSolarValue ? '1px solid #0e7490' : '1px solid #444' }}
-            >
-              No
-            </button>
-            <button
-              onClick={() => setBulkSolarValue(true)}
-              style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkSolarValue ? '#0e7490' : '#1a1a1a', color: bulkSolarValue ? '#fff' : '#888', border: bulkSolarValue ? '1px solid #0e7490' : '1px solid #444' }}
-            >
-              Yes
-            </button>
-          </div>
+          <select value={bulkSolarValue} onChange={(e) => setBulkSolarValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
+            <option value="">No</option>
+            {SOLAR_PANEL_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
           {motorizedRows.length === 0 ? (
             <p style={{ color: '#888', fontSize: '12px' }}>No motorized windows yet - assign Motor above first.</p>
           ) : (
@@ -456,7 +447,7 @@ export default function BulkEditorScreen({
               setSelectedIds={setSolarSelectedRowIds}
               accentColor="#fde047"
               renderLabel={(row) => (
-                <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {row.motor}, Solar currently {row.solar ? 'Yes' : 'No'}</span></>
+                <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {row.motor}, Solar currently {row.solar || 'No'}</span></>
               )}
             />
           )}

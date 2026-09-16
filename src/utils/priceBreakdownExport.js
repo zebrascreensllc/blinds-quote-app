@@ -30,7 +30,10 @@ export async function generatePriceBreakdownExcel(quote) {
   ws.getRow(1).font = { bold: true };
 
   items.forEach((it, idx) => {
-    const type = it.motorSmart === 'Smart' ? `Smart${it.solar ? ' + Solar' : ''}` : 'Manual';
+    // it.solar now names the specific panel/wire (e.g. "AOK") instead of a
+    // plain yes/no - a legacy `true` (an older saved quote) just shows "Solar".
+    const solarLabel = it.solar ? ` + Solar${typeof it.solar === 'string' ? ` (${it.solar})` : ''}` : '';
+    const type = it.motorSmart === 'Smart' ? `Smart${solarLabel}` : 'Manual';
     ws.addRow({
       itemNo: idx + 1,
       location: it.locationLabel,

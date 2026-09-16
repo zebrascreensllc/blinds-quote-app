@@ -67,7 +67,12 @@ export function buildInvoiceLineItems(quote) {
           width: group.width || '',
           height: group.height || '',
           motorSmart: group.controlType === 'Motor' ? 'Smart' : 'Manual',
-          solar: !!group.solar,
+          // ✅ FIX: `!!group.solar` coerced away which panel/wire was
+          // actually selected, collapsing it back down to a plain boolean -
+          // exactly the "field exists, one consumer forgets to read it
+          // properly" bug class. Keep the real value (a panel name string,
+          // legacy `true`, or `false`) so callers can still tell which.
+          solar: group.solar || false,
           unitPrice: perWindowPrice
         });
       }

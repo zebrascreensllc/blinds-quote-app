@@ -480,13 +480,13 @@ export default function QuoteDetailScreen({
           const group = room.windowGroups[0];
           const qty = parseInt(group.quantity) || 1;
           totalWindows += qty;
-          const controlLabel = (group.controlType || 'Manual') + (group.solar ? '+Solar' : '');
+          const controlLabel = (group.controlType || 'Manual') + (group.solar ? `+Solar${typeof group.solar === 'string' ? ` (${group.solar})` : ''}` : '');
           text += `${room.name} (${qty} windows) - ${controlLabel}\n`;
         } else {
           room.windowGroups.forEach(group => {
             const qty = parseInt(group.quantity) || 1;
             totalWindows += qty;
-            const controlLabel = (group.controlType || 'Manual') + (group.solar ? '+Solar' : '');
+            const controlLabel = (group.controlType || 'Manual') + (group.solar ? `+Solar${typeof group.solar === 'string' ? ` (${group.solar})` : ''}` : '');
             const size = `${group.width}x${group.height}`;
             text += `${room.name} (${qty} windows, ${size}) - ${controlLabel}\n`;
           });

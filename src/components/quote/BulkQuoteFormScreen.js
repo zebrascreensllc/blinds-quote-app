@@ -4,6 +4,17 @@ import { autoDetectBlindTypes, getHeightSurcharge, getWidthSurcharge, findDiscon
 
 const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
 
+// ✅ NEW: Solar used to be a plain yes/no - now it names which panel/wire
+// was actually used, since the supplier needs to know which one to ship.
+// A blank string means "no solar" (same falsy-check semantics every
+// existing consumer already uses - group.solar / row.solar - continue to
+// work unchanged, they just now hold a specific label instead of `true`
+// when solar is present). Local to this file, not imported from
+// measurementUtils.js's own copy - same deliberate Quote/Supplier
+// Measurements isolation every other shared-looking option list here
+// already follows (BLIND_TYPES, the Motor <select> options).
+const SOLAR_PANEL_OPTIONS = ['AOK', 'G3 - Regular wire', 'G3 - 1meter wire'];
+
 const inputStyle = { width: '100%', padding: '10px', borderRadius: '6px', fontSize: '13px', background: '#1a1a1a', border: '1px solid #444', color: 'white', boxSizing: 'border-box' };
 const selectStyle = { ...inputStyle, cursor: 'pointer' };
 const labelStyle = { fontSize: '11px', color: '#888', display: 'block', marginBottom: '4px' };
@@ -77,7 +88,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
   const [bulkMode, setBulkMode] = useState('fabric');
   const [bulkBlindTypes, setBulkBlindTypes] = useState([]);
   const [bulkMotorValue, setBulkMotorValue] = useState('Motor');
-  const [bulkSolarValue, setBulkSolarValue] = useState(false);
+  const [bulkSolarValue, setBulkSolarValue] = useState('');
 
   const [showFabricTool, setShowFabricTool] = useState(false);
   const [showMotorTool, setShowMotorTool] = useState(false);
@@ -247,7 +258,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
     setFormData({ ...formData, rooms: newRooms });
     const count = solarSelectedKeys.size;
     setSolarSelectedKeys(new Set());
-    alert(`Set Solar = ${bulkSolarValue ? 'Yes' : 'No'} for ${count} window group${count > 1 ? 's' : ''}.`);
+    alert(`Set Solar = ${bulkSolarValue || 'No'} for ${count} window group${count > 1 ? 's' : ''}.`);
   };
 
   return (
@@ -496,10 +507,10 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
         <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>Bulk Assign Solar</p>
         <BulkToolPanel title="Bulk Assign Solar (motorized windows only)" icon="☀️" bg="#2a2a1a" border="#8a8a4a" accentColor="#fde047" isOpen={showSolarTool} onToggle={() => setShowSolarTool(!showSolarTool)}>
           <label style={labelStyle}>Set Solar to</label>
-          <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
-            <button onClick={() => setBulkSolarValue(false)} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: !bulkSolarValue ? '#0e7490' : '#1a1a1a', color: !bulkSolarValue ? '#fff' : '#888', border: !bulkSolarValue ? '1px solid #0e7490' : '1px solid #444' }}>No</button>
-            <button onClick={() => setBulkSolarValue(true)} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkSolarValue ? '#0e7490' : '#1a1a1a', color: bulkSolarValue ? '#fff' : '#888', border: bulkSolarValue ? '1px solid #0e7490' : '1px solid #444' }}>Yes</button>
-          </div>
+          <select value={bulkSolarValue} onChange={(e) => setBulkSolarValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
+            <option value="">No</option>
+            {SOLAR_PANEL_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
           {motorGroupItems.length === 0 ? (
             <p style={{ color: '#888', fontSize: '12px' }}>No motorized window groups yet - assign Motor above first.</p>
           ) : (
@@ -510,7 +521,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
               setSelectedIds={setSolarSelectedKeys}
               accentColor="#fde047"
               renderLabel={(item) => (
-                <>{item.room.name || 'Room'} ({item.group.width || '?'}x{item.group.height || '?'})<span style={{ color: '#666' }}> — Solar currently {item.group.solar ? 'Yes' : 'No'}</span></>
+                <>{item.room.name || 'Room'} ({item.group.width || '?'}x{item.group.height || '?'})<span style={{ color: '#666' }}> — Solar currently {item.group.solar || 'No'}</span></>
               )}
             />
           )}
@@ -598,7 +609,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
                   <td style={cellStyle}>{item.group.width || '?'} x {item.group.height || '?'}</td>
                   <td style={cellStyle}>{item.room.fabricInput || `${(item.room.blindTypes || ['Roller']).join(', ')} (no fabric)`}</td>
                   <td style={cellStyle}>{item.group.controlType || 'Manual'}</td>
-                  <td style={cellStyle}>{item.group.solar ? 'Yes' : 'No'}</td>
+                  <td style={cellStyle}>{item.group.solar || 'No'}</td>
                 </tr>
               ))}
               {allGroupItems.length === 0 && (
