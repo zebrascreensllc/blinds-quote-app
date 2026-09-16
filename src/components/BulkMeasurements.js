@@ -28,7 +28,7 @@ import { sheetToExcelBuffer } from '../utils/xlsxExport';
 // zero-pricing-import isolation - imported here in the container only,
 // never into measurementUtils.js itself, and only for Bulk Measurements
 // (the original Supplier Measurements feature is intentionally untouched).
-import { isFabricValid, findDiscontinuedFabrics, findClosestFabricMatch } from '../utils/pricing';
+import { isFabricValid, findDiscontinuedFabrics, findClosestFabricMatch, getBlindTypeFromFabric } from '../utils/pricing';
 import { PRICING_DATA } from '../data/pricingData';
 
 // Same identity/export-naming convention as SupplierMeasurements.js.
@@ -400,7 +400,17 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
       if (!window.confirm(`"${value}" is not in the fabric list - it may be a typo.${suggestionLine}\n\nApply it anyway?`)) return;
     }
 
-    const newRows = activeSheet.rows.map(r => (fabricSelectedRowIds.has(r.id) ? { ...r, fabricNumber: value } : r));
+    // ✅ FIX: this never updated blindType to match the fabric being
+    // assigned - a row created blank (or from a quote whose room never had
+    // this exact fabric) keeps its old/default Blind Type ("Roller") no
+    // matter what fabric you actually assign here, so a real Zebra fabric
+    // (e.g. 83073B, 83062A - both genuinely catalogued under Zebra) could
+    // export showing "Roller". Only overwrites it when the fabric is
+    // actually found in the catalog - an unrecognized/typo'd fabric (the
+    // confirm-anyway path above) leaves the row's existing Blind Type alone
+    // rather than guessing.
+    const detectedType = getBlindTypeFromFabric(value, PRICING_DATA);
+    const newRows = activeSheet.rows.map(r => (fabricSelectedRowIds.has(r.id) ? { ...r, fabricNumber: value, blindType: detectedType || r.blindType } : r));
     updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
     const count = fabricSelectedRowIds.size;
     setFabricSelectedRowIds(new Set());
