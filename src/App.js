@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 
 import { PRICING_DATA } from './data/pricingData';
 import { getPricingSnapshot, DEFAULT_HUB } from './utils/constants';
-import { getQuoteNamePrefix, getNextVersion } from './utils/pricing';
+import { getQuoteNamePrefix, getNextVersion, autoDetectBlindTypes } from './utils/pricing';
 
 // ✅ NEW (Phase 2): Supplier Measurements - fully isolated feature, own files,
 // own storage key. Only reads the `quotes` array (never writes it) to build
@@ -770,6 +770,90 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     }
   };
 
+  // ✅ NEW: the reverse of the usual flow (Quote Create -> Pull Existing
+  // Quote -> build a Supplier Measurements sheet from it). Sometimes
+  // precise measurements get taken FIRST, with no quote behind them yet
+  // (Supplier Measurements' own "Start blank" flow exists for exactly
+  // this) - this takes that sheet's rows and rebuilds them into a fresh
+  // Quote Create draft, so the client's real dimensions/fabric don't have
+  // to be retyped from scratch. Rows are grouped back into rooms by
+  // locationBase, then within each room grouped again by identical
+  // width/height/motor/solar into one window group with a quantity -
+  // exactly the reverse of expandQuoteIntoRows (measurementUtils.js),
+  // which is what built rows out of a quote's rooms in the first place.
+  const generateQuoteFromSheet = (sheet) => {
+    try {
+      const rows = sheet.rows || [];
+      const roomsByKey = new Map();
+      rows.forEach(row => {
+        const key = (row.locationBase || '').trim() || `Window ${row.locationIndex || 1}`;
+        if (!roomsByKey.has(key)) roomsByKey.set(key, []);
+        roomsByKey.get(key).push(row);
+      });
+
+      const rooms = Array.from(roomsByKey.entries()).map(([roomName, roomRows], roomIdx) => {
+        const groupsByKey = new Map();
+        roomRows.forEach(row => {
+          const isMotor = !!(row.motor && row.motor !== 'Manual');
+          const groupKey = JSON.stringify([row.width || '', row.height || '', isMotor, row.solar || false]);
+          if (!groupsByKey.has(groupKey)) groupsByKey.set(groupKey, { row, count: 0 });
+          groupsByKey.get(groupKey).count += 1;
+        });
+
+        const windowGroups = Array.from(groupsByKey.values()).map((entry, groupIdx) => ({
+          id: groupIdx + 1,
+          quantity: String(entry.count),
+          width: entry.row.width || '',
+          height: entry.row.height || '',
+          controlType: (entry.row.motor && entry.row.motor !== 'Manual') ? 'Motor' : 'Manual',
+          solar: entry.row.solar || false,
+          mount: 'Inside',
+          surchargeOverride: null
+        }));
+
+        // A quote room carries ONE fabricInput string - if every window in
+        // this room shares the same fabric, use it directly; if they
+        // differ, comma-join the distinct ones, matching how a mixed-
+        // fabric room is already typed manually on the quote side.
+        const fabrics = [...new Set(roomRows.map(r => (r.fabricNumber || '').trim()).filter(Boolean))];
+        const fabricInput = fabrics.join(', ');
+        // Re-detecting from the fabric (when there is one) is more
+        // reliable than trusting the row's own stored blindType, which -
+        // especially on an older sheet - could predate the fabric it's
+        // currently set to.
+        const fallbackBlindType = roomRows.find(r => r.blindType)?.blindType || 'Roller';
+        const blindTypes = fabricInput ? autoDetectBlindTypes(fabricInput, PRICING_DATA) : [fallbackBlindType];
+
+        return {
+          id: roomIdx + 1,
+          name: roomName,
+          fabricInput,
+          blindTypes,
+          windowGroups: windowGroups.length > 0 ? windowGroups : [{
+            id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null
+          }]
+        };
+      });
+
+      setFormData({
+        clientName: sheet.clientNames?.[0] || '',
+        clientPhone: '',
+        location: sheet.address || '',
+        date: new Date().toISOString().split('T')[0],
+        hub: DEFAULT_HUB,
+        rooms: rooms.length > 0 ? rooms : [{
+          id: 1, name: '', fabricInput: '', blindTypes: ['Roller'],
+          windowGroups: [{ id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null }]
+        }]
+      });
+      setEditingQuote(null);
+      setCurrentView('bulkQuote');
+    } catch (error) {
+      console.error('Error generating quote from sheet:', error);
+      alert('❌ Could not build a quote from this sheet. Please try again.');
+    }
+  };
+
   // ✅ MIGRATION GATE: if quotes were found sitting in this device's old
   // localStorage record, offer to upload them before showing the normal app -
   // makes sure nothing from before cloud sync gets silently left behind.
@@ -886,7 +970,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         )
       )}
       {currentView === 'statistics' && <StatisticsScreen quotes={quotes} setCurrentView={setCurrentView} uid={uid} />}
-      {currentView === 'bulkMeasurements' && <BulkMeasurements quotes={quotes} onBack={() => setCurrentView('menu')} uid={uid} />}
+      {currentView === 'bulkMeasurements' && <BulkMeasurements quotes={quotes} onBack={() => setCurrentView('menu')} uid={uid} generateQuoteFromSheet={generateQuoteFromSheet} />}
       {currentView === 'analysis' && <OrderAnalysis quotes={quotes} onBack={() => setCurrentView('menu')} uid={uid} />}
     </div>
   );

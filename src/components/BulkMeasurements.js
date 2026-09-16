@@ -44,7 +44,7 @@ const exportFileLabel = (sheet) => (sheet.clientNames?.length ? sheet.clientName
 // field (fabric/motor/solar/remote/cassette/mount) in that order, then a
 // review table, matching what was asked for instead of the original's
 // per-row accordion with every field editable in place.
-export default function BulkMeasurements({ quotes, onBack, uid }) {
+export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFromSheet }) {
   const [sheets, setSheets] = useState([]);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [screen, setScreen] = useState('list'); // 'list' | 'select' | 'manual' | 'editor'
@@ -714,6 +714,7 @@ export default function BulkMeasurements({ quotes, onBack, uid }) {
     <BulkEditorScreen
       activeSheet={activeSheet}
       onBack={() => setScreen('list')}
+      generateQuoteFromSheet={generateQuoteFromSheet}
       syncStatus={syncStatus}
       updateActiveSheet={updateActiveSheet}
       updateRow={updateRow}

@@ -75,6 +75,7 @@ function BulkToolPanel({ title, icon, bg, border, accentColor, isOpen, onToggle,
 export default function BulkEditorScreen({
   activeSheet,
   onBack,
+  generateQuoteFromSheet,
   syncStatus,
   updateActiveSheet,
   updateRow,
@@ -206,6 +207,24 @@ export default function BulkEditorScreen({
         <p style={{ color: '#888', fontSize: '12px', marginBottom: '20px' }}>
           {activeSheet.sourceQuoteNames?.length > 0 ? `${activeSheet.sourceQuoteNames.join(', ')} • ` : ''}{rows.length} window{rows.length === 1 ? '' : 's'}
         </p>
+
+        {/* ✅ NEW: the reverse of the usual flow (Quote Create -> Pull
+            Existing Quote -> build a sheet from it). Measurements are
+            sometimes taken FIRST with no quote yet (this feature's own
+            "Start blank" flow exists for exactly that) - this builds a
+            fresh Quote Create draft from the sheet's own rows (location,
+            width/height, fabric, motor, solar) instead of retyping
+            everything the client's windows already say. */}
+        <button
+          onClick={() => {
+            if (window.confirm('Build a new Quote Create draft from this sheet\'s windows (location, size, fabric, motor, solar)?\n\nYou\'ll still need to add the client\'s phone number and review pricing before generating the quote.')) {
+              generateQuoteFromSheet(activeSheet);
+            }
+          }}
+          style={{ width: '100%', padding: '12px', marginBottom: '20px', borderRadius: '8px', background: '#4f46e5', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
+        >
+          📝 Generate Quote from this Sheet
+        </button>
 
         {/* 1. Windows - width/height/comment only. A stacked card per window
             instead of a table - on a phone-width screen, 4 side-by-side
