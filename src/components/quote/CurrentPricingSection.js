@@ -460,18 +460,6 @@ export default function CurrentPricingSection({
                   <div style={{ background: '#3a2a2a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
                     <span style={{ color: '#aaa' }}>
                         Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost total:
-                        {isEditingMotor ? (
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={activeEditText}
-                            onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
-                            style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', marginLeft: '4px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
-                            autoFocus
-                          />
-                        ) : (
-                          <span style={{ color: isMotorEdited ? '#ffcc00' : '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${formatMoney(motorGrandTotal)}</span>
-                        )}
                     </span>
                         <button
                           onClick={() => {
@@ -489,10 +477,22 @@ export default function CurrentPricingSection({
                               setActiveEditText(formatMoney(effectiveMotorCost));
                             }
                           }}
-                          style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: isEditingMotor ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                          style={{ padding: '2px 6px', borderRadius: '3px', background: isEditingMotor ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
                         >
                           {isEditingMotor ? 'Done' : '✏️'}
                         </button>
+                    {isEditingMotor ? (
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={activeEditText}
+                        onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
+                        style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                        autoFocus
+                      />
+                    ) : (
+                      <span style={{ color: isMotorEdited ? '#ffcc00' : '#fff', fontWeight: 'bold' }}>${formatMoney(motorGrandTotal)}</span>
+                    )}
                   </div>
                 );
               })()}
@@ -504,18 +504,6 @@ export default function CurrentPricingSection({
                   <div style={{ background: '#2a3a2a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
                     <span style={{ color: '#aaa' }}>
                         Solar <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{solarCount}</span> cost total:
-                        {isEditingSolar ? (
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={activeEditText}
-                            onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
-                            style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', marginLeft: '4px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
-                            autoFocus
-                          />
-                        ) : (
-                          <span style={{ color: isSolarEdited ? '#ffcc00' : '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${formatMoney(solarGrandTotal)}</span>
-                        )}
                     </span>
                         <button
                           onClick={() => {
@@ -533,10 +521,22 @@ export default function CurrentPricingSection({
                               setActiveEditText(formatMoney(effectiveSolarCost));
                             }
                           }}
-                          style={{ marginLeft: '8px', padding: '2px 6px', borderRadius: '3px', background: isEditingSolar ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                          style={{ padding: '2px 6px', borderRadius: '3px', background: isEditingSolar ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
                         >
                           {isEditingSolar ? 'Done' : '✏️'}
                         </button>
+                    {isEditingSolar ? (
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={activeEditText}
+                        onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
+                        style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                        autoFocus
+                      />
+                    ) : (
+                      <span style={{ color: isSolarEdited ? '#ffcc00' : '#fff', fontWeight: 'bold' }}>${formatMoney(solarGrandTotal)}</span>
+                    )}
                   </div>
                 );
               })()}
@@ -626,29 +626,15 @@ export default function CurrentPricingSection({
                 return (
                   <div style={{ background: '#3a3a2a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
                     {isEditingOther ? (
-                      <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px' }}>
-                        <input
-                          type="text"
-                          placeholder="Label (e.g. Old blind removal)"
-                          value={activeEditTextMax}
-                          onChange={(e) => setActiveEditTextMax(e.target.value)}
-                          style={{ width: '160px', padding: '2px 4px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
-                        />
-                        <span style={{ color: '#888' }}>$</span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={activeEditText}
-                          onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
-                          style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
-                          autoFocus
-                        />
-                      </span>
+                      <input
+                        type="text"
+                        placeholder="Label (e.g. Old blind removal)"
+                        value={activeEditTextMax}
+                        onChange={(e) => setActiveEditTextMax(e.target.value)}
+                        style={{ width: '160px', padding: '2px 4px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                      />
                     ) : (
-                      <span style={{ color: '#aaa' }}>
-                        {effectiveOtherExpensesLabel}:
-                        <span style={{ color: isOtherEdited ? '#ffcc00' : '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${formatMoney(effectiveOtherExpenses)}</span>
-                      </span>
+                      <span style={{ color: '#aaa' }}>{effectiveOtherExpensesLabel}:</span>
                     )}
                     <button
                       onClick={() => {
@@ -671,6 +657,18 @@ export default function CurrentPricingSection({
                     >
                       {isEditingOther ? 'Done' : '✏️'}
                     </button>
+                    {isEditingOther ? (
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={activeEditText}
+                        onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
+                        style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                        autoFocus
+                      />
+                    ) : (
+                      <span style={{ color: isOtherEdited ? '#ffcc00' : '#fff', fontWeight: 'bold' }}>${formatMoney(effectiveOtherExpenses)}</span>
+                    )}
                   </div>
                 );
               })()}

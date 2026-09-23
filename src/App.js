@@ -64,6 +64,11 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     location: '',
     date: new Date().toISOString().split('T')[0],
     hub: DEFAULT_HUB,
+    // ✅ NEW: Other Expenses is now settable at creation time too, not just
+    // after the fact from the saved quote's pricing screen - see
+    // generateQuote() below for how this flows into editedPrices.otherExpenses.
+    otherExpensesAmount: 0,
+    otherExpensesLabel: '',
     rooms: [{
       id: 1,
       name: '',
@@ -670,8 +675,17 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     // for grouping/history without ever being used to match deletions.
     const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
+    // ✅ NEW: Other Expenses is entered as two flat fields on formData (see
+    // the form's own state above) purely for simple input binding - it's
+    // never meant to live at the quote's top level. Pulled out here so the
+    // spread below can't leave stray otherExpensesAmount/otherExpensesLabel
+    // fields sitting next to editedPrices.otherExpenses, which is the only
+    // place every other consumer (QuoteDetailScreen, invoiceExport, etc.)
+    // actually reads it from.
+    const { otherExpensesAmount, otherExpensesLabel, ...restFormData } = formData;
+
     const quoteData = {
-      ...formData,
+      ...restFormData,
       // Identity fields come AFTER the spread so they can never be clobbered
       id: uniqueId,
       lineageId: editingQuote ? (editingQuote.lineageId || editingQuote.id) : uniqueId,
@@ -693,7 +707,17 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       // override carries forward as-is too - it won't automatically reflect
       // the new size. Worth a quick check on that one window after this kind
       // of edit; everything else carries forward correctly untouched.
-      editedPrices: editingQuote ? editingQuote.editedPrices : undefined
+      //
+      // ✅ NEW: Other Expenses used to only be settable AFTER a quote existed
+      // (via the pricing screen's own editor) - "Generate Quote from this
+      // Sheet" and brand-new Quote Create had no way to set it at all. Now
+      // merges in whatever this form's own Other Expenses fields hold,
+      // preserving every OTHER carried-forward override (motor/solar/tax/
+      // per-window prices) untouched.
+      editedPrices: {
+        ...(editingQuote ? editingQuote.editedPrices : {}),
+        otherExpenses: { amount: otherExpensesAmount || 0, label: (otherExpensesLabel || '').trim() || undefined }
+      }
     };
 
     if (editingQuote) {
@@ -720,6 +744,8 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       location: '',
       date: new Date().toISOString().split('T')[0],
       hub: DEFAULT_HUB,
+      otherExpensesAmount: 0,
+      otherExpensesLabel: '',
       rooms: [{
         id: 1,
         name: '',
@@ -800,6 +826,11 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         location: quote.location || '',
         date: quote.date || new Date().toISOString().split('T')[0],
         hub: sanitizeHub(quote.hub),
+        // ✅ NEW: prefill from whatever was already set (either at the
+        // original creation, or edited later from the pricing screen) - see
+        // generateQuote() for how this merges back into editedPrices.
+        otherExpensesAmount: typeof quote.editedPrices?.otherExpenses?.amount === 'number' ? quote.editedPrices.otherExpenses.amount : 0,
+        otherExpensesLabel: quote.editedPrices?.otherExpenses?.label || '',
         rooms: sanitizeQuoteRooms(quote.rooms)
       });
       setEditingQuote(quote);
@@ -827,6 +858,12 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         location: quote.location || '',
         date: new Date().toISOString().split('T')[0],
         hub: sanitizeHub(quote.hub),
+        // Deliberately NOT carried forward - same reasoning as editedPrices
+        // never carrying to a duplicate (see the doc comment above): a charge
+        // specific to the original job (e.g. old blind removal) shouldn't
+        // silently reappear on an unrelated new one.
+        otherExpensesAmount: 0,
+        otherExpensesLabel: '',
         rooms: sanitizeQuoteRooms(quote.rooms)
       });
       setEditingQuote(null);
@@ -908,6 +945,8 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         location: sheet.address || '',
         date: new Date().toISOString().split('T')[0],
         hub: DEFAULT_HUB,
+        otherExpensesAmount: 0,
+        otherExpensesLabel: '',
         rooms: rooms.length > 0 ? rooms : [{
           id: 1, name: '', fabricInput: '', blindTypes: ['Roller'],
           windowGroups: [{ id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null }]

@@ -587,6 +587,40 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
           );
         })()}
 
+        {/* ✅ NEW: Other Expenses - a flat, untaxed, quote-level charge (old
+            blind removal, misc fees, etc), settable right here at creation
+            time instead of only after the fact from the saved quote's
+            pricing screen. Always shown (not gated like Hub/Motor/Solar)
+            since it can apply to any quote. Defaults to $0/"Other Expenses" -
+            generateQuote() merges these two fields into
+            editedPrices.otherExpenses when the quote is actually saved. */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>Other Expenses</p>
+        <div style={{ background: '#3a3a2a', border: '1px solid #8a8a4a', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={labelStyle}>Description</label>
+              <input
+                type="text"
+                placeholder="e.g. Old blind removal"
+                value={formData.otherExpensesLabel || ''}
+                onChange={(e) => setFormData({ ...formData, otherExpensesLabel: e.target.value })}
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Amount</label>
+              <input
+                type="number"
+                min="0"
+                value={formData.otherExpensesAmount || 0}
+                onChange={(e) => setFormData({ ...formData, otherExpensesAmount: e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0) })}
+                style={inputStyle}
+              />
+            </div>
+          </div>
+          <p style={{ fontSize: '11px', color: '#888', marginTop: '8px' }}>Added to Grand Total, not taxed. Leave at $0 if none.</p>
+        </div>
+
         {/* 8. Review table */}
         <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px', marginTop: '8px' }}>Review</p>
         <div style={{ overflowX: 'auto', marginBottom: '24px', border: '1px solid #444', borderRadius: '8px' }}>
