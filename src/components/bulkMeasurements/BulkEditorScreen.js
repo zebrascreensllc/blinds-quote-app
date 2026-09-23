@@ -657,6 +657,15 @@ export default function BulkEditorScreen({
                 const incompleteFields = getIncompleteFields(row);
                 const isIncomplete = incompleteFields.length > 0;
                 const mixedFabricWarning = roomsWithMixedFabric.has(normalizeRoomKey(row.locationBase));
+                // ✅ NEW: on-screen-only red flag for a width/height that's an
+                // outlier vs. the rest of its room family (same detection the
+                // per-row accordion warning already uses) - a quick visual
+                // double-check pass over the whole sheet before exporting.
+                // Screen only, deliberately not read by buildRowExportFields/
+                // sheetToCSV/xlsxExport - the Excel highlight rules are a
+                // fixed, reference-file-verified set and this isn't part of it.
+                const widthIsOutlier = widthOutlierIds.has(row.id);
+                const heightIsOutlier = heightOutlierIds.has(row.id);
                 return (
                   <tr key={row.id} style={{ background: isIncomplete ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
                     <td style={stickyBodyCellStyle(isIncomplete)}>{f.location}</td>
@@ -670,8 +679,8 @@ export default function BulkEditorScreen({
                       {f.fabricNumber || '—'}
                       {mixedFabricWarning && <div style={{ color: '#f59e0b', fontSize: '10px' }}>⚠️ room has mixed fabric</div>}
                     </td>
-                    <td style={cellStyle}>{f.width || '—'}</td>
-                    <td style={cellStyle}>{f.height || '—'}</td>
+                    <td style={{ ...cellStyle, color: widthIsOutlier ? '#f87171' : 'inherit', fontWeight: widthIsOutlier ? 'bold' : 'normal', background: widthIsOutlier ? 'rgba(239,68,68,0.15)' : 'transparent' }}>{f.width || '—'}</td>
+                    <td style={{ ...cellStyle, color: heightIsOutlier ? '#f87171' : 'inherit', fontWeight: heightIsOutlier ? 'bold' : 'normal', background: heightIsOutlier ? 'rgba(239,68,68,0.15)' : 'transparent' }}>{f.height || '—'}</td>
                     <td style={{ ...cellStyle, color: isIncomplete ? '#f87171' : '#4ade80', fontWeight: 'bold' }}>
                       {isIncomplete ? `Missing: ${incompleteFields.join(', ')}` : 'Ready'}
                     </td>

@@ -306,6 +306,27 @@ export default function QuoteDetailScreen({
       if (typeof saved === 'number') return saved;
       return defaultSolarCostClient;
     })();
+    // ✅ NEW: Other Expenses - a flat, quote-level, NOT-per-window charge
+    // (e.g. old blind removal, a one-off misc fee) some clients get billed
+    // that regular window pricing has no line for. Defaults to $0/"Other
+    // Expenses" and is always editable, same pending-edit > saved-edit >
+    // default pattern as Motor/Solar cost above. Deliberately added to
+    // Grand Total AFTER tax (see subtotalMin/grandMin below) - it's a
+    // pass-through charge, not taxable revenue.
+    const effectiveOtherExpenses = (() => {
+      const pending = tableEditValues.otherExpenses;
+      if (typeof pending === 'number') return pending;
+      const saved = selectedQuote.editedPrices?.otherExpenses?.amount;
+      if (typeof saved === 'number') return saved;
+      return 0;
+    })();
+    const effectiveOtherExpensesLabel = (() => {
+      const pending = tableEditValues.otherExpensesLabel;
+      if (typeof pending === 'string' && pending.trim()) return pending.trim();
+      const saved = selectedQuote.editedPrices?.otherExpenses?.label;
+      if (typeof saved === 'string' && saved.trim()) return saved.trim();
+      return 'Other Expenses';
+    })();
 
     // ✅ BUGFIX (major): Motor/Solar cost totals were shown as their own rows
     // but NEVER actually added into Tax or Grand Total - those rows were
@@ -469,8 +490,11 @@ export default function QuoteDetailScreen({
     const subtotalMax = totalMax + motorGrandTotal + solarGrandTotal + hubTotal;
     const taxMin = subtotalMin * taxRate;
     const taxMax = subtotalMax * taxRate;
-    const grandMin = subtotalMin + taxMin;
-    const grandMax = subtotalMax + taxMax;
+    // ✅ NEW: Other Expenses added after tax, not before - it's not taxable
+    // revenue (see effectiveOtherExpenses above), so it must never flow
+    // through subtotalMin/Max (the taxable base) the way Motor/Solar/Hub do.
+    const grandMin = subtotalMin + taxMin + effectiveOtherExpenses;
+    const grandMax = subtotalMax + taxMax + effectiveOtherExpenses;
 
     const copyText = (() => {
       let text = `QUOTE - ${BUSINESS_NAME}\n\nClient: ${selectedQuote.clientName}\nPhone: ${selectedQuote.clientPhone}\nLocation: ${selectedQuote.location}\nDate: ${selectedQuote.date}\n\n`;
@@ -535,6 +559,9 @@ export default function QuoteDetailScreen({
         text += `Subtotal (before tax): ${formatTextPrice(subtotalMin, subtotalMax)}\n`;
       }
       text += `Sales Tax (${formatMoney(taxRate * 100)}%): ${formatTextPrice(taxMin, taxMax)}\n`;
+      if (effectiveOtherExpenses > 0) {
+        text += `${effectiveOtherExpensesLabel}: $${formatMoney(effectiveOtherExpenses)}\n`;
+      }
       text += `GRAND TOTAL: ${formatTextPrice(grandMin, grandMax)}`;
 
       return text;
@@ -648,6 +675,8 @@ export default function QuoteDetailScreen({
             effectiveMotorCost={effectiveMotorCost}
             effectiveRooms={effectiveRooms}
             effectiveSolarCost={effectiveSolarCost}
+            effectiveOtherExpenses={effectiveOtherExpenses}
+            effectiveOtherExpensesLabel={effectiveOtherExpensesLabel}
             expandedQuoteTable={expandedQuoteTable}
             findMatchingSizePriceKeys={findMatchingSizePriceKeys}
             grandMax={grandMax}
@@ -747,12 +776,12 @@ export default function QuoteDetailScreen({
           </div>
 
           {/* ✅ FIXED: Save All Changes Button - Show if ANY values differ from "not edited" defaults, OR you're actively typing a not-yet-committed edit */}
-          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0 || Object.keys(tableEditValues.fabricEdits || {}).length > 0 || (editingTableField && activeEditText !== '')) && (
+          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null || tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0 || Object.keys(tableEditValues.fabricEdits || {}).length > 0 || (editingTableField && activeEditText !== '')) && (
             <>
               {/* Visual indicator of pending changes */}
               <div style={{ padding: '12px', marginBottom: '12px', background: '#2a3a1a', border: '2px solid #4ade80', borderRadius: '6px', textAlign: 'center' }}>
                 <p style={{ color: '#4ade80', fontWeight: 'bold', margin: '0' }}>
-                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.solarCost !== null ? ', solar cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''}{Object.keys(tableEditValues.groupEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.groupEdits).length} window edit${Object.keys(tableEditValues.groupEdits).length > 1 ? 's' : ''}` : ''}{(tableEditValues.deletedRoomIds || new Set()).size > 0 ? `, ${(tableEditValues.deletedRoomIds || new Set()).size} room(s) removed` : ''}{Object.keys(tableEditValues.fabricEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.fabricEdits).length} room fabric${Object.keys(tableEditValues.fabricEdits).length > 1 ? 's' : ''}` : ''}{editingTableField && activeEditText !== '' ? ' (still typing...)' : ''})
+                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.solarCost !== null ? ', solar cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''}{(tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null) ? ', other expenses' : ''}{Object.keys(tableEditValues.groupEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.groupEdits).length} window edit${Object.keys(tableEditValues.groupEdits).length > 1 ? 's' : ''}` : ''}{(tableEditValues.deletedRoomIds || new Set()).size > 0 ? `, ${(tableEditValues.deletedRoomIds || new Set()).size} room(s) removed` : ''}{Object.keys(tableEditValues.fabricEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.fabricEdits).length} room fabric${Object.keys(tableEditValues.fabricEdits).length > 1 ? 's' : ''}` : ''}{editingTableField && activeEditText !== '' ? ' (still typing...)' : ''})
                 </p>
               </div>
 
@@ -865,7 +894,14 @@ export default function QuoteDetailScreen({
                   },
                   motorCost: typeof effectiveTableEditValues.motorCost === 'number' ? effectiveTableEditValues.motorCost : selectedQuote.editedPrices?.motorCost,
                   solarCost: typeof effectiveTableEditValues.solarCost === 'number' ? effectiveTableEditValues.solarCost : selectedQuote.editedPrices?.solarCost,
-                  taxRate: typeof effectiveTableEditValues.taxRate === 'number' ? effectiveTableEditValues.taxRate : selectedQuote.editedPrices?.taxRate
+                  taxRate: typeof effectiveTableEditValues.taxRate === 'number' ? effectiveTableEditValues.taxRate : selectedQuote.editedPrices?.taxRate,
+                  // ✅ NEW: Other Expenses - same carry-forward pattern as
+                  // Motor/Solar/Tax above (pending edit from THIS save, else
+                  // whatever was already saved on the previous version).
+                  otherExpenses: {
+                    amount: typeof effectiveTableEditValues.otherExpenses === 'number' ? effectiveTableEditValues.otherExpenses : selectedQuote.editedPrices?.otherExpenses?.amount,
+                    label: (typeof effectiveTableEditValues.otherExpensesLabel === 'string' && effectiveTableEditValues.otherExpensesLabel.trim()) ? effectiveTableEditValues.otherExpensesLabel.trim() : selectedQuote.editedPrices?.otherExpenses?.label
+                  }
                 };
 
                 // Create new version with merged edited prices and any pending
@@ -891,7 +927,7 @@ export default function QuoteDetailScreen({
                 setEditingTableField(null);
 
                 // Reset edit values for next time
-                setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, groupEdits: {}, deletedRoomIds: new Set(), fabricEdits: {}, clearedPriceKeys: new Set() });
+                setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, otherExpenses: null, otherExpensesLabel: null, groupEdits: {}, deletedRoomIds: new Set(), fabricEdits: {}, clearedPriceKeys: new Set() });
                 setActiveEditText('');
                 setActiveEditTextMax('');
                 setPriceEditMode('fixed');

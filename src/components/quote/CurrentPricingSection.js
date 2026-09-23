@@ -26,6 +26,8 @@ export default function CurrentPricingSection({
   effectiveMotorCost,
   effectiveRooms,
   effectiveSolarCost,
+  effectiveOtherExpenses,
+  effectiveOtherExpensesLabel,
   expandedQuoteTable,
   findMatchingSizePriceKeys,
   grandMax,
@@ -611,6 +613,67 @@ export default function CurrentPricingSection({
                     </button>
                 <span style={{ color: '#aaa' }}>{formatPrice(taxMin, taxMax)}</span>
               </div>
+
+              {/* ✅ NEW: Other Expenses - a flat, untaxed, quote-level charge
+                  (old blind removal, misc fees, etc). Defaults to $0/"Other
+                  Expenses" and is always shown (not gated behind a count like
+                  Motor/Solar) since it applies to any quote, not just
+                  motorized/solar ones. Added to Grand Total AFTER tax - see
+                  grandMin/grandMax in QuoteDetailScreen.js. */}
+              {(() => {
+                const isEditingOther = editingTableField === 'otherExpenses';
+                const isOtherEdited = typeof tableEditValues.otherExpenses === 'number' || typeof selectedQuote.editedPrices?.otherExpenses?.amount === 'number';
+                return (
+                  <div style={{ background: '#3a3a2a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                    {isEditingOther ? (
+                      <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px' }}>
+                        <input
+                          type="text"
+                          placeholder="Label (e.g. Old blind removal)"
+                          value={activeEditTextMax}
+                          onChange={(e) => setActiveEditTextMax(e.target.value)}
+                          style={{ width: '160px', padding: '2px 4px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                        />
+                        <span style={{ color: '#888' }}>$</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={activeEditText}
+                          onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
+                          style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                          autoFocus
+                        />
+                      </span>
+                    ) : (
+                      <span style={{ color: '#aaa' }}>
+                        {effectiveOtherExpensesLabel}:
+                        <span style={{ color: isOtherEdited ? '#ffcc00' : '#fff', fontWeight: 'bold', marginLeft: '4px' }}>${formatMoney(effectiveOtherExpenses)}</span>
+                      </span>
+                    )}
+                    <button
+                      onClick={() => {
+                        if (isEditingOther) {
+                          const parsed = parseFloat(activeEditText);
+                          const updates = {};
+                          if (activeEditText !== '' && !isNaN(parsed) && parsed >= 0) updates.otherExpenses = parsed;
+                          if (activeEditTextMax.trim()) updates.otherExpensesLabel = activeEditTextMax.trim();
+                          setTableEditValues({ ...tableEditValues, ...updates });
+                          setEditingTableField(null);
+                          setActiveEditText('');
+                          setActiveEditTextMax('');
+                        } else {
+                          setEditingTableField('otherExpenses');
+                          setActiveEditText(formatMoney(effectiveOtherExpenses));
+                          setActiveEditTextMax(effectiveOtherExpensesLabel === 'Other Expenses' ? '' : effectiveOtherExpensesLabel);
+                        }
+                      }}
+                      style={{ padding: '2px 6px', borderRadius: '3px', background: isEditingOther ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                    >
+                      {isEditingOther ? 'Done' : '✏️'}
+                    </button>
+                  </div>
+                );
+              })()}
 
               <div style={{ background: '#2a5a2a', borderRadius: '8px', padding: '10px 12px', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#fff' }}>GRAND TOTAL:</span>

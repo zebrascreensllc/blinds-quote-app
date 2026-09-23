@@ -3,7 +3,7 @@ import React from 'react';
 // The "list of saved sheets" screen. Purely presentational - all state
 // (sheets array) and mutations (open/delete/create) live in the parent
 // container; this component only renders and calls back up.
-export default function SheetListScreen({ sheets, hasLoaded, loadError, syncStatus, onBack, onNewSheet, onOpenSheet, onDeleteSheet }) {
+export default function SheetListScreen({ sheets, hasLoaded, loadingSlow, loadError, syncStatus, onBack, onNewSheet, onOpenSheet, onDeleteSheet }) {
   return (
     <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '24px 16px' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
@@ -36,7 +36,24 @@ export default function SheetListScreen({ sheets, hasLoaded, loadError, syncStat
             <p style={{ color: '#666', fontSize: '12px', marginTop: '8px' }}>This is a sync problem, not missing data - check your connection and reopen the app.</p>
           </div>
         ) : !hasLoaded ? (
-          <p style={{ color: '#888', textAlign: 'center', fontSize: '14px' }}>Loading your measurement sheets...</p>
+          <div style={{ textAlign: 'center', padding: '8px 16px' }}>
+            <p style={{ color: '#888', fontSize: '14px' }}>Loading your measurement sheets...</p>
+            {/* ✅ NEW: a real report of this spinner sometimes sitting for
+                1-2 minutes with no way out. A reload is also the actual fix
+                for the most likely cause (a stale cross-tab lock from a
+                previous session on this device). */}
+            {loadingSlow && (
+              <div style={{ marginTop: '16px' }}>
+                <p style={{ color: '#f59e0b', fontSize: '13px', marginBottom: '10px' }}>This is taking longer than usual.</p>
+                <button
+                  onClick={() => window.location.reload()}
+                  style={{ padding: '10px 20px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
+                >
+                  🔄 Reload App
+                </button>
+              </div>
+            )}
+          </div>
         ) : sheets.length === 0 ? (
           <p style={{ color: '#888', textAlign: 'center', fontSize: '14px' }}>No measurement sheets yet.</p>
         ) : (

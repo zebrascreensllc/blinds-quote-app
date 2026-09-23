@@ -47,6 +47,13 @@ const exportFileLabel = (sheet) => (sheet.clientNames?.length ? sheet.clientName
 export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFromSheet }) {
   const [sheets, setSheets] = useState([]);
   const [hasLoaded, setHasLoaded] = useState(false);
+  // ✅ NEW: a real report of "Loading your measurement sheets..." sometimes
+  // taking 1-2 minutes with zero feedback or way out in between. Rather than
+  // an indefinite spinner, flag it as "taking longer than usual" after 8s so
+  // there's at least an acknowledgement + a manual reload button - a full
+  // reload is also the actual fix for the most likely cause (a stale
+  // cross-tab persistence lock from a previous session on this device).
+  const [loadingSlow, setLoadingSlow] = useState(false);
   const [screen, setScreen] = useState('list'); // 'list' | 'select' | 'manual' | 'editor'
   const [selectedQuoteIds, setSelectedQuoteIds] = useState(new Set());
   const [creatingSheet, setCreatingSheet] = useState(false);
@@ -103,6 +110,12 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
 
   const [syncStatus, setSyncStatus] = useState({ ok: true, failedCount: 0, lastError: null });
   const [loadError, setLoadError] = useState(null);
+
+  useEffect(() => {
+    if (hasLoaded) { setLoadingSlow(false); return; }
+    const timer = setTimeout(() => setLoadingSlow(true), 8000);
+    return () => clearTimeout(timer);
+  }, [hasLoaded]);
 
   useEffect(() => {
     if (!uid) return;
@@ -231,6 +244,19 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
     if (!trimmedName) {
       alert('Enter a client name first.');
       return;
+    }
+    // ✅ NEW: a "Start blank" sheet has no quote to cross-reference against,
+    // so a typo'd re-entry of an existing client (or genuinely forgetting a
+    // sheet already exists for them) previously created a silent duplicate
+    // with no warning at all. Case-insensitive match against every existing
+    // sheet's clientNames - doesn't block, just confirms, since a client
+    // legitimately CAN have more than one sheet (e.g. two separate jobs).
+    const existingMatch = sheets.find(s =>
+      (s.clientNames || []).some(n => n.trim().toLowerCase() === trimmedName.toLowerCase())
+    );
+    if (existingMatch) {
+      const proceed = window.confirm(`A measurement sheet for "${existingMatch.clientNames.join(', ')}" already exists (${existingMatch.rows?.length || 0} window${existingMatch.rows?.length === 1 ? '' : 's'}).\n\nCreate another, separate sheet for this client anyway?`);
+      if (!proceed) return;
     }
     const startRow = createBlankMeasurementRow({ clientName: trimmedName });
     const newSheet = {
@@ -671,6 +697,7 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
       <SheetListScreen
         sheets={sheets}
         hasLoaded={hasLoaded}
+        loadingSlow={loadingSlow}
         loadError={loadError}
         syncStatus={syncStatus}
         onBack={onBack}

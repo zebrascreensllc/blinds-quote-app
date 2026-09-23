@@ -69,6 +69,7 @@ export async function generatePriceBreakdownExcel(quote) {
   }
   summaryRow('Total', `$${formatMoney(totals.total)}`, true);
   summaryRow(`Sales Tax ${formatMoney(totals.taxRate * 100)}%`, `$${formatMoney(totals.salesTax)}`);
+  if (totals.otherExpensesAmount > 0) summaryRow(totals.otherExpensesLabel, `$${formatMoney(totals.otherExpensesAmount)}`);
   summaryRow('Grand Total', `$${formatMoney(totals.grandTotal)}`, true);
 
   return workbook.xlsx.writeBuffer();

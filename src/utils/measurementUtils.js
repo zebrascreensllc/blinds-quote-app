@@ -54,7 +54,11 @@ export const DEFAULT_MOUNT = 'Inside';
 // Same-room size difference beyond this (in inches) gets flagged as a likely typo.
 // Tuned against a real example: siblings within ~1/16"-1/8" of each other are normal,
 // a window off by 13/16" from the rest of its room is almost always a mistake.
-export const SIZE_OUTLIER_THRESHOLD_INCHES = 0.75;
+// ✅ CHANGED: tightened from 0.75 to 0.5 inch per explicit request - a real
+// incident where a typo (33 4/16" instead of 32 4/16") in a group whose
+// other windows were 32 12/16"/32 15/16" needed the whole blind reordered
+// because it wasn't caught in time.
+export const SIZE_OUTLIER_THRESHOLD_INCHES = 0.5;
 
 // ---- Measurement parsing & validation -------------------------------------
 

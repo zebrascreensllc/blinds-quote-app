@@ -187,12 +187,18 @@ export function computeInvoiceTotals(quote, items, { advanceAmount = 0, discount
   const total = itemsSubtotal + motorGrandTotal + solarGrandTotal + hubTotal;
   const taxRate = typeof quote.editedPrices?.taxRate === 'number' ? quote.editedPrices.taxRate : (storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE);
   const salesTax = total * taxRate;
-  const grandTotal = total + salesTax - discountAmount;
+  // ✅ NEW: Other Expenses - flat, untaxed, quote-level charge (old blind
+  // removal, misc fees). Added after tax, same as discountAmount above -
+  // matches QuoteDetailScreen.js's grandMin/grandMax so this invoice can
+  // never disagree with what the client already saw on-screen.
+  const otherExpensesAmount = typeof quote.editedPrices?.otherExpenses?.amount === 'number' ? quote.editedPrices.otherExpenses.amount : 0;
+  const otherExpensesLabel = quote.editedPrices?.otherExpenses?.label || 'Other Expenses';
+  const grandTotal = total + salesTax - discountAmount + otherExpensesAmount;
   const remainingBalance = grandTotal - advanceAmount;
 
   return {
     motorCount, solarCount, effectiveMotorCost, effectiveSolarCost, motorGrandTotal, solarGrandTotal, hubTotal,
-    itemsSubtotal, total, taxRate, salesTax, grandTotal, remainingBalance
+    itemsSubtotal, total, taxRate, salesTax, otherExpensesAmount, otherExpensesLabel, grandTotal, remainingBalance
   };
 }
 
@@ -200,7 +206,7 @@ export function buildInvoiceDocument(quote, { advanceAmount = 0, discountAmount 
   const { items } = buildInvoiceLineItems(quote);
   const {
     motorCount, solarCount, effectiveMotorCost, effectiveSolarCost, motorGrandTotal, solarGrandTotal, hubTotal,
-    total, taxRate, salesTax, grandTotal, remainingBalance
+    total, taxRate, salesTax, otherExpensesAmount, otherExpensesLabel, grandTotal, remainingBalance
   } = computeInvoiceTotals(quote, items, { advanceAmount, discountAmount });
 
   const headerTable = new Table({
@@ -270,6 +276,7 @@ export function buildInvoiceDocument(quote, { advanceAmount = 0, discountAmount 
   summaryRows.push(summaryRow('Total', `$${formatMoney(total)}`, { bold: true }));
   summaryRows.push(summaryRow(`Sales Tax ${formatMoney(taxRate * 100)}%`, `$${formatMoney(salesTax)}`));
   if (discountAmount > 0) summaryRows.push(summaryRow('Discount', `-$${formatMoney(discountAmount)}`, { valueColor: 'CC0000' }));
+  if (otherExpensesAmount > 0) summaryRows.push(summaryRow(otherExpensesLabel, `$${formatMoney(otherExpensesAmount)}`));
   summaryRows.push(summaryRow('Grand Total', `$${formatMoney(grandTotal)}`, { bold: true }));
   // ✅ NEW: the two rows this feature was specifically requested for.
   summaryRows.push(summaryRow('Advance Payment', `$${formatMoney(advanceAmount)}`, { bold: true, valueColor: '0e7490' }));
