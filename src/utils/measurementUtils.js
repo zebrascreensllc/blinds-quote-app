@@ -141,15 +141,31 @@ function normalizeRoomKey(locationBase) {
 }
 
 /**
+ * ✅ FIX: a sheet can combine rows from SEVERAL different quotes at once
+ * ("Select Quote(s)" explicitly supports picking multiple - "handy when
+ * several clients confirm the same week"). The outlier/mixed-fabric checks
+ * below used to group purely by normalizeRoomKey(locationBase), with no
+ * awareness of which quote/client a row came from - two unrelated clients
+ * who both happened to name a room "Living Room" would get their windows
+ * compared against EACH OTHER's sizes and fabric, producing a confusing,
+ * wrong warning for two completely unrelated jobs. Scoping by sourceQuoteId
+ * (falling back to clientName for manually-added "Start blank" rows, which
+ * have no source quote) keeps every comparison within one actual job.
+ */
+function roomScopeKey(row) {
+  return `${row.sourceQuoteId || (row.clientName || '').trim()}::${normalizeRoomKey(row.locationBase)}`;
+}
+
+/**
  * Given all rows on a sheet, finds rows whose width/height is an outlier
- * compared to the median of other windows in the SAME room (locationBase,
- * normalized - see normalizeRoomKey). Only compares rooms with 2+ parseable
- * measurements. Returns a Set of row ids.
+ * compared to the median of other windows in the SAME room of the SAME job
+ * (see roomScopeKey). Only compares rooms with 2+ parseable measurements.
+ * Returns a Set of row ids.
  */
 export function findRoomSizeOutliers(rows, field) {
   const byRoom = {};
   rows.forEach(row => {
-    const key = normalizeRoomKey(row.locationBase);
+    const key = roomScopeKey(row);
     const parsed = validateMeasurementFormat(row[field]);
     if (parsed.valid && parsed.decimal !== null) {
       if (!byRoom[key]) byRoom[key] = [];
@@ -389,26 +405,26 @@ export function recomputeLocationIndices(rows) {
 
 // ---- Fabric conflict check within a room -----------------------------------
 
-/** Returns the list of room names that currently have 2+ DIFFERENT fabric
- * numbers among their rows (all non-empty). Used to warn before accepting -
- * 99.9% of the time a room should use exactly one fabric. */
-/** Returns normalized room keys (see normalizeRoomKey) that have mixed
- * fabric - callers must normalize a row's own locationBase the same way
- * before checking membership (e.g. findRoomsWithMixedFabric(rows).has(...)
- * needs normalizeRoomKey(row.locationBase), not the raw value). */
+/** Returns the list of room-scope keys (see roomScopeKey) that currently have
+ * 2+ DIFFERENT fabric numbers among their rows (all non-empty). Used to warn
+ * before accepting - 99.9% of the time a room should use exactly one fabric.
+ * Callers must build the SAME roomScopeKey(row) to check membership (e.g.
+ * findRoomsWithMixedFabric(rows).has(roomScopeKey(row)), not a bare
+ * normalizeRoomKey(row.locationBase) - see roomScopeKey's own note on why
+ * client/quote identity has to be part of the key). */
 export function findRoomsWithMixedFabric(rows) {
   const byRoom = {};
   rows.forEach(row => {
     const fabric = (row.fabricNumber || '').trim();
     if (!fabric) return;
-    const key = normalizeRoomKey(row.locationBase);
+    const key = roomScopeKey(row);
     if (!byRoom[key]) byRoom[key] = new Set();
     byRoom[key].add(fabric);
   });
   return Object.entries(byRoom).filter(([, set]) => set.size > 1).map(([room]) => room);
 }
 
-export { normalizeRoomKey };
+export { normalizeRoomKey, roomScopeKey };
 
 // ---- Completeness check (required before Copy/Download) -------------------
 

@@ -819,6 +819,21 @@ export default function QuoteDetailScreen({
                   const key = editingTableField.replace('size-', '');
                   const existing = (tableEditValues.groupEdits || {})[key] || {};
                   effectiveTableEditValues = { ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [key]: { ...existing, width: activeEditText.trim(), height: activeEditTextMax.trim() } } };
+                // ✅ FIX: this whole block exists BECAUSE Motor/Solar/Tax edits
+                // once got silently dropped this exact way - "Other Expenses"
+                // (added after this safety net was written) was missed and had
+                // the identical hole: type an amount/label, click "Save All
+                // Changes" directly instead of that row's own "Done" first, and
+                // it never made it into tableEditValues at all. Handled as its
+                // own case (not the shared `!isNaN(parsed)` block below) since
+                // it needs to independently commit an amount AND/OR a label -
+                // either box can be the only one that changed.
+                } else if (editingTableField === 'otherExpenses') {
+                  const parsedOther = parseFloat(activeEditText);
+                  const updates = {};
+                  if (activeEditText !== '' && !isNaN(parsedOther) && parsedOther >= 0) updates.otherExpenses = parsedOther;
+                  if (activeEditTextMax.trim()) updates.otherExpensesLabel = activeEditTextMax.trim();
+                  if (Object.keys(updates).length > 0) effectiveTableEditValues = { ...tableEditValues, ...updates };
                 } else if (editingTableField && activeEditText !== '') {
                   const parsed = parseFloat(activeEditText);
                   if (!isNaN(parsed)) {

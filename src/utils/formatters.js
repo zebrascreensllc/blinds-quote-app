@@ -4,13 +4,41 @@ export const parseUnits = (input) => {
   input = input.trim().toUpperCase();
   
   // Match formats: 3'6", 3ft6in, 3ft 6in, 8' 8", etc.
-  const feetInchMatch = input.match(/(\d+)\s*['ft]*\s*(\d+)\s*['"]/);
-  if (feetInchMatch) {
-    const feet = parseInt(feetInchMatch[1]);
-    const inches = parseInt(feetInchMatch[2]);
-    return feet * 12 + inches;
+  // ✅ FIX: this used to fire on ANY input containing a bare `"` even with NO
+  // apostrophe at all - `['ft]*` matches zero-or-more of those chars, so the
+  // regex engine backtracked into splitting a plain inches value like `83"`
+  // into "feet"="8" + "inches"="3" (the LAST digit before the quote), then
+  // computed 8*12+3=99 instead of 83. Same for `36"` -> 42, `10"` -> 12 -
+  // any 2+-digit measurement written with the standard double-quote inches
+  // mark, one of the most natural ways to type a measurement, silently fed
+  // the wrong number straight into width/height surcharge tier lookups and
+  // the same-size price-matching check. An apostrophe is the actual,
+  // unambiguous feet marker - a bare `"` is inches, not feet-and-inches -
+  // so this path now only runs when the input genuinely contains one.
+  if (input.includes("'")) {
+    const feetInchMatch = input.match(/(\d+)\s*'\s*(\d+)?\s*['"]?/);
+    if (feetInchMatch) {
+      const feet = parseInt(feetInchMatch[1]);
+      const inches = feetInchMatch[2] ? parseInt(feetInchMatch[2]) : 0;
+      return feet * 12 + inches;
+    }
   }
-  
+
+  // ✅ FIX: a fraction with no whole-number part at all (e.g. "5/16", a
+  // small measurement someone types without a leading "0") was silently
+  // misread as the numerator alone - parseUnits('5/16') returned 5 (a 16x
+  // overestimate of the true 0.3125) because the fractional-match regex
+  // below always requires (and greedily consumes) a leading \d+ for the
+  // whole-number group, leaving nothing for the fraction's own numerator to
+  // match against. Checked as its own case, before that regex runs, so it
+  // can never eat the fraction's digits.
+  const fractionOnlyMatch = input.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (fractionOnlyMatch && !input.includes("'") && !input.includes('FT')) {
+    const numerator = parseInt(fractionOnlyMatch[1]);
+    const denominator = parseInt(fractionOnlyMatch[2]);
+    return denominator > 0 ? numerator / denominator : 0;
+  }
+
   // Handle format like "83in 12/16" or "83 12/16" or "83.75"
   // ✅ FIX: the "in"/quote marker and the fraction used to sit in two
   // separately-optional pieces (`\s*(?:in|")?` then its own `(?:\s+...)?`),
@@ -35,7 +63,7 @@ export const parseUnits = (input) => {
     const fraction = denominator > 0 ? numerator / denominator : 0;
     return inches + decimalPart + fraction;
   }
-  
+
   // Match just inches or feet
   const justNumberMatch = input.match(/(\d+)/);
   if (justNumberMatch) {

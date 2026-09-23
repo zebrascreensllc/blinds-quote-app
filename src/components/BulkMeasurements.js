@@ -376,7 +376,14 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
     if (!sheet) return;
     const sheetLabel = sheet.clientNames?.length ? sheet.clientNames.join(', ') : (sheet.address || 'untitled');
     if (!window.confirm(`Delete this measurement sheet (${sheetLabel}, ${sheet.rows.length} windows)? This cannot be undone.`)) return;
-    updateSheets(prev => prev.filter(s => s.id !== id));
+    // ✅ FIX: destructive, no-undo (unlike quotes, sheets have no Trash), and
+    // previously fired-and-forgot - navigated back to the list immediately
+    // with no check that the delete actually reached Firestore. A failed
+    // sync here looked identical to a successful one until the sheet came
+    // back on next load.
+    updateSheets(prev => prev.filter(s => s.id !== id)).then(result => {
+      if (!result.success) alert(`⚠️ Saved on this device, but the delete failed to reach the cloud: ${result.errors[0] || 'sync failed'}.\n\nIt will keep retrying in the background.`);
+    });
     if (activeSheetId === id) {
       setActiveSheetId(null);
       setScreen('list');

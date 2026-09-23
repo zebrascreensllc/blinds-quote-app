@@ -430,9 +430,17 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     // "checkpoint operation with no success check" bug this app has hit.
     // Every sibling action here (safeDeleteQuotes, undoLastDelete,
     // archiveQuoteLineage) already reports a failed sync; this now matches.
+    // ✅ FIX: only ever cleared trashedAt - if this quote had ALSO picked up
+    // `archived: true` (e.g. from archiveQuoteLineage sweeping it in while it
+    // was already trashed, before that function excluded trashed versions),
+    // "Restore" would silently leave it hidden under Archived instead of
+    // back in the active list, with nothing on screen explaining why a just-
+    // restored quote still isn't visible. Restoring should unambiguously
+    // mean "back to active," so clear both flags here regardless of how it
+    // ended up in this state.
     return updateQuotes(quotes.map(q => {
       if (!ids.has(q.id)) return q;
-      const { trashedAt, ...rest } = q;
+      const { trashedAt, archived, ...rest } = q;
       return rest;
     })).then(result => {
       if (!result.success) alert(syncFailureMessage(result.errors));
@@ -445,7 +453,17 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   // This is the only path that actually removes a quote from Firestore.
   const permanentlyDeleteQuotes = (idsToDelete) => {
     const ids = new Set(idsToDelete);
-    return updateQuotes(quotes.filter(q => !ids.has(q.id)));
+    // ✅ FIX: this was the one destructive, no-undo action in the whole
+    // Trash/Archive family with zero success feedback anywhere - its "Delete
+    // Forever" button in HistoryScreen.js fires this and shows nothing
+    // whether it worked or not. If the write fails (offline, permission
+    // error), the quote can still be sitting in Firestore with no on-screen
+    // sign the "permanent" delete didn't actually happen. Same
+    // syncFailureMessage pattern every sibling action here already uses.
+    return updateQuotes(quotes.filter(q => !ids.has(q.id))).then(result => {
+      if (!result.success) alert(syncFailureMessage(result.errors));
+      return result;
+    });
   };
 
   // ✅ NEW: 7-day sweep - since there's no server/cron for a client-only app,
@@ -485,9 +503,18 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   // not would still show the client in the active list.
   const archiveQuoteLineage = (quote) => {
     const lineageId = quote.lineageId || quote.id;
-    const versionCount = quotes.filter(q => (q.lineageId || q.id) === lineageId).length;
+    // ✅ FIX: same bug class as the stale-version-warning fix - a version
+    // already in Trash is already hidden from the active list, so counting
+    // it here overstates "will be hidden", and worse, stamping `archived:
+    // true` onto it means that if it's later restored from Trash (which only
+    // clears trashedAt, not archived - see restoreQuotes below), it comes
+    // back still invisible with no indication why. Skip trashed versions
+    // entirely; only touch ones actually active or already archived.
+    const versionsInLineage = quotes.filter(q => (q.lineageId || q.id) === lineageId && !q.trashedAt);
+    const versionCount = versionsInLineage.length;
     if (!window.confirm(`Archive "${quote.quoteName || quote.clientName}"?\n\nAll ${versionCount} version(s) will be hidden from your active list and Statistics - never deleted. Unarchive anytime from History > Archived.`)) return;
-    updateQuotes(quotes.map(q => ((q.lineageId || q.id) === lineageId ? { ...q, archived: true } : q))).then(result => {
+    const idsToArchive = new Set(versionsInLineage.map(q => q.id));
+    updateQuotes(quotes.map(q => (idsToArchive.has(q.id) ? { ...q, archived: true } : q))).then(result => {
       if (!result.success) alert(syncFailureMessage(result.errors));
     });
     setSelectedQuote(null);
@@ -596,6 +623,27 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     if (!formData.clientName || !formData.clientPhone) {
       alert('Please fill client name and phone');
       return;
+    }
+
+    // ✅ NEW: same gap as the Supplier Measurements "Start blank" sheet fix -
+    // starting a brand new quote (not a new version - editingQuote is null)
+    // for a client/location that already has an active quote previously
+    // created a silent duplicate lineage with zero warning. A real risk on
+    // a phone switching between jobs on-site. Case-insensitive match on
+    // clientName + location, excluding trashed/archived so an old, no-
+    // longer-relevant quote doesn't nag every time. Confirms, doesn't
+    // block - a legitimate repeat/re-quote for the same client+location
+    // does happen.
+    if (!editingQuote) {
+      const existingActive = quotes.find(q =>
+        !q.trashedAt && !q.archived &&
+        (q.clientName || '').trim().toLowerCase() === formData.clientName.trim().toLowerCase() &&
+        (q.location || '').trim().toLowerCase() === (formData.location || '').trim().toLowerCase()
+      );
+      if (existingActive) {
+        const proceed = window.confirm(`An active quote for "${existingActive.clientName} - ${existingActive.location}" already exists (${existingActive.quoteName || existingActive.version}).\n\nCreate a separate, new quote for this client anyway?`);
+        if (!proceed) return;
+      }
     }
 
     setIsGeneratingQuote(true);

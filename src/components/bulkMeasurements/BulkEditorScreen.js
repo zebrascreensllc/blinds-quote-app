@@ -9,7 +9,7 @@ import {
   getLocationLabel,
   getIncompleteFields,
   findRoomsWithMixedFabric,
-  normalizeRoomKey,
+  roomScopeKey,
   buildRowExportFields
 } from '../../utils/measurementUtils';
 
@@ -656,7 +656,7 @@ export default function BulkEditorScreen({
                 const f = buildRowExportFields(row, idx, remoteLabels);
                 const incompleteFields = getIncompleteFields(row);
                 const isIncomplete = incompleteFields.length > 0;
-                const mixedFabricWarning = roomsWithMixedFabric.has(normalizeRoomKey(row.locationBase));
+                const mixedFabricWarning = roomsWithMixedFabric.has(roomScopeKey(row));
                 // ✅ NEW: on-screen-only red flag for a width/height that's an
                 // outlier vs. the rest of its room family (same detection the
                 // per-row accordion warning already uses) - a quick visual
