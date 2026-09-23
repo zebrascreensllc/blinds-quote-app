@@ -114,8 +114,16 @@ export default function HistoryScreen({
     border: active ? 'none' : '1px solid #444'
   });
 
+  // ✅ FIX: same "unreachable action on a long list" report as Select
+  // Quote(s) - checking a version's box deep inside an expanded client group
+  // put "Delete N Selected" out of reach in the OTHER direction (it sat
+  // above the whole list, so a check made after scrolling down required
+  // scrolling all the way back up to act on it). Sticky bottom bar instead,
+  // same fix, same reasoning - reachable regardless of scroll position.
+  const showDeleteBar = viewMode === 'active' && selectedVersions.size > 0;
+
   return (
-    <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
+    <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px', paddingBottom: showDeleteBar ? '96px' : '32px' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
           <button onClick={() => { setCurrentView('menu'); setSearchQuery(''); setSelectedVersions(new Set()); }} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(100,100,100,0.3)', border: 'none', cursor: 'pointer' }}>
@@ -190,20 +198,6 @@ export default function HistoryScreen({
             Tip: tap Copy and paste into Notes or email it to yourself. Deleted quotes also sit in Trash for 7 days before they're gone for good.
           </p>
         </div>
-
-        {viewMode === 'active' && selectedVersions.size > 0 && (
-          <button onClick={() => {
-            // ✅ Goes through the safe delete funnel: names what will be lost,
-            // double-confirms if a whole client would vanish, and saves an undo snapshot
-            const done = safeDeleteQuotes([...selectedVersions], `Deleted ${selectedVersions.size} selected version(s)`);
-            if (done) {
-              setSelectedVersions(new Set());
-              alert('✅ Moved to Trash. If that was a mistake, use "Undo Last Delete" above, or restore it from the Trash tab within 7 days.');
-            }
-          }} style={{ width: '100%', padding: '12px', marginBottom: '16px', borderRadius: '8px', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>
-            Delete {selectedVersions.size} Selected
-          </button>
-        )}
 
         {loadError ? (
           <div style={{ textAlign: 'center', paddingTop: '64px', paddingBottom: '64px' }}>
@@ -338,6 +332,24 @@ export default function HistoryScreen({
           )
         )}
       </div>
+
+      {showDeleteBar && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '12px 16px', background: 'rgba(26,26,26,0.97)', borderTop: '1px solid #444', backdropFilter: 'blur(4px)' }}>
+          <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+            <button onClick={() => {
+              // ✅ Goes through the safe delete funnel: names what will be lost,
+              // double-confirms if a whole client would vanish, and saves an undo snapshot
+              const done = safeDeleteQuotes([...selectedVersions], `Deleted ${selectedVersions.size} selected version(s)`);
+              if (done) {
+                setSelectedVersions(new Set());
+                alert('✅ Moved to Trash. If that was a mistake, use "Undo Last Delete" above, or restore it from the Trash tab within 7 days.');
+              }
+            }} style={{ width: '100%', padding: '12px', borderRadius: '8px', background: '#b91c1c', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>
+              Delete {selectedVersions.size} Selected
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
