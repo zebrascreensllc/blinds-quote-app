@@ -71,7 +71,7 @@ function BulkToolPanel({ title, icon, bg, border, accentColor, isOpen, onToggle,
 // take Qty/Width/Height directly, everything else (fabric/motor/solar) is
 // bulk-assigned in one pass instead of per-room/per-window-group, same
 // "why is this so repetitive" fix as Bulk Measurements.
-export default function BulkQuoteFormScreen({ formData, setFormData, generateQuote, resetForm, editingQuote, setEditingQuote, setCurrentView }) {
+export default function BulkQuoteFormScreen({ formData, setFormData, generateQuote, isGeneratingQuote, resetForm, editingQuote, setEditingQuote, setCurrentView }) {
   // Fabric applies at the ROOM level (matches the existing data model -
   // room.fabricInput, not per window group). Motor and Solar apply at the
   // WINDOW GROUP level, keyed the same way the rest of the app keys window
@@ -621,9 +621,18 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
 
         {/* 9. Generate Quote - same function the regular Quote Generator uses,
             unchanged: same pricing engine, same quote object shape, same
-            Firestore write. */}
-        <button onClick={generateQuote} style={{ width: '100%', padding: '16px', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>
-          {editingQuote ? 'Save as New Version' : 'Generate Quote'}
+            Firestore write. ✅ FIX: disabled + relabeled while a save is in
+            flight - previously this button gave no feedback at all while
+            waiting on Firestore, so a slow/stalled save got clicked
+            repeatedly (a real incident: 22 duplicate versions from one
+            intended save). Now a click is visibly acknowledged immediately
+            and further clicks are ignored until this one finishes. */}
+        <button
+          onClick={generateQuote}
+          disabled={isGeneratingQuote}
+          style={{ width: '100%', padding: '16px', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px', background: '#d4af37', color: '#000', border: 'none', cursor: isGeneratingQuote ? 'default' : 'pointer', opacity: isGeneratingQuote ? 0.6 : 1 }}
+        >
+          {isGeneratingQuote ? 'Creating...' : (editingQuote ? 'Save as New Version' : 'Generate Quote')}
         </button>
       </div>
     </div>

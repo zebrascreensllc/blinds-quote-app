@@ -37,6 +37,14 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   const [expandedClients, setExpandedClients] = useState({});
   const [selectedVersions, setSelectedVersions] = useState(new Set());
   const [editingQuote, setEditingQuote] = useState(null);
+  // ✅ FIX: "Generate Quote" had no guard against repeated clicks - a real
+  // incident where a slow/stalled Firestore write with no loading feedback
+  // led to the button being clicked repeatedly over 2-3 minutes, creating 22
+  // separate quote versions from one intended save. Blocks re-entry while a
+  // save from THIS button is already in flight, and lets BulkQuoteFormScreen
+  // show "Creating..." so a click is visibly acknowledged immediately,
+  // regardless of how long the actual network round-trip takes.
+  const [isGeneratingQuote, setIsGeneratingQuote] = useState(false);
   // ✅ NEW: Edit pricing table fields
   const [editingTableField, setEditingTableField] = useState(null);
   // ✅ FIX: Use null as sentinel for "not edited this session" (distinct from 0 or any real value)
@@ -579,11 +587,19 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   }, [selectedQuote?.id]);
 
   const generateQuote = async () => {
+    // ✅ FIX: block re-entry while a save from this exact button is already
+    // in flight - see isGeneratingQuote declaration above for the incident
+    // this addresses (22 duplicate versions from repeated clicks with no
+    // feedback during a slow save).
+    if (isGeneratingQuote) return;
+
     if (!formData.clientName || !formData.clientPhone) {
       alert('Please fill client name and phone');
       return;
     }
 
+    setIsGeneratingQuote(true);
+    try {
     // Determine quote name prefix based on ACTUAL FABRICS entered, not selected blind types
     const quoteNamePrefix = getQuoteNamePrefix(formData.rooms, PRICING_DATA);
     
@@ -644,6 +660,9 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     resetForm();
     setEditingQuote(null);
     setCurrentView('menu');
+    } finally {
+      setIsGeneratingQuote(false);
+    }
   };
 
   const resetForm = () => {
@@ -905,6 +924,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
           formData={formData}
           setFormData={setFormData}
           generateQuote={generateQuote}
+          isGeneratingQuote={isGeneratingQuote}
           resetForm={resetForm}
           editingQuote={editingQuote}
           setEditingQuote={setEditingQuote}

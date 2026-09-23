@@ -114,17 +114,25 @@ export function validateMeasurementFormat(text) {
 
 /**
  * Derives a "room family" from a location name by stripping a trailing
- * " <number>" - e.g. "Living 1" / "Living 2" / "Living 3" all normalize to
- * "Living". Rooms named the exact same thing already group correctly
- * without this (that's the common case, e.g. a quote-derived "Living Room"
- * on every window in it); this exists for Bulk Measurements' manual entry,
- * where each window's Location is typed individually and someone numbering
- * them by hand ("Master 1", "Master 2"...) still expects them compared as
- * one room, not treated as 4 unrelated single-window "rooms".
+ * number - "Living 1" / "Living 2" / "Living 3" (space before the number)
+ * AND "bf1" / "bf2" / "master1" / "master4" (no space) all normalize to
+ * "Living" / "bf" / "master". Rooms named the exact same thing already
+ * group correctly without this (that's the common case, e.g. a quote-
+ * derived "Living Room" on every window in it); this exists for Bulk
+ * Measurements' manual entry, where each window's Location is typed
+ * individually and someone numbering them by hand still expects them
+ * compared as one room, not treated as unrelated single-window "rooms".
+ * ✅ FIX: required a space before the trailing digits (`\s+\d+$`), so a
+ * genuinely common naming style with no space at all ("bf1"-"bf4",
+ * "master1"-"master4") never stripped to anything, meaning every one of
+ * those windows was its own separate "room" of exactly 1 - the outlier
+ * check below only ever compares 2+ measurements in the same room, so it
+ * silently never had anything to compare and never warned, no matter how
+ * different the sizes actually were.
  */
 function normalizeRoomKey(locationBase) {
   const trimmed = (locationBase || '').trim();
-  const stripped = trimmed.replace(/\s+\d+$/, '');
+  const stripped = trimmed.replace(/\s*\d+$/, '');
   return stripped || trimmed;
 }
 

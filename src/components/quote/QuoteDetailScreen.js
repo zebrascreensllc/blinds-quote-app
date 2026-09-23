@@ -97,6 +97,13 @@ export default function QuoteDetailScreen({
   const [bulkFabricInput, setBulkFabricInput] = useState('');
   const [bulkFabricMode, setBulkFabricMode] = useState('fabric');
   const [bulkFabricBlindTypes, setBulkFabricBlindTypes] = useState([]);
+  // ✅ FIX: same class of bug as App.js's generateQuote() - "Save All
+  // Changes & Create New Version" had no guard against repeated clicks
+  // during a slow save, which could create multiple duplicate versions from
+  // one intended save (the same real incident that produced 22 duplicate
+  // quote versions elsewhere). Blocks re-entry and shows "Saving..." so a
+  // click is acknowledged immediately regardless of network speed.
+  const [isSavingVersion, setIsSavingVersion] = useState(false);
 
   if (!selectedQuote) return null;
 
@@ -119,6 +126,13 @@ export default function QuoteDetailScreen({
     let newestVersionElsewhere = viewingVersionNumber;
     let newestVersionElsewhereQuote = null;
     quotes.forEach(q => {
+      // ✅ FIX: a version moved to Trash (or archived) must not count as "a
+      // newer version exists elsewhere" - it caused a real, confusing
+      // incident where deleting v4-v6 and then editing/saving v3 still
+      // warned "v4 already exists", because this loop counted the trashed
+      // v4 as the newest active version even though it was gone from every
+      // list the user could actually see.
+      if (q.trashedAt || q.archived) return;
       if ((q.lineageId || q.id) !== quoteLineageId) return;
       const v = parseVersion(q.version);
       if (v > newestVersionElsewhere) { newestVersionElsewhere = v; newestVersionElsewhereQuote = q; }
@@ -743,7 +757,11 @@ export default function QuoteDetailScreen({
               </div>
 
             <button
+              disabled={isSavingVersion}
               onClick={async () => {
+                if (isSavingVersion) return;
+                setIsSavingVersion(true);
+                try {
                 // ✅ BUGFIX: if you're still typing in an input (e.g. edited Motor Cost
                 // but clicked "Save All Changes" instead of that field's own "Done"
                 // button first), the typed value never made it into tableEditValues and
@@ -880,10 +898,13 @@ export default function QuoteDetailScreen({
 
                 // Show success with correct version number
                 alert(syncResult.success ? `✅ Success! New version ${newVersionString} created with your edited prices` : syncFailureMessage(syncResult.errors));
+                } finally {
+                  setIsSavingVersion(false);
+                }
               }}
-              style={{ width: '100%', padding: '14px', marginBottom: '24px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' }}
+              style={{ width: '100%', padding: '14px', marginBottom: '24px', borderRadius: '8px', background: '#4ade80', color: '#000', border: 'none', cursor: isSavingVersion ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '16px', opacity: isSavingVersion ? 0.6 : 1 }}
             >
-              💾 Save All Changes & Create New Version
+              {isSavingVersion ? 'Saving...' : '💾 Save All Changes & Create New Version'}
             </button>
             </>
           )}
