@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { PRICING_DATA } from './data/pricingData';
 import { getPricingSnapshot, DEFAULT_HUB } from './utils/constants';
 import { getQuoteNamePrefix, getNextVersion, autoDetectBlindTypes } from './utils/pricing';
+import { isRangeOverride } from './utils/formatters';
 
 // ✅ NEW (Phase 2): Supplier Measurements - fully isolated feature, own files,
 // own storage key. Only reads the `quotes` array (never writes it) to build
@@ -651,6 +652,33 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       }
     }
 
+    // ✅ FIX: a Min-Max price ESTIMATE saved while a room had no exact fabric
+    // (only a blind type) is a placeholder, not a deliberate quote. Editing
+    // the quote and assigning a real fabric used to carry that old range
+    // forward untouched (editedPrices is copied wholesale below), so the new
+    // version kept showing the stale range instead of pricing from the fabric
+    // - the Bulk Assign Fabric tool on the detail screen already offered to
+    // clear these, but this Edit-form path never did. Same ask-first rule as
+    // there: never silently drop a manual price, and only RANGE overrides are
+    // eligible (a fixed custom price is an intentional quote and is kept).
+    const staleRangeKeys = [];
+    if (editingQuote) {
+      const savedPrices = editingQuote.editedPrices?.perWindowPrices || {};
+      (formData.rooms || []).forEach(room => {
+        const hasExactFabric = (room.fabricInput || '').split(',').some(f => f.trim());
+        if (!hasExactFabric) return;
+        (room.windowGroups || []).forEach((group, groupIdx) => {
+          const priceKey = `${room.id}_${groupIdx}`;
+          if (isRangeOverride(savedPrices[priceKey])) staleRangeKeys.push(priceKey);
+        });
+      });
+    }
+    let clearStaleRanges = false;
+    if (staleRangeKeys.length > 0) {
+      const plural = staleRangeKeys.length > 1;
+      clearStaleRanges = window.confirm(`${staleRangeKeys.length} window${plural ? 's' : ''} ${plural ? 'have' : 'has a'} manually-set price ESTIMATE${plural ? 's' : ''} (a range) from before a fabric was chosen.\n\nClear ${plural ? 'those estimates' : 'that estimate'} so the new version shows exact pricing from the fabric you picked instead of the old range?\n\nCancel keeps the old estimate exactly as it is.`);
+    }
+
     setIsGeneratingQuote(true);
     try {
     // Determine quote name prefix based on ACTUAL FABRICS entered, not selected blind types
@@ -716,6 +744,13 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       // per-window prices) untouched.
       editedPrices: {
         ...(editingQuote ? editingQuote.editedPrices : {}),
+        // Only touched when stale range estimates were found AND confirmed
+        // for clearing above; otherwise perWindowPrices carries forward as-is.
+        ...(clearStaleRanges ? {
+          perWindowPrices: Object.fromEntries(
+            Object.entries(editingQuote.editedPrices?.perWindowPrices || {}).filter(([k]) => !staleRangeKeys.includes(k))
+          )
+        } : {}),
         otherExpenses: { amount: otherExpensesAmount || 0, label: (otherExpensesLabel || '').trim() || undefined }
       }
     };
