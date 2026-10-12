@@ -237,9 +237,12 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
   };
 
   // ---- Building a new sheet with NO quote behind it (client wants
-  // measurements taken before a quote exists) - one blank starter row,
-  // straight into the editor to fill it in. ----
-  const createBlankSheet = async (clientName, address) => {
+  // measurements taken before a quote exists). roomPlan ([{name, count}],
+  // from ManualEntryScreen's room list) pre-creates that many rows per room,
+  // all sharing the room name as locationBase so recomputeLocationIndices
+  // numbers them "Living Room 1".."Living Room 5". An empty plan keeps the
+  // original behavior: one blank starter row. ----
+  const createBlankSheet = async (clientName, address, roomPlan = []) => {
     const trimmedName = clientName.trim();
     if (!trimmedName) {
       alert('Enter a client name first.');
@@ -258,7 +261,16 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
       const proceed = window.confirm(`A measurement sheet for "${existingMatch.clientNames.join(', ')}" already exists (${existingMatch.rows?.length || 0} window${existingMatch.rows?.length === 1 ? '' : 's'}).\n\nCreate another, separate sheet for this client anyway?`);
       if (!proceed) return;
     }
-    const startRow = createBlankMeasurementRow({ clientName: trimmedName });
+    const plannedRows = [];
+    (roomPlan || []).forEach(({ name, count }) => {
+      for (let i = 0; i < count; i++) {
+        plannedRows.push(createBlankMeasurementRow({ clientName: trimmedName, locationBase: name }));
+      }
+    });
+    const startRows = plannedRows.length > 0
+      ? recomputeLocationIndices(plannedRows)
+      : [createBlankMeasurementRow({ clientName: trimmedName })];
+    const startRow = startRows[0];
     const newSheet = {
       id: `bulksheet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       createdDate: new Date().toISOString(),
@@ -266,7 +278,7 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
       address: address.trim(),
       clientNames: [trimmedName],
       sourceQuoteNames: [],
-      rows: [startRow]
+      rows: startRows
     };
     setCreatingSheet(true);
     const result = await updateSheets(prev => [...prev, newSheet]);
