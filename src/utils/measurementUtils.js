@@ -521,3 +521,63 @@ export function sheetToCSV(sheet, rows) {
 
   return lines.join('\n');
 }
+
+// ---- Combining several sheets into one supplier export ----------------------
+
+/**
+ * Lists every reason a sheet can't be exported yet, using exactly the same
+ * rules the single-sheet Copy/Download gate applies (valid width/height
+ * format, then every required field filled). Returns [] when it's ready.
+ * Each entry: { label, issue } - label is the window's display name.
+ */
+export function collectSheetExportProblems(sheet) {
+  const problems = [];
+  (sheet.rows || []).forEach(r => {
+    const w = validateMeasurementFormat(r.width);
+    const h = validateMeasurementFormat(r.height);
+    if (!w.valid || !h.valid) {
+      problems.push({ label: getLocationLabel(r), issue: `invalid ${[!w.valid && 'width', !h.valid && 'height'].filter(Boolean).join(' / ')} format` });
+      return;
+    }
+    const missing = getIncompleteFields(r);
+    if (missing.length > 0) problems.push({ label: getLocationLabel(r), issue: `missing ${missing.join(', ')}` });
+  });
+  return problems;
+}
+
+/**
+ * Merges several sheets into one flat list of rows (in the order the sheets
+ * are given) plus one combined Hub value, ready for a single export.
+ *
+ * Remote groups are numbered per sheet (each starts at 1), but a physical
+ * remote can't be shared between two different clients' orders - so a naive
+ * merge would show "Remote 1#1" for two unrelated windows. Every sheet after
+ * the first has its groups shifted past the highest group already used, so
+ * each sheet's windows stay together on their own remote(s) and no two
+ * sheets ever share a group number. Rows are copied, never mutated.
+ *
+ * Hub counts are free text per sheet: all-numeric values are summed ("2" +
+ * "1" -> "3"); anything else is kept verbatim and joined, never guessed at.
+ */
+export function mergeSheetsForExport(sheets) {
+  const rows = [];
+  let groupOffset = 0;
+  sheets.forEach(sheet => {
+    let maxGroup = 0;
+    (sheet.rows || []).forEach(r => {
+      const hasGroup = typeof r.remoteGroup === 'number' && r.remoteGroup > 0;
+      if (hasGroup) maxGroup = Math.max(maxGroup, r.remoteGroup);
+      rows.push(hasGroup && groupOffset > 0 ? { ...r, remoteGroup: r.remoteGroup + groupOffset } : r);
+    });
+    groupOffset += maxGroup;
+  });
+
+  const hubs = sheets.map(s => (s.hub || '').trim()).filter(Boolean);
+  const hub = hubs.length === 0
+    ? ''
+    : hubs.every(h => /^\d+$/.test(h))
+      ? String(hubs.reduce((sum, h) => sum + parseInt(h, 10), 0))
+      : hubs.join(' + ');
+
+  return { rows, hub };
+}

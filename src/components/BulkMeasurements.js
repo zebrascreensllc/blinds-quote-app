@@ -14,14 +14,15 @@ import {
   DEFAULT_CASSETTE,
   DEFAULT_MOUNT,
   createBlankMeasurementRow,
-  recomputeLocationIndices
+  recomputeLocationIndices,
+  collectSheetExportProblems
 } from '../utils/measurementUtils';
 import SheetListScreen from './measurements/SheetListScreen';
 import QuoteSelectScreen from './measurements/QuoteSelectScreen';
 import ManualEntryScreen from './bulkMeasurements/ManualEntryScreen';
 import BulkEditorScreen from './bulkMeasurements/BulkEditorScreen';
 import { subscribeToBulkSheets, saveBulkSheetRemote, deleteBulkSheetRemote } from '../services/bulkMeasurementSync';
-import { sheetToExcelBuffer } from '../utils/xlsxExport';
+import { sheetToExcelBuffer, combinedSheetsToExcelBuffer } from '../utils/xlsxExport';
 // ✅ NEW: fabric-existence check, reused from the quote side (same
 // isFabricValid already used by the "Invalid Fabrics" warning there). This
 // is a deliberate, explicit exception to measurementUtils.js's own
@@ -709,6 +710,48 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
     }
   };
 
+  // ✅ NEW: one Excel file for several sheets (picked on the sheet list).
+  // Same "no partial exports" rule as a single sheet: if ANY selected sheet
+  // still has incomplete/invalid windows, nothing downloads and the message
+  // names each offending sheet and its windows so it's clear what to fix.
+  const exportCombinedExcel = async (sheetIds) => {
+    const chosen = sheetIds.map(id => sheets.find(s => s.id === id)).filter(Boolean);
+    if (chosen.length < 2) { alert('Select at least 2 sheets to combine.'); return; }
+
+    const blocked = chosen
+      .map(s => ({ sheet: s, problems: collectSheetExportProblems(s) }))
+      .filter(x => x.problems.length > 0);
+    if (blocked.length > 0) {
+      const detail = blocked.slice(0, 4).map(({ sheet, problems }) => {
+        const preview = problems.slice(0, 3).map(p => `   - ${p.label}: ${p.issue}`).join('\n');
+        const more = problems.length > 3 ? `\n   ...and ${problems.length - 3} more` : '';
+        return `• ${exportFileLabel(sheet).replace(/_/g, ', ')} (${problems.length} window${problems.length === 1 ? '' : 's'}):\n${preview}${more}`;
+      }).join('\n\n');
+      const moreSheets = blocked.length > 4 ? `\n\n...and ${blocked.length - 4} more sheet(s)` : '';
+      alert(`Can't download the combined file yet - ${blocked.length} of the ${chosen.length} selected sheet${blocked.length === 1 ? ' is' : 's are'} incomplete:\n\n${detail}${moreSheets}\n\nOpen each one, finish it, then try again.`);
+      return;
+    }
+
+    try {
+      const buffer = await combinedSheetsToExcelBuffer(chosen);
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const names = chosen.slice(0, 3).map(exportFileLabel).join('_');
+      const more = chosen.length > 3 ? `_plus_${chosen.length - 3}_more` : '';
+      const date = new Date().toISOString().split('T')[0];
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(names + more).replace(/[^a-z0-9]/gi, '_').slice(0, 80)}_combined_${date}_supplier_details.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      console.error('Combined Excel export failed:', e);
+      alert('Could not create the combined Excel file. Try again, or download each sheet separately.');
+    }
+  };
+
   // ============================== ROUTE TO SCREEN ==============================
 
   if (screen === 'list') {
@@ -723,6 +766,7 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
         onNewSheet={() => setScreen('select')}
         onOpenSheet={openSheet}
         onDeleteSheet={deleteSheet}
+        onExportCombined={exportCombinedExcel}
       />
     );
   }

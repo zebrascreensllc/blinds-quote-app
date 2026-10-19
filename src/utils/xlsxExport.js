@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { computeRemoteLabels, buildRowExportFields } from './measurementUtils';
+import { computeRemoteLabels, buildRowExportFields, mergeSheetsForExport } from './measurementUtils';
 
 const YELLOW = 'FFFFFF00';
 
@@ -28,10 +28,25 @@ const HEADERS = [
  * and trigger a download, same separation of concerns as sheetToCSV.
  */
 export async function sheetToExcelBuffer(sheet, rows) {
+  const sheetName = (sheet?.address || 'Measurements').replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 31) || 'Measurements';
+  return buildWorkbookBuffer(sheetName, rows, (sheet?.hub || '').trim());
+}
+
+/**
+ * One worksheet containing every selected sheet's windows back to back (see
+ * mergeSheetsForExport for how remote groups and the hub count are merged),
+ * in the same format and with the same highlighting as a single sheet.
+ * Callers must validate each sheet first - this doesn't re-check.
+ */
+export async function combinedSheetsToExcelBuffer(sheets) {
+  const { rows, hub } = mergeSheetsForExport(sheets);
+  return buildWorkbookBuffer('Combined', rows, hub);
+}
+
+async function buildWorkbookBuffer(sheetName, rows, hubCount) {
   const remoteLabels = computeRemoteLabels(rows);
 
   const workbook = new ExcelJS.Workbook();
-  const sheetName = (sheet?.address || 'Measurements').replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 31) || 'Measurements';
   const ws = workbook.addWorksheet(sheetName);
   ws.columns = HEADERS;
   ws.getRow(1).font = { bold: true };
@@ -65,7 +80,6 @@ export async function sheetToExcelBuffer(sheet, rows) {
   // ✅ NEW: Hub is one count for the whole order (a smart-home hub covers
   // many windows, it isn't per-window), so it's a single highlighted summary
   // row after every window - "HUB | 2" - not a column repeated on every row.
-  const hubCount = (sheet?.hub || '').trim();
   if (hubCount) {
     const hubRow = ws.addRow({ clientName: 'HUB', location: hubCount });
     ['clientName', 'location'].forEach(key => {
