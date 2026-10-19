@@ -391,8 +391,8 @@ export default function BulkEditorScreen({
         </button>
 
         {/* 2. Bulk Assign Fabric */}
-        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>2. Bulk Assign Fabric</p>
-        <BulkToolPanel title="Bulk Assign Fabric" icon="🧵" bg="#1a2a3a" border="#4a6a8a" accentColor="#7dd3fc" isOpen={showFabricTool} onToggle={() => setShowFabricTool(!showFabricTool)}>
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>2. Fabric</p>
+        <BulkToolPanel title="Fabric" icon="🧵" bg="#1a2a3a" border="#4a6a8a" accentColor="#7dd3fc" isOpen={showFabricTool} onToggle={() => setShowFabricTool(!showFabricTool)}>
           <input
             type="text"
             placeholder="Fabric number"
@@ -416,8 +416,8 @@ export default function BulkEditorScreen({
         </BulkToolPanel>
 
         {/* 3. Bulk Assign Motor */}
-        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>3. Bulk Assign Motor</p>
-        <BulkToolPanel title="Bulk Assign Motor" icon="⚙️" bg="#2a2a1a" border="#8a7a4a" accentColor="#fbbf24" isOpen={showMotorTool} onToggle={() => setShowMotorTool(!showMotorTool)}>
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>3. Motor Type</p>
+        <BulkToolPanel title="Motor Type" icon="⚙️" bg="#2a2a1a" border="#8a7a4a" accentColor="#fbbf24" isOpen={showMotorTool} onToggle={() => setShowMotorTool(!showMotorTool)}>
           <label style={labelStyle}>Set Motor to</label>
           <select value={bulkMotorValue} onChange={(e) => setBulkMotorValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
             {MOTOR_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
@@ -450,8 +450,8 @@ export default function BulkEditorScreen({
         </BulkToolPanel>
 
         {/* 4. Bulk Assign Solar */}
-        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>4. Bulk Assign Solar</p>
-        <BulkToolPanel title="Bulk Assign Solar (motorized windows only)" icon="☀️" bg="#2a2a1a" border="#8a8a4a" accentColor="#fde047" isOpen={showSolarTool} onToggle={() => setShowSolarTool(!showSolarTool)}>
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>4. Solar Panel</p>
+        <BulkToolPanel title="Solar Panel (motorized windows only)" icon="☀️" bg="#2a2a1a" border="#8a8a4a" accentColor="#fde047" isOpen={showSolarTool} onToggle={() => setShowSolarTool(!showSolarTool)}>
           <label style={labelStyle}>Set Solar to</label>
           <select value={bulkSolarValue} onChange={(e) => setBulkSolarValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
             <option value="">No</option>
@@ -479,8 +479,8 @@ export default function BulkEditorScreen({
         {/* 5. Bulk Assign Motor Side - parity with the original feature's
             per-row Right/Left toggle (Right is the default, never written to
             export; Left is the exception, shows as "Smart - Left side"). */}
-        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>5. Bulk Assign Motor Side</p>
-        <BulkToolPanel title="Bulk Assign Motor Side (motorized windows only)" icon="↔️" bg="#2a1a1a" border="#8a5a4a" accentColor="#fca5a5" isOpen={showMotorSideTool} onToggle={() => setShowMotorSideTool(!showMotorSideTool)}>
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>5. Motor Side</p>
+        <BulkToolPanel title="Motor Side (motorized windows only)" icon="↔️" bg="#2a1a1a" border="#8a5a4a" accentColor="#fca5a5" isOpen={showMotorSideTool} onToggle={() => setShowMotorSideTool(!showMotorSideTool)}>
           <label style={labelStyle}>Set Side to</label>
           <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
             <button
@@ -516,8 +516,8 @@ export default function BulkEditorScreen({
         </BulkToolPanel>
 
         {/* 6. Bulk Assign Remote Group */}
-        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>6. Bulk Assign Remote Group</p>
-        <BulkToolPanel title="Bulk Assign Remote Group" icon="📡" bg="#2a1a3a" border="#6a4a8a" accentColor="#c4b5fd" isOpen={showRemoteTool} onToggle={() => setShowRemoteTool(!showRemoteTool)}>
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>6. Remote</p>
+        <BulkToolPanel title="Remote (group or none)" icon="📡" bg="#2a1a3a" border="#6a4a8a" accentColor="#c4b5fd" isOpen={showRemoteTool} onToggle={() => setShowRemoteTool(!showRemoteTool)}>
           {motorizedRows.length === 0 ? (
             <p style={{ color: '#888', fontSize: '12px' }}>No motorized windows on this sheet yet.</p>
           ) : (
@@ -555,8 +555,8 @@ export default function BulkEditorScreen({
         </BulkToolPanel>
 
         {/* 7. Bulk Assign Cassette */}
-        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>7. Bulk Assign Cassette</p>
-        <BulkToolPanel title="Bulk Assign Cassette" icon="🧱" bg="#1a2a2a" border="#4a8a7a" accentColor="#5eead4" isOpen={showCassetteTool} onToggle={() => setShowCassetteTool(!showCassetteTool)}>
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>7. Cassette</p>
+        <BulkToolPanel title="Cassette" icon="🧱" bg="#1a2a2a" border="#4a8a7a" accentColor="#5eead4" isOpen={showCassetteTool} onToggle={() => setShowCassetteTool(!showCassetteTool)}>
           <label style={labelStyle}>Set Cassette to</label>
           <select value={bulkCassetteValue} onChange={(e) => setBulkCassetteValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
             {CASSETTE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
@@ -586,8 +586,8 @@ export default function BulkEditorScreen({
         </BulkToolPanel>
 
         {/* 7. Bulk Assign Mount */}
-        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>8. Bulk Assign Mount</p>
-        <BulkToolPanel title="Bulk Assign Mount" icon="🔩" bg="#2a1a2a" border="#8a4a7a" accentColor="#f0abfc" isOpen={showMountTool} onToggle={() => setShowMountTool(!showMountTool)}>
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>8. Mount</p>
+        <BulkToolPanel title="Mount" icon="🔩" bg="#2a1a2a" border="#8a4a7a" accentColor="#f0abfc" isOpen={showMountTool} onToggle={() => setShowMountTool(!showMountTool)}>
           <label style={labelStyle}>Set Mount to</label>
           <select value={bulkMountValue} onChange={(e) => setBulkMountValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
             {MOUNT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
