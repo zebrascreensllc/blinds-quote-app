@@ -491,6 +491,7 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
         patch.solar = false;
         patch.remoteGroup = null;
         patch.remoteChannel = null;
+        patch.noRemote = false;
         patch.motorCustomText = '';
         // ✅ FIX: a stale motorSide: 'Left' from before the switch would
         // otherwise leak into the export as "Manual - Left side", which
@@ -573,7 +574,7 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
     });
 
     const newRows = activeSheet.rows.map(r =>
-      remoteSelectedRowIds.has(r.id) ? { ...r, remoteGroup: groupNumber, remoteChannel: channelById[r.id] } : r
+      remoteSelectedRowIds.has(r.id) ? { ...r, remoteGroup: groupNumber, remoteChannel: channelById[r.id], noRemote: false } : r
     );
     updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
     const count = remoteSelectedRowIds.size;
@@ -589,11 +590,26 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
     if (!activeSheet) return;
     if (remoteSelectedRowIds.size === 0) { alert('Select at least one window first.'); return; }
 
-    const newRows = activeSheet.rows.map(r => (remoteSelectedRowIds.has(r.id) ? { ...r, remoteGroup: null, remoteChannel: null } : r));
+    const newRows = activeSheet.rows.map(r => (remoteSelectedRowIds.has(r.id) ? { ...r, remoteGroup: null, remoteChannel: null, noRemote: false } : r));
     updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
     const count = remoteSelectedRowIds.size;
     setRemoteSelectedRowIds(new Set());
     alert(`Unassigned ${count} window${count > 1 ? 's' : ''} from their remote group.`);
+  };
+
+  // ---- "No remote": a motorized window that deliberately has no remote
+  // (so it isn't stuck "missing: remote group" and blocking the export).
+  // Clears any group/channel it had, so it can't also count toward a
+  // remote's 16-channel limit. Exports as "No remote" in the Remote column. ----
+  const applyBulkNoRemote = () => {
+    if (!activeSheet) return;
+    if (remoteSelectedRowIds.size === 0) { alert('Select at least one motorized window first.'); return; }
+
+    const newRows = activeSheet.rows.map(r => (remoteSelectedRowIds.has(r.id) ? { ...r, remoteGroup: null, remoteChannel: null, noRemote: true } : r));
+    updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
+    const count = remoteSelectedRowIds.size;
+    setRemoteSelectedRowIds(new Set());
+    alert(`Marked ${count} window${count > 1 ? 's' : ''} as No remote.`);
   };
 
   // ---- Bulk cassette tool ----
@@ -864,6 +880,7 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
       nextGroupNumber={nextGroupNumber}
       applyBulkRemoteGroup={applyBulkRemoteGroup}
       applyBulkRemoteUnassign={applyBulkRemoteUnassign}
+      applyBulkNoRemote={applyBulkNoRemote}
 
       showCassetteTool={showCassetteTool}
       setShowCassetteTool={setShowCassetteTool}

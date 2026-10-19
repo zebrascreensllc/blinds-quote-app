@@ -311,6 +311,7 @@ export function expandQuoteIntoRows(quote, options = {}) {
           // real value (a panel name string, legacy `true`, or `false`).
           solar: group.solar || false,
           remoteGroup: null,
+          noRemote: false,
           remoteChannel: null, // explicit channel number, assigned at the moment a group is set (see getNextRemoteChannel) - NOT derived from table position
           cassette: cassetteDefault,
           cassetteCustomText: '',
@@ -355,6 +356,7 @@ export function createBlankMeasurementRow({ clientName = '', locationBase = '' }
     solar: false,
     remoteGroup: null,
     remoteChannel: null,
+    noRemote: false,
     cassette: DEFAULT_CASSETTE,
     cassetteCustomText: '',
     mount: DEFAULT_MOUNT,
@@ -441,7 +443,10 @@ export function getIncompleteFields(row) {
   if (!row.width.trim()) missing.push('width');
   if (!row.height.trim()) missing.push('height');
   if (!row.fabricNumber.trim()) missing.push('fabric');
-  if (row.motor !== 'Manual' && !row.remoteGroup) missing.push('remote group');
+  // A motorized window needs EITHER a remote group OR an explicit "No remote"
+  // (noRemote) - the second exists so a motor that genuinely has no remote
+  // doesn't block the export forever waiting for a group it will never get.
+  if (row.motor !== 'Manual' && !row.remoteGroup && !row.noRemote) missing.push('remote group');
   return missing;
 }
 
@@ -480,7 +485,8 @@ export function buildRowExportFields(row, idx, remoteLabels) {
     comment: row.comment || '',
     manualSmart,
     motorType,
-    remote: remoteLabels[row.id] || '',
+    // Explicit "No remote" so the supplier can tell "deliberately none" from a blank.
+    remote: remoteLabels[row.id] || (isMotor && row.noRemote ? 'No remote' : ''),
     cassette,
     mount: row.mount,
     fabricNumber: row.fabricNumber,

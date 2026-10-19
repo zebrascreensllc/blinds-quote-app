@@ -135,6 +135,7 @@ export default function BulkEditorScreen({
   nextGroupNumber,
   applyBulkRemoteGroup,
   applyBulkRemoteUnassign,
+  applyBulkNoRemote,
 
   showCassetteTool,
   setShowCassetteTool,
@@ -527,7 +528,7 @@ export default function BulkEditorScreen({
               setSelectedIds={setRemoteSelectedRowIds}
               accentColor="#c4b5fd"
               renderLabel={(row) => {
-                const currentLabel = remoteLabels[row.id];
+                const currentLabel = remoteLabels[row.id] || (row.noRemote ? 'No remote' : '');
                 return (
                   <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {row.motor}{currentLabel ? ` (currently ${currentLabel})` : ''}</span></>
                 );
@@ -543,11 +544,14 @@ export default function BulkEditorScreen({
             <button onClick={() => applyBulkRemoteGroup(nextGroupNumber)} style={{ padding: '10px 14px', borderRadius: '6px', background: '#6d28d9', color: '#fff', border: 'none', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>
               + New Group {nextGroupNumber}
             </button>
+            <button onClick={applyBulkNoRemote} style={{ padding: '10px 14px', borderRadius: '6px', background: '#7c2d12', color: '#fff', border: 'none', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>
+              No remote
+            </button>
             <button onClick={applyBulkRemoteUnassign} style={{ padding: '10px 14px', borderRadius: '6px', background: '#444', color: '#fff', border: '1px solid #666', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>
               Unassign
             </button>
           </div>
-          <p style={{ color: '#888', fontSize: '11px', marginTop: '8px' }}>Select windows above, then tap a group to assign them all at once (channel numbers are set automatically), or Unassign to clear their remote group.</p>
+          <p style={{ color: '#888', fontSize: '11px', marginTop: '8px' }}>Select windows above, then tap a group to assign them all at once (channel numbers are set automatically), tap No remote if they won't have a remote, or Unassign to clear their remote group.</p>
         </BulkToolPanel>
 
         {/* 7. Bulk Assign Cassette */}
