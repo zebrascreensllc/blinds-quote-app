@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { PRICING_DATA } from '../../data/pricingData';
-import { BUSINESS_NAME, SALES_TAX_RATE } from '../../utils/constants';
-import { formatMoney, isRangeOverride, parseUnits } from '../../utils/formatters';
-import { isFabricValid, calculateGroupQuote, estimateBlindTypes, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics, findClosestFabricMatch } from '../../utils/pricing';
+import { BUSINESS_NAME, SALES_TAX_RATE, getPricingSnapshot } from '../../utils/constants';
+import { formatMoney, formatPrice, isRangeOverride, parseUnits } from '../../utils/formatters';
+import { isFabricValid, calculateGroupQuote, estimateBlindTypes, estimateOptionTotals, optionGrandTotals, isOptionRoom, computeQuoteFinancials, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics, findClosestFabricMatch } from '../../utils/pricing';
 import CurrentPricingSection from './CurrentPricingSection';
 import PricingDetailsSection from './PricingDetailsSection';
 import QuoteActionButtons from './QuoteActionButtons';
@@ -279,6 +279,18 @@ export default function QuoteDetailScreen({
       alert(`Applied ${appliedLabel} to ${count} room${count > 1 ? 's' : ''}. Click "Save All Changes" below to create a new version with this fabric.`);
     };
 
+    // The manual price in effect for a window (pending edit, else saved), or
+    // null. ✅ NEW: a key just cleared via "Bulk Assign Fabric" (stale Min/Max
+    // estimate replaced by a newly-assigned exact fabric) no longer counts as a
+    // saved override, so totals immediately reflect the fresh calculated price.
+    // One copy, shared by the totals below and the per-blind-type options.
+    const getOverridePrice = (priceKey) => {
+      const pendingPrice = tableEditValues.perWindowPrices[priceKey];
+      const savedPrice = (tableEditValues.clearedPriceKeys || new Set()).has(priceKey) ? undefined : selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
+      return (typeof pendingPrice === 'number' || isRangeOverride(pendingPrice)) ? pendingPrice
+        : ((typeof savedPrice === 'number' || isRangeOverride(savedPrice)) ? savedPrice : null);
+    };
+
     let totalMin = 0, totalMax = 0;
     // ✅ NEW: Supplier-side cost breakdown for the Pricing Comparison section.
     // Computed from the physical specs of each window (fabric, size, motor, solar) -
@@ -424,14 +436,7 @@ export default function QuoteDetailScreen({
         // window group has an edited price (pending or already saved), the
         // totals use that instead.
         const priceKey = `${room.id}_${groupIdx}`;
-        const pendingPrice = tableEditValues.perWindowPrices[priceKey];
-        // ✅ NEW: a key just cleared via "Bulk Assign Fabric" (stale Min/Max
-        // estimate replaced by a newly-assigned exact fabric) no longer
-        // counts as a saved override, so totals immediately reflect the
-        // fresh calculated price instead of the discarded estimate.
-        const savedPrice = (tableEditValues.clearedPriceKeys || new Set()).has(priceKey) ? undefined : selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
-        const overridePrice = (typeof pendingPrice === 'number' || isRangeOverride(pendingPrice)) ? pendingPrice
-          : ((typeof savedPrice === 'number' || isRangeOverride(savedPrice)) ? savedPrice : null);
+        const overridePrice = getOverridePrice(priceKey);
 
         if (overridePrice !== null) {
           const quantity = parseInt(group.quantity) || 1;
@@ -495,6 +500,79 @@ export default function QuoteDetailScreen({
     // through subtotalMin/Max (the taxable base) the way Motor/Solar/Hub do.
     const grandMin = subtotalMin + taxMin + effectiveOtherExpenses;
     const grandMax = subtotalMax + taxMax + effectiveOtherExpenses;
+
+    // ✅ NEW: undecided blind types (e.g. Roller + Zebra, no fabric yet) are priced
+    // once per option so the client can compare; null when nothing to compare.
+    const optionTotals = estimateOptionTotals(effectiveRooms, getOverridePrice, storedPricing);
+    const optionGrand = optionTotals
+      ? optionGrandTotals(optionTotals, { motorGrandTotal, solarGrandTotal, hubTotal, taxRate, otherExpenses: effectiveOtherExpenses })
+      : null;
+
+    // "Client chose X": stages X on every room that still offers it (rooms with
+    // other options are left alone). Goes through the same pending-edit +
+    // "Save All Changes" path as Bulk Assign Fabric, so nothing is saved until
+    // you save, the new version/conflict checks all apply, and the collapsed
+    // quote totals exactly what this option showed.
+    // ✅ NEW: opt-in upgrade for quotes saved before price estimates followed the
+    // blind type. Those quotes keep their old numbers on purpose (a quote that may
+    // already have been sent must never change price just by being reopened), so
+    // this is the owner's explicit choice: it saves a NEW version with the
+    // corrected estimate and leaves the version being viewed exactly as it was.
+    // Only offered when it can matter: some room has no exact fabric yet.
+    const hasNoFabricRoom = (selectedQuote.rooms || []).some(r => !(r.fabricInput || '').split(',').some(f => f.trim()));
+    const canUpgradeEstimate = storedPricing?.ESTIMATE_BY_BLIND_TYPE !== true && hasNoFabricRoom;
+    const hasPendingEdits = Object.keys(tableEditValues.perWindowPrices).length > 0
+      || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null
+      || tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null
+      || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0
+      || Object.keys(tableEditValues.fabricEdits || {}).length > 0;
+    const upgradeEstimate = async () => {
+      if (isSavingVersion) return;
+      if (hasPendingEdits) {
+        alert('You have unsaved changes on this quote. Tap "Save All Changes" first (or reload to discard them), then update the estimate.');
+        return;
+      }
+      // Complete snapshot (never a bare {flag}): constants from this quote's own
+      // snapshot win, defaults fill any gap in a very old quote.
+      const upgradedPricing = { ...getPricingSnapshot(), ...(selectedQuote.pricing || {}), ESTIMATE_BY_BLIND_TYPE: true };
+      const before = computeQuoteFinancials(selectedQuote);
+      const after = computeQuoteFinancials({ ...selectedQuote, pricing: upgradedPricing });
+      const sameNow = Math.abs(before.revenueSubtotal - after.revenueSubtotal) < 0.005 && Math.abs(before.revenueSubtotalMax - after.revenueSubtotalMax) < 0.005;
+      const newVersionString = `v${parseVersion(selectedQuote.version) + 1}`;
+      const stale = isViewingStaleVersion
+        ? `\n\nNote: a newer version (v${newestVersionElsewhere}) of this quote already exists - this makes ${newVersionString} from THIS older data.`
+        : '';
+      if (!window.confirm(`Update the estimate to follow each room's blind type?\n\nSubtotal before tax:\n  now:    ${formatPrice(before.revenueSubtotal, before.revenueSubtotalMax)}\n  after:  ${formatPrice(after.revenueSubtotal, after.revenueSubtotalMax)}${sameNow ? '  (no change in price)' : ''}\n\nThis saves a NEW version (${newVersionString}). The version you're viewing stays exactly as it is.${stale}`)) return;
+
+      const oldQuoteName = selectedQuote.quoteName || '';
+      const newQuoteName = /-v\d+$/.test(oldQuoteName) ? oldQuoteName.replace(/-v\d+$/, `-${newVersionString}`) : `${oldQuoteName}-${newVersionString}`;
+      const newQuote = {
+        ...selectedQuote,
+        id: `${selectedQuote.id}-${newVersionString}-${Date.now()}`,
+        quoteName: newQuoteName,
+        version: newVersionString,
+        pricing: upgradedPricing,
+        updatedDate: new Date().toISOString()
+      };
+      setIsSavingVersion(true);
+      try {
+        const result = await updateQuotes([...quotes, newQuote]);
+        setSelectedQuote(newQuote);
+        alert(result.success ? `✅ ${newVersionString} created with the updated estimate. The previous version is unchanged.` : syncFailureMessage(result.errors));
+      } finally {
+        setIsSavingVersion(false);
+      }
+    };
+
+    const chooseBlindType = (type) => {
+      const targets = effectiveRooms.filter(r => isOptionRoom(r) && r.blindTypes.includes(type));
+      if (targets.length === 0) return;
+      const names = targets.map(r => r.name || `Room ${r.id}`).join(', ');
+      if (!window.confirm(`Client chose ${type}?\n\nThis sets ${type} for: ${names}.\nNothing is saved yet - tap "Save All Changes" below to create the new version with just ${type}.`)) return;
+      const newFabricEdits = { ...(tableEditValues.fabricEdits || {}) };
+      targets.forEach(r => { newFabricEdits[r.id] = { fabricInput: '', blindTypes: [type] }; });
+      setTableEditValues({ ...tableEditValues, fabricEdits: newFabricEdits });
+    };
 
     const copyText = (() => {
       let text = `QUOTE - ${BUSINESS_NAME}\n\nClient: ${selectedQuote.clientName}\nPhone: ${selectedQuote.clientPhone}\nLocation: ${selectedQuote.location}\nDate: ${selectedQuote.date}\n\n`;
@@ -563,6 +641,12 @@ export default function QuoteDetailScreen({
         text += `${effectiveOtherExpensesLabel}: $${formatMoney(effectiveOtherExpenses)}\n`;
       }
       text += `GRAND TOTAL: ${formatTextPrice(grandMin, grandMax)}`;
+      if (optionGrand) {
+        text += `\n\nOPTIONS (final price depends on the blind type you choose):`;
+        optionTotals.types.forEach(t => {
+          text += `\n${t}: ${formatTextPrice(optionGrand[t].grandMin, optionGrand[t].grandMax)}`;
+        });
+      }
 
       return text;
     })();
@@ -668,6 +752,22 @@ export default function QuoteDetailScreen({
             pricingComparisonProfit={pricingComparisonProfit}
           />
 
+          {canUpgradeEstimate && (
+            <div style={{ marginBottom: '16px', padding: '12px', background: '#2a2a1a', border: '1px solid #8a7a4a', borderRadius: '8px' }}>
+              <p style={{ color: '#fbbf24', fontWeight: 'bold', fontSize: '13px', marginBottom: '4px' }}>Older price estimate</p>
+              <p style={{ color: '#ccc', fontSize: '12px', marginBottom: '10px' }}>
+                This quote was made before estimates followed the blind type (Roller, Zebra...), so rooms with no fabric yet are priced across all fabrics. Prices here stay as they are unless you update.
+              </p>
+              <button
+                onClick={upgradeEstimate}
+                disabled={isSavingVersion}
+                style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#a16207', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: isSavingVersion ? 'default' : 'pointer', opacity: isSavingVersion ? 0.6 : 1 }}
+              >
+                {isSavingVersion ? 'Saving...' : 'Update estimate (saves a new version)'}
+              </button>
+            </div>
+          )}
+
           <CurrentPricingSection
             activeEditText={activeEditText}
             activeEditTextMax={activeEditTextMax}
@@ -676,6 +776,9 @@ export default function QuoteDetailScreen({
             effectiveRooms={effectiveRooms}
             effectiveSolarCost={effectiveSolarCost}
             effectiveOtherExpenses={effectiveOtherExpenses}
+            optionTotals={optionTotals}
+            optionGrand={optionGrand}
+            onChooseBlindType={chooseBlindType}
             effectiveOtherExpensesLabel={effectiveOtherExpensesLabel}
             expandedQuoteTable={expandedQuoteTable}
             findMatchingSizePriceKeys={findMatchingSizePriceKeys}

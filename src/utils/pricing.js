@@ -382,7 +382,12 @@ export const getQuoteNamePrefix = (rooms, fabricData = null) => {
   const fabricBlindTypes = getBlindTypesFromFabrics(rooms, fabricData);
   
   if (fabricBlindTypes.length === 0) {
-    return (rooms[0]?.blindTypes?.[0]) || 'Roller';
+    // No exact fabric yet: name the quote after every blind type still on the
+    // table (e.g. "Roller+Zebra"), not just the first - a quote still deciding
+    // between two types shouldn't be labelled as if it were only one.
+    const offered = [];
+    rooms.forEach(r => (r.blindTypes || []).forEach(t => { if (!offered.includes(t)) offered.push(t); }));
+    return offered.length > 0 ? offered.join('+') : 'Roller';
   } else if (fabricBlindTypes.length === 1) {
     return fabricBlindTypes[0];
   } else {
@@ -537,4 +542,110 @@ export const getNextVersion = (clientName, location, quotes = []) => {
     .filter(n => !isNaN(n));
   if (versions.length === 0) return 1;
   return Math.max(...versions) + 1;
+};
+
+// ---- "Roller vs Zebra" options: per-blind-type pricing for undecided rooms ----
+
+const isRangeOverrideValue = (v) => v !== null && typeof v === 'object' && typeof v.min === 'number' && typeof v.max === 'number';
+
+/**
+ * A room is an "option room" when the client hasn't picked a fabric yet AND
+ * more than one blind type is still on the table (e.g. Roller + Zebra).
+ */
+export const isOptionRoom = (room) => {
+  const hasFabric = (room.fabricInput || '').split(',').some(f => f.trim());
+  return !hasFabric && Array.isArray(room.blindTypes) && new Set(room.blindTypes).size > 1;
+};
+
+/**
+ * For quotes with undecided blind types, prices the SAME windows once per
+ * option so the client can compare (all Roller vs all Zebra) before choosing.
+ * Only quotes saved with ESTIMATE_BY_BLIND_TYPE take part - older quotes'
+ * estimates ignore the blind type, so a per-type comparison would contradict
+ * the numbers they already show. Returns null when there is nothing to compare.
+ *
+ * Mirrors the quote screen's totals exactly: a manual per-window price
+ * (getOverride(priceKey) -> number | {min,max} | null) applies whatever the type
+ * (so it adds no difference between options); otherwise the window uses
+ * baseMinQuote/baseMaxQuote for that type. Rooms that offer the type use it;
+ * every other room (single type, or exact fabric) is priced as normal in all
+ * options - which is also what "client chose X" leaves behind.
+ *
+ * Only the WINDOW part differs between options. Motor/solar/hub/tax/other
+ * expenses are the same for every option - see optionGrandTotals.
+ */
+export const estimateOptionTotals = (rooms, getOverride, storedPricing) => {
+  if (!storedPricing || storedPricing.ESTIMATE_BY_BLIND_TYPE !== true) return null;
+  const fabricData = storedPricing.PRICING_DATA || PRICING_DATA;
+  const optionRooms = (rooms || []).filter(isOptionRoom);
+  if (optionRooms.length === 0) return null;
+
+  const types = [];
+  optionRooms.forEach(r => r.blindTypes.forEach(t => { if (!types.includes(t)) types.push(t); }));
+
+  const byType = {};
+  const perGroup = {};
+  types.forEach(t => { byType[t] = { windowMin: 0, windowMax: 0 }; });
+
+  rooms.forEach(room => {
+    const fabricNumbers = (room.fabricInput || '').split(',').map(f => f.trim()).filter(f => f);
+    let actualBlindType = (room.blindTypes || ['Roller'])[0];
+    for (const fabricNum of fabricNumbers) {
+      const detected = getBlindTypeFromFabric(fabricNum, fabricData);
+      if (detected) { actualBlindType = detected; break; }
+    }
+    const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
+    const roomIsOption = isOptionRoom(room);
+
+    room.windowGroups.forEach((group, groupIdx) => {
+      const priceKey = `${room.id}_${groupIdx}`;
+      const quantity = parseInt(group.quantity) || 1;
+      const override = getOverride ? getOverride(priceKey) : null;
+      const hasOverride = typeof override === 'number' || isRangeOverrideValue(override);
+
+      const windowFor = (blindTypeArg) => {
+        if (hasOverride) {
+          return isRangeOverrideValue(override)
+            ? { min: override.min * quantity, max: override.max * quantity }
+            : { min: override * quantity, max: override * quantity };
+        }
+        const q = calculateGroupQuote(group, fabricNumbers, blindTypeArg, motorizedCount, storedPricing);
+        return { min: q.baseMinQuote, max: q.baseMaxQuote };
+      };
+
+      types.forEach(t => {
+        const w = roomIsOption && room.blindTypes.includes(t)
+          ? windowFor([t])
+          : windowFor(estimateBlindTypes(room, fabricNumbers, actualBlindType));
+        byType[t].windowMin += w.min;
+        byType[t].windowMax += w.max;
+        if (roomIsOption && room.blindTypes.includes(t) && !hasOverride) {
+          (perGroup[priceKey] = perGroup[priceKey] || []).push({ type: t, perMin: w.min / quantity, perMax: w.max / quantity });
+        }
+      });
+    });
+  });
+
+  return { types, byType, perGroup, optionRoomIds: optionRooms.map(r => r.id) };
+};
+
+/**
+ * Adds the parts that are identical for every option (motor, solar, hub, tax,
+ * other expenses) onto each option's window total, in the same order the quote
+ * screen does: tax applies to windows + motor + solar + hub; other expenses go
+ * on after tax.
+ */
+export const optionGrandTotals = (options, { motorGrandTotal = 0, solarGrandTotal = 0, hubTotal = 0, taxRate = 0, otherExpenses = 0 }) => {
+  const out = {};
+  options.types.forEach(t => {
+    const addOns = motorGrandTotal + solarGrandTotal + hubTotal;
+    const subtotalMin = options.byType[t].windowMin + addOns;
+    const subtotalMax = options.byType[t].windowMax + addOns;
+    out[t] = {
+      subtotalMin, subtotalMax,
+      grandMin: subtotalMin * (1 + taxRate) + otherExpenses,
+      grandMax: subtotalMax * (1 + taxRate) + otherExpenses
+    };
+  });
+  return out;
 };

@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { formatMoney, formatPrice } from './formatters';
 import { buildInvoiceLineItems, computeInvoiceTotals } from './invoiceExport';
+import { estimateOptionTotals, optionGrandTotals } from './pricing';
 
 const HEADERS = [
   { header: 'Item No', key: 'itemNo', width: 8 },
@@ -81,6 +82,23 @@ export async function generatePriceBreakdownExcel(quote) {
   summaryRow(`Sales Tax ${formatMoney(totals.taxRate * 100)}%`, fmtPrice(totals.salesTax, totals.salesTaxMax));
   if (totals.otherExpensesAmount > 0) summaryRow(totals.otherExpensesLabel, `$${formatMoney(totals.otherExpensesAmount)}`);
   summaryRow('Grand Total', fmtPrice(totals.grandTotal, totals.grandTotalMax), true);
+
+  // Undecided blind types (e.g. Roller + Zebra, no fabric yet): the Grand Total
+  // above spans every option, so also list what the client pays for each one.
+  const savedPrices = quote.editedPrices?.perWindowPrices || {};
+  const options = estimateOptionTotals(quote.rooms, key => {
+    const v = savedPrices[key];
+    return (typeof v === 'number' || (v && typeof v === 'object')) ? v : null;
+  }, quote.pricing || null);
+  if (options) {
+    const grand = optionGrandTotals(options, {
+      motorGrandTotal: totals.motorGrandTotal, solarGrandTotal: totals.solarGrandTotal,
+      hubTotal: totals.hubTotal, taxRate: totals.taxRate, otherExpenses: totals.otherExpensesAmount
+    });
+    ws.addRow([]);
+    summaryRow('Grand Total depends on the blind type chosen:', '', true);
+    options.types.forEach(t => summaryRow(`If all ${t}`, fmtPrice(grand[t].grandMin, grand[t].grandMax)));
+  }
 
   return workbook.xlsx.writeBuffer();
 }

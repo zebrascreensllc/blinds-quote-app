@@ -28,6 +28,9 @@ export default function CurrentPricingSection({
   effectiveSolarCost,
   effectiveOtherExpenses,
   effectiveOtherExpensesLabel,
+  optionTotals,
+  optionGrand,
+  onChooseBlindType,
   expandedQuoteTable,
   findMatchingSizePriceKeys,
   grandMax,
@@ -430,6 +433,18 @@ export default function CurrentPricingSection({
                           </button>
                         </div>
                       </div>
+                      {/* Undecided blind types: this window priced once per option
+                          (only when it has no manual price - a manual price is the
+                          same for every option, so there is nothing to compare). */}
+                      {optionTotals?.perGroup?.[priceKey] && (
+                        <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #444', display: 'flex', flexWrap: 'wrap', gap: '6px 14px', fontSize: '12px' }}>
+                          {optionTotals.perGroup[priceKey].map(o => (
+                            <span key={o.type} style={{ color: '#9ca3af' }}>
+                              {o.type} <span style={{ color: '#d4af37', fontWeight: 'bold' }}>{formatPrice(o.perMin, o.perMax)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 });
@@ -677,6 +692,28 @@ export default function CurrentPricingSection({
                 <span style={{ color: '#fff' }}>GRAND TOTAL:</span>
                 <span style={{ color: '#fff' }}>{formatPrice(grandMin, grandMax)}</span>
               </div>
+
+              {/* Undecided blind types: what the whole quote comes to if the client
+                  picks each one (Grand Total above is the span of all options). */}
+              {optionTotals && optionGrand && (
+                <div style={{ marginTop: '12px', background: '#1f2a3a', border: '1px solid #4a6a8a', borderRadius: '8px', padding: '12px' }}>
+                  <p style={{ color: '#7dd3fc', fontWeight: 'bold', fontSize: '13px', marginBottom: '4px' }}>Compare blind types</p>
+                  <p style={{ color: '#9ca3af', fontSize: '11px', marginBottom: '10px' }}>Grand Total if the client picks:</p>
+                  {optionTotals.types.map(t => (
+                    <div key={t} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', padding: '8px 0', borderTop: '1px solid #33445a' }}>
+                      <span style={{ color: '#fff', fontSize: '14px' }}>
+                        All <strong>{t}</strong> <span style={{ color: '#d4af37', fontWeight: 'bold', marginLeft: '6px' }}>{formatPrice(optionGrand[t].grandMin, optionGrand[t].grandMax)}</span>
+                      </span>
+                      <button
+                        onClick={() => onChooseBlindType(t)}
+                        style={{ padding: '8px 12px', borderRadius: '6px', background: '#0e7490', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '12px', cursor: 'pointer' }}
+                      >
+                        Client chose {t}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             )}
           </div>

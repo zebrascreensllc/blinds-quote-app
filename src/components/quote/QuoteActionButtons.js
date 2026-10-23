@@ -2,6 +2,7 @@ import React from 'react';
 import { Copy, Check, Edit2, Trash2, Share2, Files, Archive } from 'lucide-react';
 import { formatMoney } from '../../utils/formatters';
 import { generateInvoiceDocx, buildInvoiceLineItems } from '../../utils/invoiceExport';
+import { isOptionRoom } from '../../utils/pricing';
 import { expandQuoteIntoRows } from '../../utils/measurementUtils';
 import { sheetToExcelBuffer } from '../../utils/xlsxExport';
 import { generatePriceBreakdownExcel } from '../../utils/priceBreakdownExport';
@@ -37,7 +38,12 @@ export default function QuoteActionButtons({
           // fixed Terms & Conditions / Warranty Coverage pages.
           const { hasRangePricing } = buildInvoiceLineItems(selectedQuote);
           if (hasRangePricing) {
-            if (!window.confirm('Some windows still show an estimated price range (no exact fabric picked yet). The invoice will use the low end of that range for those windows.\n\nContinue anyway?')) return;
+            // Rooms still choosing between blind types (e.g. Roller vs Zebra) are
+            // the case most worth stopping on: the invoice would quietly quote
+            // the cheapest option as if it were final.
+            const undecided = (selectedQuote.rooms || []).some(isOptionRoom);
+            const extra = undecided ? '\n\nSome rooms are also still choosing between blind types - use "Client chose..." on the quote first if the client has decided.' : '';
+            if (!window.confirm(`Some windows still show an estimated price range (no exact fabric picked yet). The invoice will use the low end of that range for those windows.${extra}\n\nContinue anyway?`)) return;
           }
 
           const advanceInput = window.prompt('Advance Payment (defaults to half of Grand Total - edit if different):', formatMoney(grandMin / 2));
