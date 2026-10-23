@@ -48,17 +48,28 @@ export function buildInvoiceLineItems(quote) {
       const priceKey = `${room.id}_${groupIdx}`;
       const savedPrice = quote.editedPrices?.perWindowPrices?.[priceKey];
 
+      // perWindowPrice is the LOW end (what the single-number invoice uses);
+      // perWindowPriceMax is the high end, equal to it unless this window is
+      // still a range - a custom Min-Max override, or an estimate with no
+      // exact fabric. Mirrors how the on-screen totals add up (override min/
+      // max, else baseMinQuote/baseMaxQuote), so the Price Breakdown can show
+      // exactly the range the quote screen shows instead of only its low end.
       let perWindowPrice;
+      let perWindowPriceMax;
       if (typeof savedPrice === 'number') {
         perWindowPrice = savedPrice;
+        perWindowPriceMax = savedPrice;
       } else if (isRangeOverride(savedPrice)) {
         perWindowPrice = savedPrice.min;
+        perWindowPriceMax = savedPrice.max;
         hasRangePricing = true;
       } else if (q.isRange) {
         perWindowPrice = q.baseMinQuote / quantity;
+        perWindowPriceMax = q.baseMaxQuote / quantity;
         hasRangePricing = true;
       } else {
         perWindowPrice = q.baseMinQuote / quantity;
+        perWindowPriceMax = q.baseMaxQuote / quantity;
       }
 
       for (let i = 0; i < quantity; i++) {
@@ -73,7 +84,8 @@ export function buildInvoiceLineItems(quote) {
           // properly" bug class. Keep the real value (a panel name string,
           // legacy `true`, or `false`) so callers can still tell which.
           solar: group.solar || false,
-          unitPrice: perWindowPrice
+          unitPrice: perWindowPrice,
+          unitPriceMax: perWindowPriceMax
         });
       }
     });
@@ -184,9 +196,12 @@ export function computeInvoiceTotals(quote, items, { advanceAmount = 0, discount
   const hubTotal = getHubTotal(quote);
 
   const itemsSubtotal = items.reduce((sum, it) => sum + it.unitPrice, 0);
+  const itemsSubtotalMax = items.reduce((sum, it) => sum + (typeof it.unitPriceMax === 'number' ? it.unitPriceMax : it.unitPrice), 0);
   const total = itemsSubtotal + motorGrandTotal + solarGrandTotal + hubTotal;
+  const totalMax = itemsSubtotalMax + motorGrandTotal + solarGrandTotal + hubTotal;
   const taxRate = typeof quote.editedPrices?.taxRate === 'number' ? quote.editedPrices.taxRate : (storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE);
   const salesTax = total * taxRate;
+  const salesTaxMax = totalMax * taxRate;
   // ✅ NEW: Other Expenses - flat, untaxed, quote-level charge (old blind
   // removal, misc fees). Added after tax, same as discountAmount above -
   // matches QuoteDetailScreen.js's grandMin/grandMax so this invoice can
@@ -194,11 +209,12 @@ export function computeInvoiceTotals(quote, items, { advanceAmount = 0, discount
   const otherExpensesAmount = typeof quote.editedPrices?.otherExpenses?.amount === 'number' ? quote.editedPrices.otherExpenses.amount : 0;
   const otherExpensesLabel = quote.editedPrices?.otherExpenses?.label || 'Other Expenses';
   const grandTotal = total + salesTax - discountAmount + otherExpensesAmount;
+  const grandTotalMax = totalMax + salesTaxMax - discountAmount + otherExpensesAmount;
   const remainingBalance = grandTotal - advanceAmount;
 
   return {
     motorCount, solarCount, effectiveMotorCost, effectiveSolarCost, motorGrandTotal, solarGrandTotal, hubTotal,
-    itemsSubtotal, total, taxRate, salesTax, otherExpensesAmount, otherExpensesLabel, grandTotal, remainingBalance
+    itemsSubtotal, itemsSubtotalMax, total, totalMax, taxRate, salesTax, salesTaxMax, otherExpensesAmount, otherExpensesLabel, grandTotal, grandTotalMax, remainingBalance
   };
 }
 

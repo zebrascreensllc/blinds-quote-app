@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { formatMoney } from './formatters';
+import { formatMoney, formatPrice } from './formatters';
 import { buildInvoiceLineItems, computeInvoiceTotals } from './invoiceExport';
 
 const HEADERS = [
@@ -10,6 +10,16 @@ const HEADERS = [
   { header: 'Type', key: 'type', width: 16 },
   { header: 'Price', key: 'price', width: 12 }
 ];
+
+// A window (or the whole order) that's still a range - a Min-Max override or
+// an estimate with no exact fabric - shows as "$140-$150", same as the quote
+// screen; an exact price keeps the cents format. This file used to print only
+// the low end, so a quote showing $140-$150 came out as just $140.
+const fmtPrice = (min, max) => (
+  typeof max === 'number' && Math.abs(max - min) >= 0.005
+    ? formatPrice(min, max)
+    : `$${formatMoney(min)}`
+);
 
 /**
  * Builds a client-facing "here's the breakdown" Excel workbook - the same
@@ -40,7 +50,7 @@ export async function generatePriceBreakdownExcel(quote) {
       width: it.width,
       height: it.height,
       type,
-      price: `$${formatMoney(it.unitPrice)}`
+      price: fmtPrice(it.unitPrice, it.unitPriceMax)
     });
   });
 
@@ -67,10 +77,10 @@ export async function generatePriceBreakdownExcel(quote) {
     const hubLabel = quote.hub.quantity > 1 ? `Hub ${quote.hub.quantity} x $${formatMoney(quote.hub.price)}` : 'Hub';
     summaryRow(hubLabel, totals.hubTotal === 0 ? 'Complimentary' : `$${formatMoney(totals.hubTotal)}`);
   }
-  summaryRow('Total', `$${formatMoney(totals.total)}`, true);
-  summaryRow(`Sales Tax ${formatMoney(totals.taxRate * 100)}%`, `$${formatMoney(totals.salesTax)}`);
+  summaryRow('Total', fmtPrice(totals.total, totals.totalMax), true);
+  summaryRow(`Sales Tax ${formatMoney(totals.taxRate * 100)}%`, fmtPrice(totals.salesTax, totals.salesTaxMax));
   if (totals.otherExpensesAmount > 0) summaryRow(totals.otherExpensesLabel, `$${formatMoney(totals.otherExpensesAmount)}`);
-  summaryRow('Grand Total', `$${formatMoney(totals.grandTotal)}`, true);
+  summaryRow('Grand Total', fmtPrice(totals.grandTotal, totals.grandTotalMax), true);
 
   return workbook.xlsx.writeBuffer();
 }
