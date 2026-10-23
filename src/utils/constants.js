@@ -22,6 +22,10 @@ export const getPricingSnapshot = () => ({
     "71-88": 60
   },
   HEIGHT_SURCHARGE: 37,
+  // New quotes estimate a no-fabric room from only its selected blind type(s);
+  // snapshots without this flag (every quote saved before it existed) keep the
+  // old all-fabrics range so their numbers never change. See calculateGroupCost.
+  ESTIMATE_BY_BLIND_TYPE: true,
   CREATED_DATE: new Date().toISOString()
 });
 

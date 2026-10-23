@@ -4,7 +4,7 @@ import {
 } from 'docx';
 import { PRICING_DATA } from '../data/pricingData';
 import { SALES_TAX_RATE } from './constants';
-import { calculateGroupQuote, getBlindTypeFromFabric, getHubTotal } from './pricing';
+import { calculateGroupQuote, getBlindTypeFromFabric, getHubTotal, estimateBlindTypes } from './pricing';
 import { formatMoney } from './formatters';
 import { INVOICE_BUSINESS, TERMS_AND_CONDITIONS, WARRANTY_SUMMARY, WARRANTY_SECTIONS } from './invoiceContent';
 import zebraLogoUrl from '../assets/zebra-logo.png';
@@ -43,7 +43,7 @@ export function buildInvoiceLineItems(quote) {
     const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
 
     room.windowGroups.forEach((group, groupIdx) => {
-      const q = calculateGroupQuote(group, fabricNumbers, actualBlindType, motorizedCount, storedPricing);
+      const q = calculateGroupQuote(group, fabricNumbers, estimateBlindTypes(room, fabricNumbers, actualBlindType), motorizedCount, storedPricing);
       const quantity = parseInt(group.quantity) || 1;
       const priceKey = `${room.id}_${groupIdx}`;
       const savedPrice = quote.editedPrices?.perWindowPrices?.[priceKey];

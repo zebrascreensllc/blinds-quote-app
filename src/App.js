@@ -719,7 +719,12 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       lineageId: editingQuote ? (editingQuote.lineageId || editingQuote.id) : uniqueId,
       quoteName: quoteName,
       version: newVersion,
-      pricing: pricingSnapshot,
+      // Editing a quote saved before ESTIMATE_BY_BLIND_TYPE existed keeps its old
+      // (all-fabrics) estimate in the new version, so a quote that may already
+      // have been sent doesn't change price just because it was edited.
+      pricing: (editingQuote && editingQuote.pricing?.ESTIMATE_BY_BLIND_TYPE !== true)
+        ? { ...pricingSnapshot, ESTIMATE_BY_BLIND_TYPE: false }
+        : pricingSnapshot,
       createdDate: editingQuote ? editingQuote.createdDate : new Date().toISOString(),
       updatedDate: new Date().toISOString(),
       status: 'quote',

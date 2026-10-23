@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { PRICING_DATA } from '../../data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE } from '../../utils/constants';
 import { formatMoney, isRangeOverride, parseUnits } from '../../utils/formatters';
-import { isFabricValid, calculateGroupQuote, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics, findClosestFabricMatch } from '../../utils/pricing';
+import { isFabricValid, calculateGroupQuote, estimateBlindTypes, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics, findClosestFabricMatch } from '../../utils/pricing';
 import CurrentPricingSection from './CurrentPricingSection';
 import PricingDetailsSection from './PricingDetailsSection';
 import QuoteActionButtons from './QuoteActionButtons';
@@ -395,7 +395,7 @@ export default function QuoteDetailScreen({
 
       room.windowGroups.forEach((group, groupIdx) => {
         const motorizedCount = room.windowGroups.filter(w => w.controlType === 'Motor').length;
-        const q = calculateGroupQuote(group, fabricNumbers, actualBlindType, motorizedCount, storedPricing);
+        const q = calculateGroupQuote(group, fabricNumbers, estimateBlindTypes(room, fabricNumbers, actualBlindType), motorizedCount, storedPricing);
 
         // Safety check for NaN
         if (isNaN(q.minQuote) || isNaN(q.maxQuote)) {

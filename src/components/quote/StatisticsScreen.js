@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, TrendingUp } from 'lucide-react';
 import { PRICING_DATA } from '../../data/pricingData';
-import { calculateGroupQuote, getBlindTypeFromFabric, getHubTotal } from '../../utils/pricing';
+import { calculateGroupQuote, getBlindTypeFromFabric, getHubTotal, estimateBlindTypes } from '../../utils/pricing';
 import { isRangeOverride } from '../../utils/formatters';
 import { subscribeToAnalysisEntries } from '../../services/analysisSync';
 
@@ -100,7 +100,7 @@ export default function StatisticsScreen({ quotes, setCurrentView, uid }) {
       }
 
       room.windowGroups.forEach((group, groupIdx) => {
-        const q = calculateGroupQuote(group, fabricNumbers, actualBlindType, motorizedCount, quote.pricing || null);
+        const q = calculateGroupQuote(group, fabricNumbers, estimateBlindTypes(room, fabricNumbers, actualBlindType), motorizedCount, quote.pricing || null);
         // Use the edited per-window price (if one was saved) for profit,
         // not the raw calculated price.
         const priceKey = `${room.id}_${groupIdx}`;

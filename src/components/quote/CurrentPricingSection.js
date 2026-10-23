@@ -2,7 +2,7 @@ import React from 'react';
 import { Trash2 } from 'lucide-react';
 import { SALES_TAX_RATE } from '../../utils/constants';
 import { formatPrice, formatMoney, isRangeOverride, formatPriceOverride, filterNumericText } from '../../utils/formatters';
-import { calculateGroupQuote, getBlindTypeFromFabric } from '../../utils/pricing';
+import { calculateGroupQuote, getBlindTypeFromFabric, estimateBlindTypes } from '../../utils/pricing';
 
 // ✅ NEW: Solar went from a plain yes/no to naming which panel/wire was
 // used - blank means "no solar", same falsy-check semantics every existing
@@ -81,7 +81,7 @@ export default function CurrentPricingSection({
                 }
 
                 return room.windowGroups.map((group, groupIdx) => {
-                  const q = calculateGroupQuote(group, fabricNumbers, actualBlindType, room.windowGroups.filter(w => w.controlType === 'Motor').length, storedPricing);
+                  const q = calculateGroupQuote(group, fabricNumbers, estimateBlindTypes(room, fabricNumbers, actualBlindType), room.windowGroups.filter(w => w.controlType === 'Motor').length, storedPricing);
                   const motorType = group.controlType || 'Manual';
                   const quantity = parseInt(group.quantity) || 1;
                   const perWindowMin = q.baseMinQuote / quantity;

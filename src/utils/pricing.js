@@ -144,8 +144,38 @@ export const getMaxPriceForBlindType = (blindType, cordless, fabricData = null) 
 };
 
 // Calculate cost for a window group
-export const calculateGroupCost = (group, fabricNumbers, blindType, pricing = null) => {
+// When a room has NO exact fabric yet, its price is an estimate range. The
+// callers hand over the room's selected blind types (e.g. ['Roller','Zebra']),
+// which only quotes saved with ESTIMATE_BY_BLIND_TYPE use (see
+// calculateGroupCost). Once a fabric is set, the single detected type is passed
+// as before.
+export const estimateBlindTypes = (room, fabricNumbers, actualBlindType) => (
+  fabricNumbers.length === 0 && Array.isArray(room?.blindTypes) && room.blindTypes.length > 0
+    ? room.blindTypes
+    : actualBlindType
+);
+
+// Every fabric price for one selected blind type (manual or cordless; Bamboo
+// has separate roller/roman columns). Unknown type -> [].
+const pricesForBlindType = (fabricData, blindType, cordless) => {
+  const out = [];
+  if (blindType === 'Bamboo (Roller)' || blindType === 'Bamboo (Roman)') {
+    const key = blindType === 'Bamboo (Roller)' ? 'roller_manual' : 'roman_manual';
+    (fabricData.Bamboo || []).forEach(f => { if (f[key]) out.push(f[key]); });
+  } else if (Array.isArray(fabricData[blindType])) {
+    fabricData[blindType].forEach(f => {
+      const price = cordless ? f.cordless : f.manual;
+      if (price) out.push(price);
+    });
+  }
+  return out;
+};
+
+export const calculateGroupCost = (group, fabricNumbers, blindTypeArg, pricing = null) => {
   const p = pricing || {};
+  // blindTypeArg is a string, or (no-fabric rooms) the array of selected types.
+  const selectedBlindTypes = Array.isArray(blindTypeArg) ? blindTypeArg : [blindTypeArg];
+  const blindType = selectedBlindTypes[0];
   const fabricData = p.PRICING_DATA || PRICING_DATA;
   const miscExpense = typeof p.MISC_EXPENSE === 'number' ? p.MISC_EXPENSE : 4.50;
   const shippingCost = typeof p.SHIPPING_COST === 'number' ? p.SHIPPING_COST : 42;
@@ -160,8 +190,17 @@ export const calculateGroupCost = (group, fabricNumbers, blindType, pricing = nu
   const fabricWrapTotal = area * fabricWrapCost;
   
   if (fabricNumbers.length === 0) {
-    const allPrices = [];
-    Object.keys(fabricData).forEach(type => {
+    // ✅ FIX: with no exact fabric the estimate used to span EVERY fabric
+    // category (Roller + Zebra + Roman + Bamboo), so ticking "Roller" or "Zebra"
+    // changed nothing - both gave the identical range. Quotes saved with
+    // ESTIMATE_BY_BLIND_TYPE now span only the selected blind type(s). Quotes
+    // saved before that flag existed keep the old range exactly, so a quote that
+    // may already have been sent never changes price when it is reopened.
+    let allPrices = [];
+    if (p.ESTIMATE_BY_BLIND_TYPE === true) {
+      selectedBlindTypes.forEach(bt => { allPrices = allPrices.concat(pricesForBlindType(fabricData, bt, cordless)); });
+    }
+    if (allPrices.length === 0) Object.keys(fabricData).forEach(type => {
       if (Array.isArray(fabricData[type])) {
         fabricData[type].forEach(fabric => {
           if (type === 'Bamboo') {
@@ -415,7 +454,7 @@ export const computeQuoteFinancials = (quote) => {
       if (group.controlType === 'Motor') motorCount += qty;
       if (group.solar) solarCount += qty;
 
-      const q = calculateGroupQuote(group, fabricNumbers, actualBlindType, motorizedCount, storedPricing);
+      const q = calculateGroupQuote(group, fabricNumbers, estimateBlindTypes(room, fabricNumbers, actualBlindType), motorizedCount, storedPricing);
       if (isNaN(q.minQuote) || isNaN(q.maxQuote)) return;
 
       const quantityForCost = parseInt(group.quantity) || 1;

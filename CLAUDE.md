@@ -85,9 +85,45 @@ The owner reported 10 real, user-visible bugs in one day (two batches of 5), all
 18. **Assigning a fabric via Edit left the old Min–Max price estimate in place.** A range override saved while a room had no exact fabric (blind-type-only estimate) is a placeholder, but `generateQuote()` copies `editedPrices` forward wholesale, so after Edit → assign fabric → save, the new version kept showing the stale range instead of pricing from the fabric. The detail screen's Bulk Assign Fabric tool already had an ask-first "clear stale estimates?" prompt; the Edit-form path (a second, separate way to change the same fabric field) never did. Fixed in `generateQuote()`: same prompt, range overrides only (a fixed custom price is intentional and is kept). Verified live (v2 with saved range → Edit → lowercase fabric → v3 priced exactly). Same sibling-path shape as rule 7: when a fix exists for one way of changing a field, list every other way to change it and check each.
 
 19. **Price Breakdown Excel showed only the LOW end of any price range.** `buildInvoiceLineItems` (shared by the invoice and the breakdown) only ever computed `unitPrice` = min (`savedPrice.min` / `baseMinQuote`), so a quote showing `$140-$150` per window and `$2420-$2600` total downloaded as `$140` and `$2420`. Fixed by also carrying `unitPriceMax` and `totalMax`/`salesTaxMax`/`grandTotalMax` (mirroring how `QuoteDetailScreen` adds override min/max, else `baseMinQuote`/`baseMaxQuote`) and rendering ranges in the breakdown only. The single-number client invoice deliberately still uses the low end (it warns first when any window is still a range) - verified its numbers are byte-identical to before. Shape: a feature that reads one side of a `{min, max}` pair (rule: every consumer of range data must handle both ends - see "Range pricing").
-20. **(Open finding, not changed - needs the owner's decision)** With NO exact fabric chosen, the estimate range ignores the selected blind type: Roller and Zebra give the identical $133.23-$151.12 because `calculateGroupCost` spans ALL fabric categories (Roller + Zebra + Roman + Bamboo); only Bamboo is filtered. Real per-category spans differ (Roller $14.91-22.79, Zebra $16.07-26.23 per unit). Fixing it changes the displayed estimate on every existing no-fabric quote the next time it is opened (prices are recomputed at view time), i.e. a silent price change on quotes that may already have been sent - so it is tied to the "Roller vs Zebra: two versions or two price columns?" product decision rather than patched quietly.
+20. **With no exact fabric chosen, the estimate range ignored the selected blind type** - Roller and Zebra both gave $133.23-$151.12 because `calculateGroupCost` spanned ALL fabric categories (Roller + Zebra + Roman + Bamboo); only Bamboo was filtered. Fixed (2026-10-23) for NEW quotes only: `getPricingSnapshot()` now stores `ESTIMATE_BY_BLIND_TYPE: true`, and when that flag is set the estimate spans only the room's selected blind type(s) (35x70 manual: Roller $133-$146, Zebra $135-$151, Roller+Zebra $133-$151). Quotes saved before the flag keep the old range exactly (so a quote that may already have been sent never changes price on reopen), and editing such a quote saves the new version with `ESTIMATE_BY_BLIND_TYPE: false` to keep it that way. Callers pass `estimateBlindTypes(room, fabricNumbers, actualBlindType)` (the room's blind-type list when no fabric, else the single detected type) - any NEW pricing call site must do the same. Proven: 5,670 legacy-snapshot cases byte-identical to the previous code, and in the real app an old quote (and its edited v2) still showed $132-$149 while a new Roller quote showed $133-$146. **Still to do (owner's decision pending): showing a price column per blind type side by side + a "client chose Roller/Zebra" step.**
 
 **The shapes worth remembering** (see rule 7 above for the fuller version): a new field doesn't automatically inherit an existing sibling field's fixes — check the fix list, not just current behavior; a flag set by one bulk action needs to be excluded/cleared by every action that's supposed to undo it; a regex for free-typed input needs to survive adversarial inputs, not just the one you tried first (rule 5 above); a "compare these rows" feature needs its comparison key scoped to whatever boundary (client/quote/job) the rows are supposed to respect; and a destructive no-undo action always needs explicit success feedback (rule 3), including ones added after that rule was first written.
+
+---
+
+## Working with the owner
+
+How the owner wants work done (carried over from the owner's other project, the groceries app, where these rules were
+set after outside reviews). Add to this list when the owner asks for something new.
+
+- **Full autonomy to fix and push.** The owner has said (2026-10-23): fix the code and push to `main` without asking for
+  permission each time. Still verify first (build, tests, real browser) - autonomy is not a reason to skip checking.
+  Exception: a decision that changes how the business prices or sells (e.g. changing existing quotes' numbers) is the
+  owner's call - recommend, don't just do it.
+- **Reviews on every meaningful build, without being asked.** Four review prompts live as slash commands in
+  `.claude/commands/`: `/full-review` (run all of them on the final main, as if using the app daily), `/qa-scenarios` (Lead QA best/worst case), `/ux-review` (Principal Product Designer, phone-first),
+  `/fix-proactively` (guardrails: input validation with safe fallbacks, empty/loading/failure states, no double-submit,
+  logic kept out of screens). Run the relevant ones after a feature, not only when requested.
+- **Walk every write path adversarially.** For each save/delete/export a change touches, ask step by step: what if the
+  app dies right after this step; what if it runs twice; what if it is retried; what if the phone is offline or only part
+  of a batch lands. Don't just read the happy path - break each step on purpose and say what happened.
+- **Check sibling paths.** When a bug is fixed in one place, list every other way the same field/record is changed or
+  created and check each (see rule 7 and the case study).
+- **Verify on what the owner sees.** A fix isn't done because it was pushed: check the screen and data path the owner
+  uses. If the owner's screenshot looks old, suspect an old deployment or cached page before suspecting the code.
+- **Validation prompts, in the owner's words** (set in the groceries project, apply here too): "test various scenarios...
+  if you were the user, what would you expect"; "review again step by step at your maximum efforts, both best and worst
+  scenarios... as if using it daily"; "run every prompt and test scenario on the final main" (that is `/full-review`);
+  "double validate and pick the most appropriate" (anything chosen by eye or judgment gets checked a second time);
+  "merge it after proper validation" (proper = build + Node checks + real browser, not just that it compiles);
+  and, after a missed bug, "why these scenarios are not noticed on your end?" - the honest answer is earlier reviews read
+  the happy path and never broke each step on purpose, which is why the adversarial write-path walk exists.
+- **Be plain about evidence.** Say which findings were only read in code, which were proven by running something, and
+  what couldn't be checked from here and the one thing for the owner to try.
+- **No silent price changes** to quotes that may already have been sent. Anything that recomputes an existing quote's
+  numbers needs a way to keep the old ones (e.g. a flag stored in the quote's own pricing snapshot).
+- **Replies:** short and plain, lead with the result, no jargon; the owner is non-technical and on an iPhone. Apologise
+  and fix properly when the owner reports the same kind of bug twice.
 
 ---
 
