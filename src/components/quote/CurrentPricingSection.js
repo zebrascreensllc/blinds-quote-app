@@ -91,7 +91,10 @@ export default function CurrentPricingSection({
 
                   // Composite key (room + window group) so multiple window groups
                   // in the same room don't collide with each other's edited price
-                  const priceKey = `${room.id}_${groupIdx}`;
+                  // _origIdx = this group's position in the SAVED quote (prices and pending
+                  // edits are filed under it, and it stays put when a sibling group is
+                  // pending deletion).
+                  const priceKey = `${room.id}_${typeof group._origIdx === 'number' ? group._origIdx : groupIdx}`;
                   const fieldKey = `perWindow-${priceKey}`;
 
                   const groupEditForRow = groupEdits[priceKey] || {};
@@ -126,13 +129,28 @@ export default function CurrentPricingSection({
                           {room.name}
                           <button
                             onClick={() => {
-                              if (!window.confirm(`Delete "${room.name || 'this room'}" from this quote?\n\nIts windows won't be included when you save changes.`)) return;
-                              setTableEditValues({
-                                ...tableEditValues,
-                                deletedRoomIds: new Set([...(tableEditValues.deletedRoomIds || new Set()), room.id])
-                              });
+                              // Only THIS window group goes - not the whole room. A room's
+                              // last remaining group is the one case that removes the room
+                              // itself (a room with no windows has nothing to quote).
+                              const isLastGroup = room.windowGroups.length <= 1;
+                              const sizeLabel = `${group.quantity || 1} x ${group.width || '?'} x ${group.height || '?'}`;
+                              const msg = isLastGroup
+                                ? `Delete "${room.name || 'this room'}" from this quote?\n\nThis is its only window group (${sizeLabel}), so the whole room is removed when you save changes.`
+                                : `Delete just this window group (${sizeLabel}) from "${room.name || 'this room'}"?\n\nThe room's other window groups stay. It's removed when you save changes.`;
+                              if (!window.confirm(msg)) return;
+                              if (isLastGroup) {
+                                setTableEditValues({
+                                  ...tableEditValues,
+                                  deletedRoomIds: new Set([...(tableEditValues.deletedRoomIds || new Set()), room.id])
+                                });
+                              } else {
+                                setTableEditValues({
+                                  ...tableEditValues,
+                                  deletedGroupKeys: new Set([...(tableEditValues.deletedGroupKeys || new Set()), priceKey])
+                                });
+                              }
                             }}
-                            title="Delete this room"
+                            title={room.windowGroups.length <= 1 ? 'Delete this room' : 'Delete this window group'}
                             style={{ padding: '2px', background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
                           >
                             <Trash2 size={12} />

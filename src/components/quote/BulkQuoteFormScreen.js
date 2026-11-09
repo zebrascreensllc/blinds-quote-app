@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Trash2 } from 'lucide-react';
+import { isBlankGroup } from '../../utils/quoteGroups';
 import { autoDetectBlindTypes, getHeightSurcharge, getWidthSurcharge, findDiscontinuedFabrics, isFabricValid, findClosestFabricMatch } from '../../utils/pricing';
 
 const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
@@ -224,6 +225,8 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
     });
   });
   const motorGroupItems = allGroupItems.filter(i => i.group.controlType === 'Motor');
+  // Empty groups are dropped when the quote is generated (see generateQuote).
+  const blankGroupCount = allGroupItems.filter(i => isBlankGroup(i.group)).length;
 
   const applyBulkMotor = () => {
     if (motorSelectedKeys.size === 0) { alert('Select at least one window group first.'); return; }
@@ -661,6 +664,11 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
             repeatedly (a real incident: 22 duplicate versions from one
             intended save). Now a click is visibly acknowledged immediately
             and further clicks are ignored until this one finishes. */}
+        {blankGroupCount > 0 && blankGroupCount < allGroupItems.length && (
+          <p style={{ fontSize: '12px', color: '#fbbf24', margin: '0 0 8px' }}>
+            {blankGroupCount} window group{blankGroupCount > 1 ? 's have' : ' has'} no width or height and will be left out of the quote (a room with nothing in it is left out too).
+          </p>
+        )}
         <button
           onClick={generateQuote}
           disabled={isGeneratingQuote}

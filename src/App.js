@@ -4,6 +4,7 @@ import { PRICING_DATA } from './data/pricingData';
 import { getPricingSnapshot, DEFAULT_HUB } from './utils/constants';
 import { getQuoteNamePrefix, getNextVersion, autoDetectBlindTypes } from './utils/pricing';
 import { isRangeOverride } from './utils/formatters';
+import { pruneRooms, remapPriceKeys, isBlankGroup } from './utils/quoteGroups';
 
 // ✅ NEW (Phase 2): Supplier Measurements - fully isolated feature, own files,
 // own storage key. Only reads the `quotes` array (never writes it) to build
@@ -50,7 +51,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   const [editingTableField, setEditingTableField] = useState(null);
   // ✅ FIX: Use null as sentinel for "not edited this session" (distinct from 0 or any real value)
   // activeEditText = the RAW TEXT currently in whichever input is open (text input, not number input - avoids mobile keyboard bugs)
-  const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, otherExpenses: null, otherExpensesLabel: null, groupEdits: {}, deletedRoomIds: new Set(), fabricEdits: {}, clearedPriceKeys: new Set() });
+  const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, otherExpenses: null, otherExpensesLabel: null, groupEdits: {}, deletedRoomIds: new Set(), deletedGroupKeys: new Set(), fabricEdits: {}, clearedPriceKeys: new Set() });
   const [activeEditText, setActiveEditText] = useState('');
   // ✅ NEW: for range-priced windows, editing uses two separate Min/Max boxes
   // instead of one text field with a typed hyphen - simpler and fully
@@ -612,7 +613,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   // ✅ CRITICAL FIX: Reset editing state when viewing a different quote
   useEffect(() => {
     // Reset editing state whenever a different quote is selected
-    setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, otherExpenses: null, otherExpensesLabel: null, groupEdits: {}, deletedRoomIds: new Set(), fabricEdits: {}, clearedPriceKeys: new Set() });
+    setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, otherExpenses: null, otherExpensesLabel: null, groupEdits: {}, deletedRoomIds: new Set(), deletedGroupKeys: new Set(), fabricEdits: {}, clearedPriceKeys: new Set() });
     setEditingTableField(null);
     setActiveEditText('');
     setActiveEditTextMax('');
@@ -661,10 +662,25 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     // clear these, but this Edit-form path never did. Same ask-first rule as
     // there: never silently drop a manual price, and only RANGE overrides are
     // eligible (a fixed custom price is an intentional quote and is kept).
+    // ✅ FIX: a window group with no width AND no height (added by mistake,
+    // or left over after deciding to add a room instead) used to be saved and
+    // PRICED as a phantom ~1.5 sq ft window (about $132-$144 extra). Such
+    // groups - and any room left with nothing in it - are now dropped here.
+    // pruneRooms also re-keys saved per-window prices, because they are filed
+    // by position and dropping an earlier group would otherwise slide a price
+    // onto the wrong window.
+    const pruned = pruneRooms(formData.rooms, (room, group) => isBlankGroup(group));
+    if (pruned.rooms.length === 0) {
+      alert('Please enter at least one window with a width and height.');
+      return;
+    }
+    const cleanRooms = pruned.rooms;
+    const savedPricesRemapped = editingQuote ? remapPriceKeys(editingQuote.editedPrices?.perWindowPrices, pruned.keyMap) : {};
+
     const staleRangeKeys = [];
     if (editingQuote) {
-      const savedPrices = editingQuote.editedPrices?.perWindowPrices || {};
-      (formData.rooms || []).forEach(room => {
+      const savedPrices = savedPricesRemapped;
+      cleanRooms.forEach(room => {
         const hasExactFabric = (room.fabricInput || '').split(',').some(f => f.trim());
         if (!hasExactFabric) return;
         (room.windowGroups || []).forEach((group, groupIdx) => {
@@ -682,7 +698,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     setIsGeneratingQuote(true);
     try {
     // Determine quote name prefix based on ACTUAL FABRICS entered, not selected blind types
-    const quoteNamePrefix = getQuoteNamePrefix(formData.rooms, PRICING_DATA);
+    const quoteNamePrefix = getQuoteNamePrefix(cleanRooms, PRICING_DATA);
     
     // ✅ BUGFIX: `quotes` was missing here, which threw a TypeError and silently
     // broke quote creation entirely. Always pass the quotes array.
@@ -714,6 +730,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
 
     const quoteData = {
       ...restFormData,
+      rooms: cleanRooms,
       // Identity fields come AFTER the spread so they can never be clobbered
       id: uniqueId,
       lineageId: editingQuote ? (editingQuote.lineageId || editingQuote.id) : uniqueId,
@@ -749,11 +766,11 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       // per-window prices) untouched.
       editedPrices: {
         ...(editingQuote ? editingQuote.editedPrices : {}),
-        // Only touched when stale range estimates were found AND confirmed
-        // for clearing above; otherwise perWindowPrices carries forward as-is.
-        ...(clearStaleRanges ? {
+        // Per-window prices follow their window to its (possibly new) position;
+        // stale range estimates are removed too when confirmed above.
+        ...(editingQuote ? {
           perWindowPrices: Object.fromEntries(
-            Object.entries(editingQuote.editedPrices?.perWindowPrices || {}).filter(([k]) => !staleRangeKeys.includes(k))
+            Object.entries(savedPricesRemapped).filter(([k]) => !(clearStaleRanges && staleRangeKeys.includes(k)))
           )
         } : {}),
         otherExpenses: { amount: otherExpensesAmount || 0, label: (otherExpensesLabel || '').trim() || undefined }
@@ -871,7 +888,9 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         // generateQuote() for how this merges back into editedPrices.
         otherExpensesAmount: typeof quote.editedPrices?.otherExpenses?.amount === 'number' ? quote.editedPrices.otherExpenses.amount : 0,
         otherExpensesLabel: quote.editedPrices?.otherExpenses?.label || '',
-        rooms: sanitizeQuoteRooms(quote.rooms)
+        // Tag each group with its position in the SAVED quote so saved prices
+        // can follow their window if groups are removed (see quoteGroups.js).
+        rooms: sanitizeQuoteRooms(quote.rooms).map(r => ({ ...r, windowGroups: r.windowGroups.map((g, i) => ({ ...g, _origIdx: i })) }))
       });
       setEditingQuote(quote);
       // Edit goes through the bulk-first Quote Create form (same formData/

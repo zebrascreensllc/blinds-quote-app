@@ -3,6 +3,7 @@ import { PRICING_DATA } from '../../data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE, getPricingSnapshot } from '../../utils/constants';
 import { formatMoney, formatPrice, isRangeOverride, parseUnits } from '../../utils/formatters';
 import { isFabricValid, calculateGroupQuote, estimateBlindTypes, estimateOptionTotals, optionGrandTotals, isOptionRoom, computeQuoteFinancials, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics, findClosestFabricMatch } from '../../utils/pricing';
+import { pruneRooms, remapPriceKeys } from '../../utils/quoteGroups';
 import CurrentPricingSection from './CurrentPricingSection';
 import PricingDetailsSection from './PricingDetailsSection';
 import QuoteActionButtons from './QuoteActionButtons';
@@ -145,6 +146,8 @@ export default function QuoteDetailScreen({
     // saved quote until "Save All Changes & Create New Version".
     const groupEdits = tableEditValues.groupEdits || {};
     const deletedRoomIds = tableEditValues.deletedRoomIds || new Set();
+    // Single window groups pending deletion, keyed `${room.id}_${position in the saved quote}`.
+    const deletedGroupKeys = tableEditValues.deletedGroupKeys || new Set();
     // ✅ NEW: pending room-level fabric edits (Bulk Assign Fabric below),
     // same "pending until Save" shape as groupEdits - keyed by room.id
     // since fabric lives on the room, not the window group.
@@ -163,15 +166,21 @@ export default function QuoteDetailScreen({
       .map(room => ({
         ...room,
         ...(fabricEdits[room.id] ? { fabricInput: fabricEdits[room.id].fabricInput, blindTypes: fabricEdits[room.id].blindTypes } : {}),
-        windowGroups: room.windowGroups.map((group, groupIdx) => {
-          const edit = groupEdits[`${room.id}_${groupIdx}`];
-          if (!edit) return group;
-          const merged = { ...group, ...edit };
-          // Solar only makes sense for a motorized window - same rule
-          // enforced everywhere else in the app (bulk tools, per-row form).
-          if (merged.controlType !== 'Motor') merged.solar = false;
-          return merged;
-        })
+        // Every group is tagged with its position in the SAVED quote (_origIdx) and
+        // pending-deleted groups are filtered out AFTER tagging, so priceKey stays
+        // valid for the survivors (a price is filed under that saved position).
+        windowGroups: room.windowGroups
+          .map((group, groupIdx) => {
+            const edit = groupEdits[`${room.id}_${groupIdx}`];
+            const base = { ...group, _origIdx: groupIdx };
+            if (!edit) return base;
+            const merged = { ...base, ...edit };
+            // Solar only makes sense for a motorized window - same rule
+            // enforced everywhere else in the app (bulk tools, per-row form).
+            if (merged.controlType !== 'Motor') merged.solar = false;
+            return merged;
+          })
+          .filter(group => !deletedGroupKeys.has(`${room.id}_${group._origIdx}`))
       }));
 
     // ✅ NEW: finds every OTHER window group in this quote (any room) whose
@@ -187,7 +196,7 @@ export default function QuoteDetailScreen({
       const matches = [];
       effectiveRooms.forEach(r => {
         r.windowGroups.forEach((g, idx) => {
-          const key = `${r.id}_${idx}`;
+          const key = `${r.id}_${g._origIdx !== undefined ? g._origIdx : idx}`;
           if (key === excludeKey) return;
           if (parseUnits(g.width) === targetW && parseUnits(g.height) === targetH) {
             matches.push(key);
@@ -250,7 +259,7 @@ export default function QuoteDetailScreen({
           const room = effectiveRooms.find(r => r.id === roomId);
           if (!room) return;
           room.windowGroups.forEach((group, groupIdx) => {
-            const priceKey = `${roomId}_${groupIdx}`;
+            const priceKey = `${roomId}_${group._origIdx !== undefined ? group._origIdx : groupIdx}`;
             const pending = tableEditValues.perWindowPrices[priceKey];
             const saved = selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
             const effective = (typeof pending === 'number' || isRangeOverride(pending)) ? pending : saved;
@@ -435,7 +444,7 @@ export default function QuoteDetailScreen({
         // edit changed the per-window row but not the totals. Now: if this
         // window group has an edited price (pending or already saved), the
         // totals use that instead.
-        const priceKey = `${room.id}_${groupIdx}`;
+        const priceKey = `${room.id}_${group._origIdx !== undefined ? group._origIdx : groupIdx}`;
         const overridePrice = getOverridePrice(priceKey);
 
         if (overridePrice !== null) {
@@ -524,7 +533,7 @@ export default function QuoteDetailScreen({
     const hasPendingEdits = Object.keys(tableEditValues.perWindowPrices).length > 0
       || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null
       || tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null
-      || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0
+      || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0 || (tableEditValues.deletedGroupKeys || new Set()).size > 0
       || Object.keys(tableEditValues.fabricEdits || {}).length > 0;
     const upgradeEstimate = async () => {
       if (isSavingVersion) return;
@@ -879,12 +888,12 @@ export default function QuoteDetailScreen({
           </div>
 
           {/* ✅ FIXED: Save All Changes Button - Show if ANY values differ from "not edited" defaults, OR you're actively typing a not-yet-committed edit */}
-          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null || tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0 || Object.keys(tableEditValues.fabricEdits || {}).length > 0 || (editingTableField && activeEditText !== '')) && (
+          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null || tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0 || (tableEditValues.deletedGroupKeys || new Set()).size > 0 || Object.keys(tableEditValues.fabricEdits || {}).length > 0 || (editingTableField && activeEditText !== '')) && (
             <>
               {/* Visual indicator of pending changes */}
               <div style={{ padding: '12px', marginBottom: '12px', background: '#2a3a1a', border: '2px solid #4ade80', borderRadius: '6px', textAlign: 'center' }}>
                 <p style={{ color: '#4ade80', fontWeight: 'bold', margin: '0' }}>
-                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.solarCost !== null ? ', solar cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''}{(tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null) ? ', other expenses' : ''}{Object.keys(tableEditValues.groupEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.groupEdits).length} window edit${Object.keys(tableEditValues.groupEdits).length > 1 ? 's' : ''}` : ''}{(tableEditValues.deletedRoomIds || new Set()).size > 0 ? `, ${(tableEditValues.deletedRoomIds || new Set()).size} room(s) removed` : ''}{Object.keys(tableEditValues.fabricEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.fabricEdits).length} room fabric${Object.keys(tableEditValues.fabricEdits).length > 1 ? 's' : ''}` : ''}{editingTableField && activeEditText !== '' ? ' (still typing...)' : ''})
+                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.solarCost !== null ? ', solar cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''}{(tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null) ? ', other expenses' : ''}{Object.keys(tableEditValues.groupEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.groupEdits).length} window edit${Object.keys(tableEditValues.groupEdits).length > 1 ? 's' : ''}` : ''}{(tableEditValues.deletedRoomIds || new Set()).size > 0 ? `, ${(tableEditValues.deletedRoomIds || new Set()).size} room(s) removed` : ''}{(tableEditValues.deletedGroupKeys || new Set()).size > 0 ? `, ${(tableEditValues.deletedGroupKeys || new Set()).size} window group(s) removed` : ''}{Object.keys(tableEditValues.fabricEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.fabricEdits).length} room fabric${Object.keys(tableEditValues.fabricEdits).length > 1 ? 's' : ''}` : ''}{editingTableField && activeEditText !== '' ? ' (still typing...)' : ''})
                 </p>
               </div>
 
@@ -958,9 +967,9 @@ export default function QuoteDetailScreen({
                 // same merge logic as effectiveRooms above, recomputed here from
                 // effectiveTableEditValues so an edit still sitting in the input
                 // box (just auto-committed above) is included too.
-                const roomsToSave = rooms
-                  .filter(room => !(effectiveTableEditValues.deletedRoomIds || new Set()).has(room.id))
-                  .map(room => ({
+                const deletedRoomsNow = effectiveTableEditValues.deletedRoomIds || new Set();
+                const deletedGroupsNow = effectiveTableEditValues.deletedGroupKeys || new Set();
+                const mergedRooms = rooms.map(room => ({
                     ...room,
                     ...((effectiveTableEditValues.fabricEdits || {})[room.id] ? { fabricInput: (effectiveTableEditValues.fabricEdits || {})[room.id].fabricInput, blindTypes: (effectiveTableEditValues.fabricEdits || {})[room.id].blindTypes } : {}),
                     windowGroups: room.windowGroups.map((group, groupIdx) => {
@@ -971,6 +980,17 @@ export default function QuoteDetailScreen({
                       return merged;
                     })
                   }));
+                // Removes deleted rooms / single window groups. Prices are filed by a
+                // group's POSITION, so keyMap carries each survivor's price to its new
+                // position - without it, deleting the first of two sizes would hand its
+                // price to the one that slid up.
+                const pruned = pruneRooms(mergedRooms, (room, group, origIdx) =>
+                  deletedRoomsNow.has(room.id) || deletedGroupsNow.has(`${room.id}_${origIdx}`));
+                const roomsToSave = pruned.rooms;
+                if (roomsToSave.length === 0) {
+                  alert('A quote needs at least one room. Undo a delete (reload this quote) or keep at least one window.');
+                  return;
+                }
 
                 const versionNumber = parseVersion(selectedQuote.version);
                 const newVersionNumber = versionNumber + 1;
@@ -1006,10 +1026,10 @@ export default function QuoteDetailScreen({
                   Object.entries(selectedQuote.editedPrices?.perWindowPrices || {}).filter(([k]) => !clearedPriceKeysNow.has(k))
                 );
                 const mergedEditedPrices = {
-                  perWindowPrices: {
+                  perWindowPrices: remapPriceKeys({
                     ...carriedForwardPrices,
                     ...Object.fromEntries(Object.entries(effectiveTableEditValues.perWindowPrices).filter(([, v]) => typeof v === 'number' || isRangeOverride(v)))
-                  },
+                  }, pruned.keyMap),
                   motorCost: typeof effectiveTableEditValues.motorCost === 'number' ? effectiveTableEditValues.motorCost : selectedQuote.editedPrices?.motorCost,
                   solarCost: typeof effectiveTableEditValues.solarCost === 'number' ? effectiveTableEditValues.solarCost : selectedQuote.editedPrices?.solarCost,
                   taxRate: typeof effectiveTableEditValues.taxRate === 'number' ? effectiveTableEditValues.taxRate : selectedQuote.editedPrices?.taxRate,
@@ -1045,7 +1065,7 @@ export default function QuoteDetailScreen({
                 setEditingTableField(null);
 
                 // Reset edit values for next time
-                setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, otherExpenses: null, otherExpensesLabel: null, groupEdits: {}, deletedRoomIds: new Set(), fabricEdits: {}, clearedPriceKeys: new Set() });
+                setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, otherExpenses: null, otherExpensesLabel: null, groupEdits: {}, deletedRoomIds: new Set(), deletedGroupKeys: new Set(), fabricEdits: {}, clearedPriceKeys: new Set() });
                 setActiveEditText('');
                 setActiveEditTextMax('');
                 setPriceEditMode('fixed');
