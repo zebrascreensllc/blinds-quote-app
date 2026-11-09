@@ -598,9 +598,9 @@ export const estimateOptionTotals = (rooms, getOverride, storedPricing) => {
     const roomIsOption = isOptionRoom(room);
 
     room.windowGroups.forEach((group, groupIdx) => {
-      // _origIdx: position in the SAVED quote (set on the quote screen while a
-      // group is pending deletion, so saved prices stay attached to their window).
-      const priceKey = `${room.id}_${typeof group._origIdx === 'number' ? group._origIdx : groupIdx}`;
+      // _key: stable price key set by the quote screen while edits are pending (saved
+      // quotes have no tag, so the position is used).
+      const priceKey = group._key || `${room.id}_${groupIdx}`;
       const quantity = parseInt(group.quantity) || 1;
       const override = getOverride ? getOverride(priceKey) : null;
       const hasOverride = typeof override === 'number' || isRangeOverrideValue(override);

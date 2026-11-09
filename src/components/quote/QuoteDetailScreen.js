@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { PRICING_DATA } from '../../data/pricingData';
-import { BUSINESS_NAME, SALES_TAX_RATE, getPricingSnapshot } from '../../utils/constants';
+import { BUSINESS_NAME, SALES_TAX_RATE, DEFAULT_HUB, getPricingSnapshot } from '../../utils/constants';
 import { formatMoney, formatPrice, isRangeOverride, parseUnits } from '../../utils/formatters';
 import { isFabricValid, calculateGroupQuote, estimateBlindTypes, estimateOptionTotals, optionGrandTotals, isOptionRoom, computeQuoteFinancials, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics, findClosestFabricMatch } from '../../utils/pricing';
-import { pruneRooms, remapPriceKeys } from '../../utils/quoteGroups';
+import { pruneRooms, remapPriceKeys, buildEffectiveRooms, stepMotor } from '../../utils/quoteGroups';
 import CurrentPricingSection from './CurrentPricingSection';
 import PricingDetailsSection from './PricingDetailsSection';
 import QuoteActionButtons from './QuoteActionButtons';
@@ -145,13 +145,6 @@ export default function QuoteDetailScreen({
     // shape as perWindowPrices/motorCost/etc. above, never written to the
     // saved quote until "Save All Changes & Create New Version".
     const groupEdits = tableEditValues.groupEdits || {};
-    const deletedRoomIds = tableEditValues.deletedRoomIds || new Set();
-    // Single window groups pending deletion, keyed `${room.id}_${position in the saved quote}`.
-    const deletedGroupKeys = tableEditValues.deletedGroupKeys || new Set();
-    // ✅ NEW: pending room-level fabric edits (Bulk Assign Fabric below),
-    // same "pending until Save" shape as groupEdits - keyed by room.id
-    // since fabric lives on the room, not the window group.
-    const fabricEdits = tableEditValues.fabricEdits || {};
 
     // ✅ NEW: merges those pending edits onto the saved quote's rooms,
     // computed ONCE here and used for BOTH the totals below and the table
@@ -161,27 +154,11 @@ export default function QuoteDetailScreen({
     // never change (edits patch fields in place, deletions only ever
     // remove a whole ROOM by id) - priceKey (`${room.id}_${groupIdx}`)
     // stays valid across a save exactly like it does today.
-    const effectiveRooms = rooms
-      .filter(room => !deletedRoomIds.has(room.id))
-      .map(room => ({
-        ...room,
-        ...(fabricEdits[room.id] ? { fabricInput: fabricEdits[room.id].fabricInput, blindTypes: fabricEdits[room.id].blindTypes } : {}),
-        // Every group is tagged with its position in the SAVED quote (_origIdx) and
-        // pending-deleted groups are filtered out AFTER tagging, so priceKey stays
-        // valid for the survivors (a price is filed under that saved position).
-        windowGroups: room.windowGroups
-          .map((group, groupIdx) => {
-            const edit = groupEdits[`${room.id}_${groupIdx}`];
-            const base = { ...group, _origIdx: groupIdx };
-            if (!edit) return base;
-            const merged = { ...base, ...edit };
-            // Solar only makes sense for a motorized window - same rule
-            // enforced everywhere else in the app (bulk tools, per-row form).
-            if (merged.controlType !== 'Motor') merged.solar = false;
-            return merged;
-          })
-          .filter(group => !deletedGroupKeys.has(`${room.id}_${group._origIdx}`))
-      }));
+    // One shared builder (utils/quoteGroups.js) for what the screen shows AND what
+    // Save writes. Every group carries a stable `_key` (its price key): the saved
+    // position for existing groups, a generated key for groups split off by the
+    // Motor stepper - so prices stay attached while groups are removed/added.
+    const effectiveRooms = buildEffectiveRooms(rooms, tableEditValues);
 
     // ✅ NEW: finds every OTHER window group in this quote (any room) whose
     // width x height numerically matches, for the "apply this price to
@@ -196,7 +173,7 @@ export default function QuoteDetailScreen({
       const matches = [];
       effectiveRooms.forEach(r => {
         r.windowGroups.forEach((g, idx) => {
-          const key = `${r.id}_${g._origIdx !== undefined ? g._origIdx : idx}`;
+          const key = g._key || `${r.id}_${idx}`;
           if (key === excludeKey) return;
           if (parseUnits(g.width) === targetW && parseUnits(g.height) === targetH) {
             matches.push(key);
@@ -259,7 +236,7 @@ export default function QuoteDetailScreen({
           const room = effectiveRooms.find(r => r.id === roomId);
           if (!room) return;
           room.windowGroups.forEach((group, groupIdx) => {
-            const priceKey = `${roomId}_${group._origIdx !== undefined ? group._origIdx : groupIdx}`;
+            const priceKey = group._key || `${roomId}_${groupIdx}`;
             const pending = tableEditValues.perWindowPrices[priceKey];
             const saved = selectedQuote.editedPrices?.perWindowPrices?.[priceKey];
             const effective = (typeof pending === 'number' || isRangeOverride(pending)) ? pending : saved;
@@ -444,7 +421,7 @@ export default function QuoteDetailScreen({
         // edit changed the per-window row but not the totals. Now: if this
         // window group has an edited price (pending or already saved), the
         // totals use that instead.
-        const priceKey = `${room.id}_${group._origIdx !== undefined ? group._origIdx : groupIdx}`;
+        const priceKey = group._key || `${room.id}_${groupIdx}`;
         const overridePrice = getOverridePrice(priceKey);
 
         if (overridePrice !== null) {
@@ -493,7 +470,10 @@ export default function QuoteDetailScreen({
     })();
     // ✅ NEW: Hub is a quote-level charge (not per-window like Motor/Solar,
     // see getHubTotal) - taxed and added into Grand Total the same way.
-    const hubTotal = getHubTotal(selectedQuote);
+    // Hub can be edited here (quantity, price, remove/add) - pending until Save like
+    // everything else; `effectiveHub` is what the totals, text and row all use.
+    const effectiveHub = tableEditValues.hubEdits || (selectedQuote.hub && typeof selectedQuote.hub === 'object' ? selectedQuote.hub : { ...DEFAULT_HUB, included: false });
+    const hubTotal = getHubTotal({ hub: effectiveHub });
 
     // ✅ BUGFIX (the main issue reported): Motor and Solar totals were never
     // actually added into the taxable base or Grand Total before - they were
@@ -534,7 +514,7 @@ export default function QuoteDetailScreen({
       || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null
       || tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null
       || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0 || (tableEditValues.deletedGroupKeys || new Set()).size > 0
-      || Object.keys(tableEditValues.fabricEdits || {}).length > 0;
+      || Object.keys(tableEditValues.fabricEdits || {}).length > 0 || Object.keys(tableEditValues.addedGroups || {}).length > 0 || !!tableEditValues.hubEdits;
     const upgradeEstimate = async () => {
       if (isSavingVersion) return;
       if (hasPendingEdits) {
@@ -572,6 +552,16 @@ export default function QuoteDetailScreen({
         setIsSavingVersion(false);
       }
     };
+
+    // Motor stepper on a window card: moves ONE window of that size between Manual and
+    // Motor (splitting/merging groups - see stepMotor). Pending until Save.
+    const onStepMotor = (room, group, direction) => {
+      const changes = stepMotor(room, group, direction, tableEditValues, getOverridePrice, Date.now().toString(36) + Math.random().toString(36).slice(2, 5));
+      if (changes) setTableEditValues({ ...tableEditValues, ...changes });
+    };
+
+    // Hub: quantity / price / remove / add (pending until Save).
+    const onHubChange = (patch) => setTableEditValues({ ...tableEditValues, hubEdits: { ...effectiveHub, ...patch } });
 
     const chooseBlindType = (type) => {
       const targets = effectiveRooms.filter(r => isOptionRoom(r) && r.blindTypes.includes(type));
@@ -639,10 +629,10 @@ export default function QuoteDetailScreen({
       if (solarCount > 0) {
         text += `Solar ${solarCount} cost total: $${formatMoney(solarGrandTotal)}\n`;
       }
-      if (hubTotal > 0 || selectedQuote.hub?.included) {
-        text += `Hub${selectedQuote.hub?.quantity > 1 ? ` (${selectedQuote.hub.quantity})` : ''}: ${hubTotal === 0 ? 'Complimentary' : `$${formatMoney(hubTotal)}`}\n`;
+      if (hubTotal > 0 || effectiveHub.included) {
+        text += `Hub${effectiveHub.quantity > 1 ? ` (${effectiveHub.quantity})` : ''}: ${hubTotal === 0 ? 'Complimentary' : `$${formatMoney(hubTotal)}`}\n`;
       }
-      if (motorCount > 0 || solarCount > 0 || selectedQuote.hub?.included) {
+      if (motorCount > 0 || solarCount > 0 || effectiveHub.included) {
         text += `Subtotal (before tax): ${formatTextPrice(subtotalMin, subtotalMax)}\n`;
       }
       text += `Sales Tax (${formatMoney(taxRate * 100)}%): ${formatTextPrice(taxMin, taxMax)}\n`;
@@ -797,6 +787,9 @@ export default function QuoteDetailScreen({
             motorCount={motorCount}
             motorGrandTotal={motorGrandTotal}
             hubTotal={hubTotal}
+            effectiveHub={effectiveHub}
+            onHubChange={onHubChange}
+            onStepMotor={onStepMotor}
             priceEditMode={priceEditMode}
             selectedQuote={selectedQuote}
             setActiveEditText={setActiveEditText}
@@ -888,12 +881,12 @@ export default function QuoteDetailScreen({
           </div>
 
           {/* ✅ FIXED: Save All Changes Button - Show if ANY values differ from "not edited" defaults, OR you're actively typing a not-yet-committed edit */}
-          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null || tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0 || (tableEditValues.deletedGroupKeys || new Set()).size > 0 || Object.keys(tableEditValues.fabricEdits || {}).length > 0 || (editingTableField && activeEditText !== '')) && (
+          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null || tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0 || (tableEditValues.deletedGroupKeys || new Set()).size > 0 || Object.keys(tableEditValues.fabricEdits || {}).length > 0 || Object.keys(tableEditValues.addedGroups || {}).length > 0 || !!tableEditValues.hubEdits || (editingTableField && activeEditText !== '')) && (
             <>
               {/* Visual indicator of pending changes */}
               <div style={{ padding: '12px', marginBottom: '12px', background: '#2a3a1a', border: '2px solid #4ade80', borderRadius: '6px', textAlign: 'center' }}>
                 <p style={{ color: '#4ade80', fontWeight: 'bold', margin: '0' }}>
-                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.solarCost !== null ? ', solar cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''}{(tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null) ? ', other expenses' : ''}{Object.keys(tableEditValues.groupEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.groupEdits).length} window edit${Object.keys(tableEditValues.groupEdits).length > 1 ? 's' : ''}` : ''}{(tableEditValues.deletedRoomIds || new Set()).size > 0 ? `, ${(tableEditValues.deletedRoomIds || new Set()).size} room(s) removed` : ''}{(tableEditValues.deletedGroupKeys || new Set()).size > 0 ? `, ${(tableEditValues.deletedGroupKeys || new Set()).size} window group(s) removed` : ''}{Object.keys(tableEditValues.fabricEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.fabricEdits).length} room fabric${Object.keys(tableEditValues.fabricEdits).length > 1 ? 's' : ''}` : ''}{editingTableField && activeEditText !== '' ? ' (still typing...)' : ''})
+                  ⚡ You have pending changes ({Object.keys(tableEditValues.perWindowPrices).length > 0 ? Object.keys(tableEditValues.perWindowPrices).length + ' prices' : ''}{tableEditValues.motorCost !== null ? ', motor cost' : ''}{tableEditValues.solarCost !== null ? ', solar cost' : ''}{tableEditValues.taxRate !== null ? ', tax rate' : ''}{(tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null) ? ', other expenses' : ''}{Object.keys(tableEditValues.groupEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.groupEdits).length} window edit${Object.keys(tableEditValues.groupEdits).length > 1 ? 's' : ''}` : ''}{(tableEditValues.deletedRoomIds || new Set()).size > 0 ? `, ${(tableEditValues.deletedRoomIds || new Set()).size} room(s) removed` : ''}{(tableEditValues.deletedGroupKeys || new Set()).size > 0 ? `, ${(tableEditValues.deletedGroupKeys || new Set()).size} window group(s) removed` : ''}{Object.keys(tableEditValues.fabricEdits || {}).length > 0 ? `, ${Object.keys(tableEditValues.fabricEdits).length} room fabric${Object.keys(tableEditValues.fabricEdits).length > 1 ? 's' : ''}` : ''}{tableEditValues.hubEdits ? ', hub' : ''}{editingTableField && activeEditText !== '' ? ' (still typing...)' : ''})
                 </p>
               </div>
 
@@ -967,25 +960,12 @@ export default function QuoteDetailScreen({
                 // same merge logic as effectiveRooms above, recomputed here from
                 // effectiveTableEditValues so an edit still sitting in the input
                 // box (just auto-committed above) is included too.
-                const deletedRoomsNow = effectiveTableEditValues.deletedRoomIds || new Set();
-                const deletedGroupsNow = effectiveTableEditValues.deletedGroupKeys || new Set();
-                const mergedRooms = rooms.map(room => ({
-                    ...room,
-                    ...((effectiveTableEditValues.fabricEdits || {})[room.id] ? { fabricInput: (effectiveTableEditValues.fabricEdits || {})[room.id].fabricInput, blindTypes: (effectiveTableEditValues.fabricEdits || {})[room.id].blindTypes } : {}),
-                    windowGroups: room.windowGroups.map((group, groupIdx) => {
-                      const edit = (effectiveTableEditValues.groupEdits || {})[`${room.id}_${groupIdx}`];
-                      if (!edit) return group;
-                      const merged = { ...group, ...edit };
-                      if (merged.controlType !== 'Motor') merged.solar = false;
-                      return merged;
-                    })
-                  }));
-                // Removes deleted rooms / single window groups. Prices are filed by a
-                // group's POSITION, so keyMap carries each survivor's price to its new
-                // position - without it, deleting the first of two sizes would hand its
-                // price to the one that slid up.
-                const pruned = pruneRooms(mergedRooms, (room, group, origIdx) =>
-                  deletedRoomsNow.has(room.id) || deletedGroupsNow.has(`${room.id}_${origIdx}`));
+                // Same builder the screen uses (pending edits, deleted rooms/groups,
+                // groups split by the Motor stepper). pruneRooms then strips the
+                // temporary tags and returns keyMap: each survivor's price moves with
+                // its window to its new position - without it, deleting/adding a group
+                // would hand a price to a different window.
+                const pruned = pruneRooms(buildEffectiveRooms(rooms, effectiveTableEditValues), () => false);
                 const roomsToSave = pruned.rooms;
                 if (roomsToSave.length === 0) {
                   alert('A quote needs at least one room. Undo a delete (reload this quote) or keep at least one window.');
@@ -1051,6 +1031,7 @@ export default function QuoteDetailScreen({
                   version: newVersionString,
                   updatedDate: new Date().toISOString(),
                   rooms: roomsToSave,
+                  ...(effectiveTableEditValues.hubEdits ? { hub: { included: !!effectiveTableEditValues.hubEdits.included, quantity: parseInt(effectiveTableEditValues.hubEdits.quantity) || 1, price: typeof effectiveTableEditValues.hubEdits.price === 'number' ? effectiveTableEditValues.hubEdits.price : 0 } } : {}),
                   editedPrices: mergedEditedPrices,
                   hasEditedPrices: true
                 };
@@ -1065,7 +1046,7 @@ export default function QuoteDetailScreen({
                 setEditingTableField(null);
 
                 // Reset edit values for next time
-                setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, otherExpenses: null, otherExpensesLabel: null, groupEdits: {}, deletedRoomIds: new Set(), deletedGroupKeys: new Set(), fabricEdits: {}, clearedPriceKeys: new Set() });
+                setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, otherExpenses: null, otherExpensesLabel: null, groupEdits: {}, deletedRoomIds: new Set(), deletedGroupKeys: new Set(), addedGroups: {}, hubEdits: null, fabricEdits: {}, clearedPriceKeys: new Set() });
                 setActiveEditText('');
                 setActiveEditTextMax('');
                 setPriceEditMode('fixed');

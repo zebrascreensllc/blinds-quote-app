@@ -20,6 +20,13 @@ export const groupKey = (roomId, idx) => `${roomId}_${idx}`;
 export const origIdxOf = (group, fallbackIdx) =>
   (group && typeof group._origIdx === 'number') ? group._origIdx : fallbackIdx;
 
+// The price key of a group while it is being edited. `_key` is set by
+// buildEffectiveRooms (the quote screen) and is stable even for groups created
+// during the edit; `_origIdx` is set by the Edit form; an untagged group (a
+// saved quote, a brand-new form) is keyed by its current position.
+export const keyOfGroup = (room, group, i) =>
+  (group && group._key) ? group._key : groupKey(room.id, origIdxOf(group, i));
+
 // A window group with no width AND no height typed in. Quantity doesn't count:
 // it can't be priced without a size, and used to be priced anyway as a
 // phantom ~1.5 sq ft window.
@@ -41,15 +48,16 @@ export function pruneRooms(rooms, shouldDropGroup) {
   (rooms || []).forEach(room => {
     const kept = [];
     const groups = room.windowGroups || [];
-    // In a room where some groups carry a saved position, an UNtagged group is
-    // one added during this edit: it has no saved price, and must never claim
-    // a saved key by its current position (that slot may belong to another).
-    const roomHasTags = groups.some(x => x && typeof x._origIdx === 'number');
+    const isTagged = x => x && (x._key || typeof x._origIdx === 'number');
+    // In a room where some groups carry a saved position/key, an UNtagged group
+    // is one added during this edit: it has no saved price, and must never
+    // claim a saved key by its current position (that slot may belong to another).
+    const roomHasTags = groups.some(isTagged);
     groups.forEach((group, i) => {
-      const orig = origIdxOf(group, i);
-      if (shouldDropGroup(room, group, orig)) { removedGroups++; return; }
-      const { _origIdx, ...clean } = group; // eslint-disable-line no-unused-vars
-      if (!roomHasTags || typeof _origIdx === 'number') keyMap[groupKey(room.id, orig)] = groupKey(room.id, kept.length);
+      const key = keyOfGroup(room, group, i);
+      if (shouldDropGroup(room, group, key)) { removedGroups++; return; }
+      const { _origIdx, _key, _afterKey, ...clean } = group; // eslint-disable-line no-unused-vars
+      if (!roomHasTags || isTagged(group)) keyMap[key] = groupKey(room.id, kept.length);
       kept.push(clean);
     });
     if (kept.length === 0) { removedRooms++; return; }
@@ -75,4 +83,111 @@ export function remapKeySet(set, keyMap) {
     if (Object.prototype.hasOwnProperty.call(keyMap, k)) result.add(keyMap[k]);
   });
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Quote screen: pending edits -> the rooms the screen shows and Save writes.
+// ONE function builds both, so the totals on screen and the saved version can
+// never disagree about which windows exist.
+// ---------------------------------------------------------------------------
+export function buildEffectiveRooms(rooms, pending) {
+  const groupEdits = pending.groupEdits || {};
+  const deletedRoomIds = pending.deletedRoomIds || new Set();
+  const deletedGroupKeys = pending.deletedGroupKeys || new Set();
+  const fabricEdits = pending.fabricEdits || {};
+  const addedGroups = pending.addedGroups || {};
+  return (rooms || [])
+    .filter(room => !deletedRoomIds.has(room.id))
+    .map(room => {
+      // Every group is tagged with a stable _key BEFORE anything is removed or
+      // inserted, so a saved price (filed by position) stays attached to its window.
+      const list = (room.windowGroups || []).map((g, i) => ({ ...g, _key: groupKey(room.id, i) }));
+      Object.entries(addedGroups).forEach(([key, a]) => {
+        if (a.roomId !== room.id) return;
+        const piece = { ...a.group, _key: key, _afterKey: a.afterKey };
+        let at = list.findIndex(g => g._key === a.afterKey);
+        if (at < 0) { list.push(piece); return; }
+        while (at + 1 < list.length && list[at + 1]._afterKey === a.afterKey) at++;
+        list.splice(at + 1, 0, piece);
+      });
+      const windowGroups = list
+        .map(g => {
+          const edit = groupEdits[g._key];
+          if (!edit) return g;
+          const merged = { ...g, ...edit };
+          // Solar only makes sense for a motorized window.
+          if (merged.controlType !== 'Motor') merged.solar = false;
+          return merged;
+        })
+        .filter(g => !deletedGroupKeys.has(g._key));
+      const fe = fabricEdits[room.id];
+      return { ...room, ...(fe ? { fabricInput: fe.fabricInput, blindTypes: fe.blindTypes } : {}), windowGroups };
+    })
+    .filter(room => room.windowGroups.length > 0);
+}
+
+// ---------------------------------------------------------------------------
+// Motor stepper: "of these N windows, M are motorized". Real windows change
+// type (a group is split into a Motor part and a Manual part), so prices, the
+// supplier sheet and remotes all stay correct.
+// ---------------------------------------------------------------------------
+const qtyOf = g => parseInt(g.quantity) || 1;
+const norm = v => String(v ?? '').trim().toLowerCase();
+const isMotor = g => g.controlType === 'Motor';
+const sameSizeFamily = (a, b) =>
+  norm(a.width) === norm(b.width) && norm(a.height) === norm(b.height)
+  && norm(a.mount || 'Inside') === norm(b.mount || 'Inside')
+  && (a.surchargeOverride ?? null) === (b.surchargeOverride ?? null);
+
+// Groups of the same room with the same size/mount (they differ only in Motor/Manual/Solar).
+export const sizeFamily = (room, group) => room.windowGroups.filter(g => sameSizeFamily(g, group));
+
+export const motorStepperInfo = (room, group) => {
+  const fam = sizeFamily(room, group);
+  return { total: fam.reduce((n, g) => n + qtyOf(g), 0), motor: fam.filter(isMotor).reduce((n, g) => n + qtyOf(g), 0) };
+};
+
+/**
+ * Moves ONE window of this size between Manual and Motor.
+ * direction 'add' = one more motorized, 'remove' = one fewer.
+ * Returns the changed pending fields ({groupEdits, addedGroups, deletedGroupKeys,
+ * perWindowPrices}) to merge into tableEditValues, or null when nothing can move.
+ */
+export function stepMotor(room, group, direction, pending, getOverride, newKeySuffix) {
+  const fam = sizeFamily(room, group);
+  const toMotor = direction === 'add';
+  const pool = fam.filter(g => isMotor(g) !== toMotor);          // where the unit comes from
+  if (pool.length === 0) return null;
+  const src = pool.find(g => g._key === group._key)
+    || (toMotor ? pool[0] : (pool.find(g => !g.solar) || pool[0])); // keep solar units motorized if possible
+  const dstPool = fam.filter(g => isMotor(g) === toMotor && g._key !== src._key);
+  const dst = toMotor ? dstPool[0] : dstPool[0];
+  const toType = toMotor ? 'Motor' : 'Manual';
+
+  const groupEdits = { ...(pending.groupEdits || {}) };
+  const addedGroups = { ...(pending.addedGroups || {}) };
+  const deletedGroupKeys = new Set(pending.deletedGroupKeys || []);
+  const perWindowPrices = { ...(pending.perWindowPrices || {}) };
+  const setQty = (k, q) => { groupEdits[k] = { ...(groupEdits[k] || {}), quantity: String(q) }; };
+  const removePiece = k => {
+    if (addedGroups[k]) { delete addedGroups[k]; delete groupEdits[k]; delete perWindowPrices[k]; }
+    else deletedGroupKeys.add(k);
+  };
+
+  const n = qtyOf(src);
+  if (dst) {
+    setQty(dst._key, qtyOf(dst) + 1);
+    if (n - 1 > 0) setQty(src._key, n - 1); else removePiece(src._key);
+  } else if (n === 1) {
+    groupEdits[src._key] = { ...(groupEdits[src._key] || {}), controlType: toType, ...(toMotor ? {} : { solar: false }) };
+  } else {
+    const newKey = `${room.id}_n${newKeySuffix}`;
+    const { _key, _afterKey, _origIdx, ...base } = src; // eslint-disable-line no-unused-vars
+    const maxId = Math.max(0, ...room.windowGroups.map(g => Number(g.id) || 0));
+    addedGroups[newKey] = { roomId: room.id, afterKey: src._key, group: { ...base, id: maxId + 1, quantity: '1', controlType: toType, solar: false } };
+    setQty(src._key, n - 1);
+    const ov = getOverride ? getOverride(src._key) : null;   // the new part keeps the same manual price
+    if (ov !== null && ov !== undefined) perWindowPrices[newKey] = ov;
+  }
+  return { groupEdits, addedGroups, deletedGroupKeys, perWindowPrices };
 }

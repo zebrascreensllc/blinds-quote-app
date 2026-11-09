@@ -2,6 +2,7 @@ import React from 'react';
 import { Trash2 } from 'lucide-react';
 import { SALES_TAX_RATE } from '../../utils/constants';
 import { formatPrice, formatMoney, isRangeOverride, formatPriceOverride, filterNumericText } from '../../utils/formatters';
+import { motorStepperInfo } from '../../utils/quoteGroups';
 import { calculateGroupQuote, getBlindTypeFromFabric, estimateBlindTypes } from '../../utils/pricing';
 
 // ✅ NEW: Solar went from a plain yes/no to naming which panel/wire was
@@ -39,6 +40,9 @@ export default function CurrentPricingSection({
   motorCount,
   motorGrandTotal,
   hubTotal,
+  effectiveHub,
+  onHubChange,
+  onStepMotor,
   priceEditMode,
   selectedQuote,
   setActiveEditText,
@@ -91,10 +95,10 @@ export default function CurrentPricingSection({
 
                   // Composite key (room + window group) so multiple window groups
                   // in the same room don't collide with each other's edited price
-                  // _origIdx = this group's position in the SAVED quote (prices and pending
-                  // edits are filed under it, and it stays put when a sibling group is
-                  // pending deletion).
-                  const priceKey = `${room.id}_${typeof group._origIdx === 'number' ? group._origIdx : groupIdx}`;
+                  // group._key = this group's stable price key (its position in the SAVED quote,
+                  // or a generated key for a group split off by the Motor stepper); prices and
+                  // pending edits are filed under it.
+                  const priceKey = group._key || `${room.id}_${groupIdx}`;
                   const fieldKey = `perWindow-${priceKey}`;
 
                   const groupEditForRow = groupEdits[priceKey] || {};
@@ -308,6 +312,20 @@ export default function CurrentPricingSection({
                           </div>
                         </div>
                       </div>
+                      {onStepMotor && (() => {
+                        const info = motorStepperInfo(room, group);
+                        const btn = (disabled) => ({ width: '32px', height: '28px', borderRadius: '6px', border: 'none', background: disabled ? '#333' : '#d4af37', color: disabled ? '#666' : '#000', fontWeight: 'bold', fontSize: '16px', cursor: disabled ? 'default' : 'pointer' });
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '8px', padding: '6px 8px', background: '#2a2a2a', borderRadius: '6px' }}>
+                            <span style={{ fontSize: '11px', color: '#aaa' }}>Motorized windows ({group.width || '?'}x{group.height || '?'})</span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                              <button type="button" aria-label="One fewer motorized window" disabled={info.motor === 0} onClick={() => onStepMotor(room, group, 'remove')} style={btn(info.motor === 0)}>−</button>
+                              <span style={{ color: '#ffaa00', fontWeight: 'bold', fontSize: '13px', minWidth: '52px', textAlign: 'center' }}>{info.motor} of {info.total}</span>
+                              <button type="button" aria-label="One more motorized window" disabled={info.motor >= info.total} onClick={() => onStepMotor(room, group, 'add')} style={btn(info.motor >= info.total)}>+</button>
+                            </span>
+                          </div>
+                        );
+                      })()}
                       <div>
                         <div style={{ fontSize: '10px', color: '#888', marginBottom: '3px', fontWeight: 'bold' }}>PER WINDOW PRICE</div>
                         <div style={{ color: isEdited ? '#ffcc00' : '#d4af37', fontWeight: '600', fontSize: '12px' }}>
@@ -493,6 +511,7 @@ export default function CurrentPricingSection({
                   <div style={{ background: '#3a2a2a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
                     <span style={{ color: '#aaa' }}>
                         Motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{motorCount}</span> cost total:
+                        <span style={{ display: 'block', fontSize: '10px', color: '#777' }}>Change how many are motorized with the +/− on each window above.</span>
                     </span>
                         <button
                           onClick={() => {
@@ -574,22 +593,59 @@ export default function CurrentPricingSection({
                 );
               })()}
 
-              {/* ✅ NEW: Hub - a quote-level charge (not per-window), so it's a
-                  plain display row rather than the pencil-edit pattern Motor/
-                  Solar/Tax use. To change it, use Edit (re-opens Quote
-                  Create's Hub section) rather than editing here directly. */}
-              {selectedQuote.hub?.included && (
-                <div style={{ background: '#3a2a3a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#aaa' }}>
-                    Hub{selectedQuote.hub.quantity > 1 ? ` (${selectedQuote.hub.quantity})` : ''}:
-                  </span>
-                  <span style={{ color: hubTotal === 0 ? '#4ade80' : '#fff', fontWeight: 'bold' }}>
-                    {hubTotal === 0 ? 'Complimentary' : `$${formatMoney(hubTotal)}`}
-                  </span>
+              {/* Hub - a quote-level charge (not per-window). Editable here: quantity +/-,
+                  price, remove, or add one - pending until "Save All Changes". */}
+              {effectiveHub && effectiveHub.included && (
+                <div style={{ background: '#3a2a3a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                    <span style={{ color: '#aaa' }}>Hub{(parseInt(effectiveHub.quantity) || 1) > 1 ? ` (${parseInt(effectiveHub.quantity) || 1})` : ''}:</span>
+                    <span style={{ color: hubTotal === 0 ? '#4ade80' : (tableEditValues.hubEdits ? '#ffcc00' : '#fff'), fontWeight: 'bold' }}>
+                      {hubTotal === 0 ? 'Complimentary' : `$${formatMoney(hubTotal)}`}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                      <button type="button" aria-label="One fewer hub" disabled={(parseInt(effectiveHub.quantity) || 1) <= 1} onClick={() => onHubChange({ quantity: Math.max(1, (parseInt(effectiveHub.quantity) || 1) - 1) })} style={{ width: '32px', height: '28px', borderRadius: '6px', border: 'none', background: (parseInt(effectiveHub.quantity) || 1) <= 1 ? '#333' : '#d4af37', color: (parseInt(effectiveHub.quantity) || 1) <= 1 ? '#666' : '#000', fontWeight: 'bold', fontSize: '16px' }}>−</button>
+                      <span style={{ color: '#fff', fontWeight: 'bold', minWidth: '24px', textAlign: 'center' }}>{parseInt(effectiveHub.quantity) || 1}</span>
+                      <button type="button" aria-label="One more hub" disabled={(parseInt(effectiveHub.quantity) || 1) >= 20} onClick={() => onHubChange({ quantity: Math.min(20, (parseInt(effectiveHub.quantity) || 1) + 1) })} style={{ width: '32px', height: '28px', borderRadius: '6px', border: 'none', background: '#d4af37', color: '#000', fontWeight: 'bold', fontSize: '16px' }}>+</button>
+                    </span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#aaa', fontSize: '12px' }}>
+                      x $
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        aria-label="Hub price each"
+                        value={effectiveHub.priceText !== undefined ? effectiveHub.priceText : formatMoney(typeof effectiveHub.price === 'number' ? effectiveHub.price : 0)}
+                        onChange={(e) => {
+                          const text = filterNumericText(e.target.value);
+                          const parsed = parseFloat(text);
+                          onHubChange({ priceText: text, price: (text !== '' && !isNaN(parsed) && parsed >= 0) ? parsed : 0 });
+                        }}
+                        style={{ width: '60px', padding: '3px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                      />
+                      each
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { if (window.confirm('Remove the hub from this quote?\n\nIt is removed when you save changes.')) onHubChange({ included: false }); }}
+                      style={{ padding: '4px 8px', borderRadius: '6px', border: 'none', background: '#444', color: '#f87171', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                    >
+                      Remove hub
+                    </button>
+                  </div>
                 </div>
               )}
+              {effectiveHub && !effectiveHub.included && (
+                <button
+                  type="button"
+                  onClick={() => onHubChange({ included: true, quantity: parseInt(effectiveHub.quantity) || 1, price: typeof effectiveHub.price === 'number' ? effectiveHub.price : 65, priceText: undefined })}
+                  style={{ width: '100%', padding: '10px', marginBottom: '8px', borderRadius: '8px', border: '1px dashed #888', background: 'none', color: '#aaa', cursor: 'pointer', fontSize: '13px' }}
+                >
+                  + Add a hub to this quote
+                </button>
+              )}
 
-              {(motorCount > 0 || solarCount > 0 || selectedQuote.hub?.included) && (
+              {(motorCount > 0 || solarCount > 0 || effectiveHub?.included) && (
                 <div style={{ background: '#2a2a3a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
                   <span style={{ color: '#ccc' }}>Subtotal (before tax):</span>
                   <span style={{ color: '#ccc' }}>{formatPrice(subtotalMin, subtotalMax)}</span>
