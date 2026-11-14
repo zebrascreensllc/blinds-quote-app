@@ -23,7 +23,7 @@ const HEADERS = [
  * Builds a real .xlsx workbook (not CSV - CSV cannot hold cell color at all)
  * matching the supplier's reference format: same headers, same Comment
  * column, and the same yellow-highlight convention for anything that needs
- * a second look - a filled-in comment, a motor variant (Solar/Left side),
+ * a second look - a filled-in comment, a motor variant (Solar/Left side, incl. a Manual window's chain side),
  * or a non-default mount. Returns a Buffer for the caller to wrap in a Blob
  * and trigger a download, same separation of concerns as sheetToCSV.
  */

@@ -86,6 +86,7 @@ export default function BulkEditorScreen({
   remoteLabels,
   widthOutlierIds,
   heightOutlierIds,
+  quotedSizes,
   acknowledgedWarnings,
   warningKey,
   acknowledgeWarning,
@@ -126,6 +127,13 @@ export default function BulkEditorScreen({
   motorSideSelectedRowIds,
   setMotorSideSelectedRowIds,
   applyBulkMotorSide,
+  showChainSideTool,
+  setShowChainSideTool,
+  bulkChainSideValue,
+  setBulkChainSideValue,
+  chainSideSelectedRowIds,
+  setChainSideSelectedRowIds,
+  applyBulkChainSide,
 
   showRemoteTool,
   setShowRemoteTool,
@@ -176,6 +184,7 @@ export default function BulkEditorScreen({
 
   const rows = activeSheet.rows;
   const motorizedRows = rows.filter(r => r.motor !== 'Manual');
+  const manualRows = rows.filter(r => r.motor === 'Manual');
   const roomsWithMixedFabric = new Set(findRoomsWithMixedFabric(rows));
 
   return (
@@ -242,6 +251,7 @@ export default function BulkEditorScreen({
             const showWidthWarning = widthCheck.valid && widthOutlierIds.has(row.id) && !acknowledgedWarnings.has(widthOutlierKey);
             const heightOutlierKey = warningKey([row.id, 'height', row.height]);
             const showHeightWarning = heightCheck.valid && heightOutlierIds.has(row.id) && !acknowledgedWarnings.has(heightOutlierKey);
+            const quoted = (quotedSizes && quotedSizes[row.id]) || { width: null, height: null };
             const isExpanded = expandedRowId === row.id;
             const isFirstRow = rowIndex === 0;
             const isLastRow = rowIndex === rows.length - 1;
@@ -314,7 +324,7 @@ export default function BulkEditorScreen({
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
                       <div>
-                        <label style={labelStyle}>Width</label>
+                        <label style={labelStyle}>Width{quoted.width !== null && <span style={{ color: '#888', fontWeight: 'normal' }}> (quoted {quoted.width}")</span>}</label>
                         <input
                           type="text"
                           value={row.width}
@@ -325,13 +335,17 @@ export default function BulkEditorScreen({
                         {!widthCheck.valid && <p style={errorTextStyle}>{widthCheck.message}</p>}
                         {showWidthWarning && (
                           <div style={{ marginTop: '4px' }}>
-                            <p style={{ fontSize: '11px', color: '#f59e0b' }}>⚠️ Different from others in "{row.locationBase}".</p>
+                            <p style={{ fontSize: '11px', color: '#f59e0b' }}>
+                              {quoted.width !== null
+                                ? `⚠️ Different from the other windows quoted at width ${quoted.width}" in "${row.locationBase}".`
+                                : `⚠️ Different from others in "${row.locationBase}".`}
+                            </p>
                             <button onClick={() => acknowledgeWarning(widthOutlierKey)} style={{ fontSize: '11px', color: '#4ade80', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>✓ Correct</button>
                           </div>
                         )}
                       </div>
                       <div>
-                        <label style={labelStyle}>Height</label>
+                        <label style={labelStyle}>Height{quoted.height !== null && <span style={{ color: '#888', fontWeight: 'normal' }}> (quoted {quoted.height}")</span>}</label>
                         <input
                           type="text"
                           value={row.height}
@@ -342,7 +356,11 @@ export default function BulkEditorScreen({
                         {!heightCheck.valid && <p style={errorTextStyle}>{heightCheck.message}</p>}
                         {showHeightWarning && (
                           <div style={{ marginTop: '4px' }}>
-                            <p style={{ fontSize: '11px', color: '#f59e0b' }}>⚠️ Different from others in "{row.locationBase}".</p>
+                            <p style={{ fontSize: '11px', color: '#f59e0b' }}>
+                              {quoted.height !== null
+                                ? `⚠️ Different from the other windows quoted at height ${quoted.height}" in "${row.locationBase}".`
+                                : `⚠️ Different from others in "${row.locationBase}".`}
+                            </p>
                             <button onClick={() => acknowledgeWarning(heightOutlierKey)} style={{ fontSize: '11px', color: '#4ade80', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>✓ Correct</button>
                           </div>
                         )}
@@ -477,7 +495,7 @@ export default function BulkEditorScreen({
         {/* 5. Bulk Assign Motor Side - parity with the original feature's
             per-row Right/Left toggle (Right is the default, never written to
             export; Left is the exception, shows as "Smart - Left side"). */}
-        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>5. Motor Side</p>
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>5. Motor Side / Chain Side</p>
         <BulkToolPanel title="Motor Side (motorized windows only)" icon="↔️" bg="#2a1a1a" border="#8a5a4a" accentColor="#fca5a5" isOpen={showMotorSideTool} onToggle={() => setShowMotorSideTool(!showMotorSideTool)}>
           <label style={labelStyle}>Set Side to</label>
           <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
@@ -510,6 +528,44 @@ export default function BulkEditorScreen({
           )}
           <button onClick={applyBulkMotorSide} disabled={motorizedRows.length === 0} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#991b1b', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: motorizedRows.length === 0 ? 'default' : 'pointer', opacity: motorizedRows.length === 0 ? 0.5 : 1 }}>
             Apply to {motorSideSelectedRowIds.size} Selected
+          </button>
+        </BulkToolPanel>
+
+        {/* 5b. Bulk Assign Chain Side - the Manual-window twin of Motor Side
+            (Right is the default, never written to export; Left shows as
+            "Manual - Left side"). */}
+        <BulkToolPanel title="Chain Side (manual windows only)" icon="⛓️" bg="#1a2a2a" border="#4a8a8a" accentColor="#99f6e4" isOpen={showChainSideTool} onToggle={() => setShowChainSideTool(!showChainSideTool)}>
+          <label style={labelStyle}>Set Chain Side to</label>
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+            <button
+              onClick={() => setBulkChainSideValue('')}
+              style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkChainSideValue === '' ? '#0e7490' : '#1a1a1a', color: bulkChainSideValue === '' ? '#fff' : '#888', border: bulkChainSideValue === '' ? '1px solid #0e7490' : '1px solid #444' }}
+            >
+              Right (default)
+            </button>
+            <button
+              onClick={() => setBulkChainSideValue('Left')}
+              style={{ flex: 1, padding: '10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', background: bulkChainSideValue === 'Left' ? '#0e7490' : '#1a1a1a', color: bulkChainSideValue === 'Left' ? '#fff' : '#888', border: bulkChainSideValue === 'Left' ? '1px solid #0e7490' : '1px solid #444' }}
+            >
+              Left
+            </button>
+          </div>
+          {manualRows.length === 0 ? (
+            <p style={{ color: '#888', fontSize: '12px' }}>No manual (chain) windows on this sheet.</p>
+          ) : (
+            <RowChecklist
+              rows={manualRows}
+              selectedIds={chainSideSelectedRowIds}
+              toggleInSet={toggleInSet}
+              setSelectedIds={setChainSideSelectedRowIds}
+              accentColor="#99f6e4"
+              renderLabel={(row) => (
+                <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — Manual, Chain side currently {row.chainSide === 'Left' ? 'Left' : 'Right (default)'}</span></>
+              )}
+            />
+          )}
+          <button onClick={applyBulkChainSide} disabled={manualRows.length === 0} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#115e59', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: manualRows.length === 0 ? 'default' : 'pointer', opacity: manualRows.length === 0 ? 0.5 : 1 }}>
+            Apply to {chainSideSelectedRowIds.size} Selected
           </button>
         </BulkToolPanel>
 
