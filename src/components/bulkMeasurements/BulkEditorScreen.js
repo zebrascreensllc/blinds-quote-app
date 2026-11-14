@@ -86,6 +86,7 @@ export default function BulkEditorScreen({
   remoteLabels,
   widthOutlierIds,
   heightOutlierIds,
+  quotedSizes,
   acknowledgedWarnings,
   warningKey,
   acknowledgeWarning,
@@ -252,6 +253,7 @@ export default function BulkEditorScreen({
             const showWidthWarning = widthCheck.valid && widthOutlierIds.has(row.id) && !acknowledgedWarnings.has(widthOutlierKey);
             const heightOutlierKey = warningKey([row.id, 'height', row.height]);
             const showHeightWarning = heightCheck.valid && heightOutlierIds.has(row.id) && !acknowledgedWarnings.has(heightOutlierKey);
+            const quoted = (quotedSizes && quotedSizes[row.id]) || { width: null, height: null };
             const isExpanded = expandedRowId === row.id;
             const isFirstRow = rowIndex === 0;
             const isLastRow = rowIndex === rows.length - 1;
@@ -324,7 +326,7 @@ export default function BulkEditorScreen({
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
                       <div>
-                        <label style={labelStyle}>Width</label>
+                        <label style={labelStyle}>Width{quoted.width !== null && <span style={{ color: '#888', fontWeight: 'normal' }}> (quoted {quoted.width}")</span>}</label>
                         <input
                           type="text"
                           value={row.width}
@@ -335,13 +337,17 @@ export default function BulkEditorScreen({
                         {!widthCheck.valid && <p style={errorTextStyle}>{widthCheck.message}</p>}
                         {showWidthWarning && (
                           <div style={{ marginTop: '4px' }}>
-                            <p style={{ fontSize: '11px', color: '#f59e0b' }}>⚠️ Different from others in "{row.locationBase}".</p>
+                            <p style={{ fontSize: '11px', color: '#f59e0b' }}>
+                              {quoted.width !== null
+                                ? `⚠️ Different from the other windows quoted at width ${quoted.width}" in "${row.locationBase}".`
+                                : `⚠️ Different from others in "${row.locationBase}".`}
+                            </p>
                             <button onClick={() => acknowledgeWarning(widthOutlierKey)} style={{ fontSize: '11px', color: '#4ade80', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>✓ Correct</button>
                           </div>
                         )}
                       </div>
                       <div>
-                        <label style={labelStyle}>Height</label>
+                        <label style={labelStyle}>Height{quoted.height !== null && <span style={{ color: '#888', fontWeight: 'normal' }}> (quoted {quoted.height}")</span>}</label>
                         <input
                           type="text"
                           value={row.height}
@@ -352,7 +358,11 @@ export default function BulkEditorScreen({
                         {!heightCheck.valid && <p style={errorTextStyle}>{heightCheck.message}</p>}
                         {showHeightWarning && (
                           <div style={{ marginTop: '4px' }}>
-                            <p style={{ fontSize: '11px', color: '#f59e0b' }}>⚠️ Different from others in "{row.locationBase}".</p>
+                            <p style={{ fontSize: '11px', color: '#f59e0b' }}>
+                              {quoted.height !== null
+                                ? `⚠️ Different from the other windows quoted at height ${quoted.height}" in "${row.locationBase}".`
+                                : `⚠️ Different from others in "${row.locationBase}".`}
+                            </p>
                             <button onClick={() => acknowledgeWarning(heightOutlierKey)} style={{ fontSize: '11px', color: '#4ade80', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>✓ Correct</button>
                           </div>
                         )}

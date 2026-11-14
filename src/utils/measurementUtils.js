@@ -9,6 +9,8 @@
 // break quote generation, pricing, or saving, and vice versa.
 // ============================================================================
 
+import { parseUnits } from './formatters';
+
 // ---- Dropdown option constants -------------------------------------------
 
 export const MOTOR_OPTIONS = ['Manual', 'motor-recharge', 'motor-Zigbee', 'motor-wire-zigbee', 'Custom'];
@@ -157,15 +159,64 @@ function roomScopeKey(row) {
 }
 
 /**
+ * The size this window was QUOTED at, for one field ('width' | 'height'),
+ * as a number of inches - or null when there's no quote behind the row (a
+ * "Start blank" window) or the quoted value can't be read.
+ *
+ * Rows made since 2026-11-14 carry quotedWidth/quotedHeight themselves (set
+ * in expandQuoteIntoRows). Older sheets don't, so for those this looks the
+ * group up in `quotes` by sourceQuoteId/sourceRoomId/sourceGroupIdx. Each
+ * quote version is its own document, so that lookup can't drift if the
+ * quote is edited later (an edit saves a NEW version with a new id).
+ */
+export function getQuotedSize(row, field, quotes) {
+  const own = field === 'width' ? row.quotedWidth : row.quotedHeight;
+  let raw = (own !== undefined && own !== null && String(own).trim() !== '') ? String(own) : '';
+  if (!raw && row.sourceQuoteId && Array.isArray(quotes)) {
+    const quote = quotes.find(q => q && q.id === row.sourceQuoteId);
+    const room = quote && (quote.rooms || []).find(r => r && r.id === row.sourceRoomId);
+    const group = room && typeof row.sourceGroupIdx === 'number' ? (room.windowGroups || [])[row.sourceGroupIdx] : null;
+    if (group && group[field] !== undefined && group[field] !== null) raw = String(group[field]);
+  }
+  if (!raw.trim()) return null;
+  const value = parseUnits(raw);
+  if (!(value > 0)) return null;
+  // Nearest 1/16" so "35" and "35.0" (or "35 0/16") land in the same bucket.
+  return Math.round(value * 16) / 16;
+}
+
+/**
  * Given all rows on a sheet, finds rows whose width/height is an outlier
- * compared to the median of other windows in the SAME room of the SAME job
- * (see roomScopeKey). Only compares rooms with 2+ parseable measurements.
+ * compared to the median of the other windows that should be the SAME size:
+ * same room of the same job (see roomScopeKey) AND quoted at the same value
+ * for this field.
+ *
+ * ✅ FIX (2026-11-14, reported several times by the owner): this used to
+ * compare every window in a room against each other, whatever size it was
+ * quoted at. A Living Room quoted as 3 windows at 35x70 plus 3 at 35x35
+ * gave a median height of 52.5, so EVERY window's correct height was flagged
+ * (and a real typo on one of them was lost among the false alarms). Now each
+ * window is only compared with windows quoted at the same width (for the
+ * width check) / same height (for the height check) in its room - so the
+ * 35x70 windows are checked against 70, the 35x35 against 35, and all six
+ * widths still against each other since they were all quoted at 35.
+ * Rows with no quoted size ("Start blank" sheets) keep the room-only
+ * comparison, since there's nothing else to go on. If a quoted size can't be
+ * found for an older quote row, its window group (sourceGroupIdx) is used, so
+ * two different quoted sizes are still never mixed.
+ *
+ * `quotes` is optional - only needed for sheets created before rows stored
+ * their own quoted size. Only compares groups with 2+ parseable measurements.
  * Returns a Set of row ids.
  */
-export function findRoomSizeOutliers(rows, field) {
+export function findRoomSizeOutliers(rows, field, quotes) {
   const byRoom = {};
   rows.forEach(row => {
-    const key = roomScopeKey(row);
+    const quoted = getQuotedSize(row, field, quotes);
+    let sizeKey = '';
+    if (quoted !== null) sizeKey = `q${quoted}`;
+    else if (row.sourceQuoteId && typeof row.sourceGroupIdx === 'number') sizeKey = `g${row.sourceRoomId}:${row.sourceGroupIdx}`;
+    const key = `${roomScopeKey(row)}::${sizeKey}`;
     const parsed = validateMeasurementFormat(row[field]);
     if (parsed.valid && parsed.decimal !== null) {
       if (!byRoom[key]) byRoom[key] = [];
@@ -325,7 +376,12 @@ export function expandQuoteIntoRows(quote, options = {}) {
           sourceQuoteId: quote.id,
           sourceQuoteName: quote.quoteName || '',
           sourceRoomId: room.id,
-          sourceGroupIdx: groupIdx
+          sourceGroupIdx: groupIdx,
+          // The size this window was quoted at - what its precise
+          // measurement is checked against (findRoomSizeOutliers compares
+          // it only with windows quoted at the same size). Never undefined.
+          quotedWidth: String(group.width ?? '').trim(),
+          quotedHeight: String(group.height ?? '').trim()
         });
       }
     });
@@ -370,7 +426,9 @@ export function createBlankMeasurementRow({ clientName = '', locationBase = '' }
     sourceQuoteId: null,
     sourceQuoteName: '',
     sourceRoomId: null,
-    sourceGroupIdx: null
+    sourceGroupIdx: null,
+    quotedWidth: '',
+    quotedHeight: ''
   };
 }
 

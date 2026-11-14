@@ -55,19 +55,22 @@ export default function HistoryScreen({
   });
 
   Object.keys(groupedByClient).forEach(client => {
-    groupedByClient[client].sort((a, b) => {
-      const versionA = parseInt(a.version.replace('v', ''));
-      const versionB = parseInt(b.version.replace('v', ''));
-      return versionA - versionB;
-    });
+    // Newest version on top (v3, v2, v1) - owner's request 2026-11-14: the
+    // latest version is the one you open most, older ones go to the bottom.
+    // A missing/odd version string counts as 0 so it sinks to the bottom
+    // instead of making the sort unpredictable (NaN).
+    const vNum = (q) => {
+      const v = parseInt(String(q.version || '').replace(/[^0-9]/g, ''), 10);
+      return isNaN(v) ? 0 : v;
+    };
+    groupedByClient[client].sort((a, b) => vNum(b) - vNum(a));
   });
 
   // ✅ FIX: client groups previously showed in whatever order Firestore
   // happened to return them (effectively oldest-created-quote-first) - the
   // clients you're actively working are the ones you need to find fastest,
   // so this now sorts by each group's own most recently updated version,
-  // newest first. (Versions WITHIN a group still sort oldest-to-newest
-  // above - that's a different, correct ordering: v1 before v2 before v3.)
+  // newest first. (Versions WITHIN a group are also newest first, above.)
   // ✅ FIX: a plain Math.max(...dates) breaks silently the moment ANY quote
   // in a group has a missing/malformed date (an older, pre-migration quote,
   // for example) - Math.max propagates a single NaN to the whole group,
