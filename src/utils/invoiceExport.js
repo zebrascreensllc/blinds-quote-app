@@ -354,8 +354,12 @@ function finishModel(quote, cols, rows, summary, calculatedGrandTotal, grandTota
 }
 
 /** Safe download file name for an invoice of this quote. */
+// "<client name>-invoice-zebrascreensllc.pdf" (owner's request). Only
+// characters a file name can't hold are dropped; spaces are kept.
 export function invoiceFileName(quote, ext) {
-  return `${(quote.quoteName || 'quote').replace(/[^a-z0-9]/gi, '_')}_invoice.${ext}`;
+  const raw = String((quote && (quote.clientName || quote.quoteName)) || '');
+  const name = raw.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/^\.+/, '') || 'Client';
+  return `${name}-invoice-zebrascreensllc.${ext}`;
 }
 
 export async function loadLogoBytes() {
