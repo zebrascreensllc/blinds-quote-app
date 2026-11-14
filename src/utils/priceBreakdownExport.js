@@ -66,7 +66,7 @@ export async function generatePriceBreakdownExcel(quote) {
     const row = ws.addRow([]);
     ws.mergeCells(`A${row.number}:F${row.number}`);
     const cell = row.getCell(1);
-    cell.value = `${label}: ${value}`;
+    cell.value = value === '' ? label : `${label}: ${value}`;
     if (bold) cell.font = { bold: true };
     return row;
   };
@@ -96,7 +96,7 @@ export async function generatePriceBreakdownExcel(quote) {
       hubTotal: totals.hubTotal, taxRate: totals.taxRate, otherExpenses: totals.otherExpensesAmount
     });
     ws.addRow([]);
-    summaryRow('Grand Total depends on the blind type chosen:', '', true);
+    summaryRow('Grand Total depends on the blind type chosen', '', true);
     options.types.forEach(t => summaryRow(`If all ${t}`, fmtPrice(grand[t].grandMin, grand[t].grandMax)));
   }
 
