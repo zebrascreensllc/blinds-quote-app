@@ -140,18 +140,21 @@ const bodyCell = (text, { align = AlignmentType.LEFT, bold = false, widthDxa } =
 
 // A totals row: the label spans every column but the last, the value sits
 // under the last column - works for any number of chosen columns (>= 2).
-const summaryRow = (label, value, colCount, { bold = false, valueColor = '000000' } = {}) => new TableRow({
+// keepNext keeps every totals row on the same page as the row after it, so
+// Word never splits the totals block across two pages.
+const summaryRow = (label, value, colCount, { bold = false, valueColor = '000000', keepNext = false } = {}) => new TableRow({
+  cantSplit: true,
   children: [
     new TableCell({
       columnSpan: colCount - 1,
       borders: CELL_BORDERS,
       margins: CELL_MARGIN,
-      children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: label, bold, size: 20 })] })]
+      children: [new Paragraph({ keepNext, alignment: AlignmentType.RIGHT, children: [new TextRun({ text: label, bold, size: 20 })] })]
     }),
     new TableCell({
       borders: CELL_BORDERS,
       margins: CELL_MARGIN,
-      children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: value, bold, size: 20, color: valueColor })] })]
+      children: [new Paragraph({ keepNext, alignment: AlignmentType.RIGHT, children: [new TextRun({ text: value, bold, size: 20, color: valueColor })] })]
     })
   ]
 });
@@ -378,7 +381,7 @@ export function buildInvoiceDocument(quote, options = {}, logoBytes) {
     children: cells.map((text, i) => bodyCell(text, { align: DOCX_ALIGN[model.columns[i].align], widthDxa: widthsDxa[i] }))
   }));
 
-  const summaryRows = model.summary.map(s => summaryRow(s.label, s.value, colCount, { bold: !!s.bold, valueColor: s.color || '000000' }));
+  const summaryRows = model.summary.map((s, i) => summaryRow(s.label, s.value, colCount, { bold: !!s.bold, valueColor: s.color || '000000', keepNext: i < model.summary.length - 1 }));
 
   const itemsTable = new Table({
     width: { size: TABLE_WIDTH_DXA, type: WidthType.DXA },

@@ -13,6 +13,10 @@ const PAGE_MARGIN = 40;
 const LOGO_WIDTH = 160;
 const LOGO_HEIGHT = 160 * (446 / 1502); // zebra-logo.png is 1502 x 446
 const WATERMARK_OPACITY = 0.08;
+const TABLE_STYLES = { font: 'helvetica', fontSize: 9, cellPadding: 4, lineColor: [153, 153, 153], lineWidth: 0.5, textColor: [0, 0, 0], valign: 'middle', overflow: 'linebreak' };
+// A one-line row at fontSize 9 + 4pt padding is ~18pt; a little extra so a
+// label that wraps to two lines still fits.
+const SUMMARY_ROW_HEIGHT = 20;
 
 const hexToRgb = (hex) => {
   const clean = String(hex || '000000').replace('#', '');
@@ -98,13 +102,32 @@ export function buildInvoicePdf(quote, options = {}, logoBytes) {
     startY: y + 20,
     margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
     head: [model.columns.map(c => ({ content: c.label, styles: { halign: c.align } }))],
-    body: [...model.rows, ...summaryBody],
+    body: model.rows,
     columnStyles,
     theme: 'grid',
-    styles: { font: 'helvetica', fontSize: 9, cellPadding: 4, lineColor: [153, 153, 153], lineWidth: 0.5, textColor: [0, 0, 0], valign: 'middle', overflow: 'linebreak' },
+    styles: TABLE_STYLES,
     headStyles: { fillColor: [42, 42, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
     // Repeat the dark header row when the table runs onto a second page.
     showHead: 'everyPage'
+  });
+
+  // Totals are drawn as their own block straight under the items, and
+  // never split across two pages: if they don't all fit below the last
+  // window, the whole block moves to the next page.
+  const summaryHeight = summaryBody.length * SUMMARY_ROW_HEIGHT;
+  let summaryY = doc.lastAutoTable.finalY;
+  if (summaryY + summaryHeight > pageHeight - PAGE_MARGIN) {
+    doc.addPage();
+    summaryY = PAGE_MARGIN;
+  }
+  autoTable(doc, {
+    startY: summaryY,
+    margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
+    body: summaryBody,
+    columnStyles,
+    theme: 'grid',
+    styles: TABLE_STYLES,
+    showHead: false
   });
 
   // ---- terms & warranty (always start on a fresh page, like the Word file) ----
