@@ -217,11 +217,9 @@ export default function BulkEditorScreen({
             width/height, fabric, motor, solar) instead of retyping
             everything the client's windows already say. */}
         <button
-          onClick={() => {
-            if (window.confirm('Build a new Quote Create draft from this sheet\'s windows (location, size, fabric, motor, solar)?\n\nYou\'ll still need to add the client\'s phone number and review pricing before generating the quote.')) {
-              generateQuoteFromSheet(activeSheet);
-            }
-          }}
+          // The confirm is shown by generateQuoteFromSheet (App.js): it knows
+          // whether this sheet came from a quote and words it accordingly.
+          onClick={() => generateQuoteFromSheet(activeSheet)}
           style={{ width: '100%', padding: '12px', marginBottom: '20px', borderRadius: '8px', background: '#4f46e5', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
         >
           📝 Generate Quote from this Sheet

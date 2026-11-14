@@ -42,6 +42,7 @@ export const isBlankGroup = (group) =>
  */
 export function pruneRooms(rooms, shouldDropGroup) {
   const keyMap = {};
+  const keyTargets = {}; // OLD key -> every NEW key that came from it (see remapPriceKeysMulti)
   let removedGroups = 0;
   let removedRooms = 0;
   const out = [];
@@ -56,14 +57,17 @@ export function pruneRooms(rooms, shouldDropGroup) {
     groups.forEach((group, i) => {
       const key = keyOfGroup(room, group, i);
       if (shouldDropGroup(room, group, key)) { removedGroups++; return; }
-      const { _origIdx, _key, _afterKey, ...clean } = group; // eslint-disable-line no-unused-vars
-      if (!roomHasTags || isTagged(group)) keyMap[key] = groupKey(room.id, kept.length);
+      const { _origIdx, _key, _afterKey, _labels, ...clean } = group; // eslint-disable-line no-unused-vars
+      if (!roomHasTags || isTagged(group)) {
+        keyMap[key] = groupKey(room.id, kept.length);
+        keyTargets[key] = [...(keyTargets[key] || []), groupKey(room.id, kept.length)];
+      }
       kept.push(clean);
     });
     if (kept.length === 0) { removedRooms++; return; }
     out.push({ ...room, windowGroups: kept });
   });
-  return { rooms: out, keyMap, removedGroups, removedRooms };
+  return { rooms: out, keyMap, keyTargets, removedGroups, removedRooms };
 }
 
 // Re-keys a { priceKey: value } object through keyMap, dropping keys whose
@@ -72,6 +76,19 @@ export function remapPriceKeys(obj, keyMap) {
   const result = {};
   Object.entries(obj || {}).forEach(([k, v]) => {
     if (Object.prototype.hasOwnProperty.call(keyMap, k)) result[keyMap[k]] = v;
+  });
+  return result;
+}
+
+// Like remapPriceKeys, but one old key may feed several new keys: two groups
+// can share the same `_origIdx` when one saved group was split in the form
+// (e.g. "Generate Quote from this Sheet" turning one rough 35x70 group into
+// two precise sizes). Each piece keeps the window's saved per-window price.
+// With one target per key it gives exactly what remapPriceKeys gives.
+export function remapPriceKeysMulti(obj, keyTargets) {
+  const result = {};
+  Object.entries(obj || {}).forEach(([k, v]) => {
+    (keyTargets[k] || []).forEach(newKey => { result[newKey] = v; });
   });
   return result;
 }

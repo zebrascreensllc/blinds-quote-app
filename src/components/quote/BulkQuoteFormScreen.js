@@ -302,18 +302,24 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
               {isExpanded ? (
                 <input type="text" placeholder="Room Name" value={room.name} onChange={(e) => updateRoomName(roomIndex, e.target.value)} style={{ ...inputStyle, fontWeight: 'bold', flex: 1 }} />
               ) : (
-                <span style={{ flex: 1, minWidth: 0, fontWeight: 'bold', fontSize: '14px', color: room.name.trim() ? '#d4af37' : '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {room.name.trim() || `Room ${roomIndex + 1}`}
-                </span>
+                // Name on top, the window summary on its own line below. They
+                // used to share one row with the summary set to never wrap, so
+                // a room with several sizes pushed its own name off the card
+                // (blank name, "Liv...").
+                <div onClick={() => setExpandedRoomId(room.id)} style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}>
+                  <div style={{ fontWeight: 'bold', fontSize: '14px', color: room.name.trim() ? '#d4af37' : '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {room.name.trim() || `Room ${roomIndex + 1}`}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#888', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{summaryText}</div>
+                </div>
               )}
               <button onClick={() => deleteRoom(roomIndex)} title="Delete this room" style={{ padding: '10px', borderRadius: '6px', background: '#b91c1c', border: 'none', color: '#fff', cursor: 'pointer', flexShrink: 0 }}>
                 <Trash2 size={16} />
               </button>
               <button
                 onClick={() => setExpandedRoomId(isExpanded ? null : room.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', flexShrink: 0 }}
+                style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', flexShrink: 0 }}
               >
-                {!isExpanded && <span style={{ fontSize: '12px', color: '#888', whiteSpace: 'nowrap' }}>{summaryText}</span>}
                 <span style={{ color: '#888', fontSize: '14px' }}>{isExpanded ? '▼' : '▶'}</span>
               </button>
             </div>
@@ -333,6 +339,11 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
               };
               return (
                 <div key={group.id} style={{ marginBottom: '10px' }}>
+                  {/* Which measured windows this line is (only set when built
+                      from a Supplier Measurements sheet; never saved). */}
+                  {Array.isArray(group._labels) && group._labels.length > 0 && (
+                    <p style={{ color: '#9ca3af', fontSize: '12px', margin: '0 0 4px' }}>{group._labels.join(', ')}</p>
+                  )}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '8px', alignItems: 'start', marginBottom: '6px' }}>
                     <div>
                       {groupIndex === 0 && <label style={labelStyle}>Qty</label>}
