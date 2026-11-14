@@ -57,7 +57,7 @@ export function pruneRooms(rooms, shouldDropGroup) {
     groups.forEach((group, i) => {
       const key = keyOfGroup(room, group, i);
       if (shouldDropGroup(room, group, key)) { removedGroups++; return; }
-      const { _origIdx, _key, _afterKey, _labels, ...clean } = group; // eslint-disable-line no-unused-vars
+      const { _origIdx, _key, _afterKey, ...clean } = group; // eslint-disable-line no-unused-vars
       if (!roomHasTags || isTagged(group)) {
         keyMap[key] = groupKey(room.id, kept.length);
         keyTargets[key] = [...(keyTargets[key] || []), groupKey(room.id, kept.length)];

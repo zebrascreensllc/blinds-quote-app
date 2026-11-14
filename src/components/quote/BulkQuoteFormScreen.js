@@ -339,11 +339,6 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
               };
               return (
                 <div key={group.id} style={{ marginBottom: '10px' }}>
-                  {/* Which measured windows this line is (only set when built
-                      from a Supplier Measurements sheet; never saved). */}
-                  {Array.isArray(group._labels) && group._labels.length > 0 && (
-                    <p style={{ color: '#9ca3af', fontSize: '12px', margin: '0 0 4px' }}>{group._labels.join(', ')}</p>
-                  )}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '8px', alignItems: 'start', marginBottom: '6px' }}>
                     <div>
                       {groupIndex === 0 && <label style={labelStyle}>Qty</label>}

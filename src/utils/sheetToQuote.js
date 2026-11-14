@@ -6,16 +6,21 @@
 //     sourceQuoteId/sourceRoomId/sourceGroupIdx, see expandQuoteIntoRows).
 //     The form is built as a NEW VERSION of that quote: client name, phone,
 //     location, hub, other expenses and every saved price carry over, and the
-//     sheet's real measurements replace the rough sizes. Each window group is
-//     tagged with `_origIdx` (its position in the source quote) so a manual
-//     per-window price follows its window - including when one rough-size group
-//     splits into several precise sizes (pruneRooms' keyTargets).
-//  Every group also carries `_labels`: the sheet's names for its windows
-//  ("Bf nook 1", "Bf nook 4"), shown on the form so each window can be found.
-//  Display only - pruneRooms strips it before saving.
+//     sheet's real measurements replace the rough sizes.
 //  2. No single source quote (a "Start blank" sheet, a combined sheet of
 //     several quotes, or the source quote no longer exists): rooms are rebuilt
-//     from the rows alone, exactly as before.
+//     from the rows alone.
+//
+// In both cases a location with several windows becomes one room PER WINDOW,
+// named the way the sheet shows it ("Bf nook 1" ... "Bf nook 6") - the owner's
+// choice (2026-11-14). Note this is a pricing difference from the source quote
+// for motorized windows: the remote cost is shared per room, so each split
+// room carries its own remote share.
+//
+// Saved per-window prices are filed by `${room.id}_${groupIndex}`. Each group
+// built from the source quote is tagged `_key` = that saved key, so
+// pruneRooms() (generateQuote) moves the price to wherever the window ends up,
+// even when one saved group (qty 6) becomes six rooms (keyTargets).
 
 import { getLocationLabel } from './measurementUtils';
 
@@ -40,48 +45,75 @@ export function findSheetSourceQuote(sheet, quotes) {
   return { status: quote ? 'single' : 'missing', quote, quoteIds: ids };
 }
 
-// Rows with identical size/motor/solar collapse into one window group with a
-// quantity - the reverse of expandQuoteIntoRows.
-function groupRows(rows, sizeOf) {
-  const byKey = new Map();
-  rows.forEach(row => {
-    const { width, height } = sizeOf(row);
-    const motor = isMotorRow(row);
-    const solar = motor ? (row.solar || false) : false;
-    const key = JSON.stringify([width, height, motor, solar]);
-    if (!byKey.has(key)) byKey.set(key, { row, width, height, motor, solar, count: 0, labels: [] });
-    byKey.get(key).count += 1;
-    byKey.get(key).labels.push(getLocationLabel(row));
-  });
-  return Array.from(byKey.values());
+// Room names for a location's windows: one name per row, as the sheet shows
+// them. Falls back to "<base> <n>" if the sheet's own numbering is stale and
+// would give two windows the same name.
+function windowNames(base, rows) {
+  if (rows.length === 1) return [base];
+  const names = rows.map(r => str(getLocationLabel(r)));
+  const unique = new Set(names.map(n => n.toLowerCase()));
+  return (unique.size === names.length && names.every(Boolean)) ? names : rows.map((_, i) => `${base} ${i + 1}`);
 }
 
-const distinctFabrics = rows => [...new Set(rows.map(r => str(r.fabricNumber)).filter(Boolean))];
+// The window group for one sheet row (qty 1).
+function groupFromRow(row, src, sizeFallback) {
+  const motor = isMotorRow(row);
+  return {
+    ...BLANK_GROUP,
+    ...(src ? { mount: src.mount || 'Inside', surchargeOverride: src.surchargeOverride ?? null } : {}),
+    quantity: '1',
+    width: str(row.width) || (sizeFallback ? str(sizeFallback.width) : ''),
+    height: str(row.height) || (sizeFallback ? str(sizeFallback.height) : ''),
+    controlType: motor ? 'Motor' : 'Manual',
+    solar: motor ? (row.solar || false) : false
+  };
+}
+
+// Untagged groups with identical size/motor/solar collapse into one group
+// with a quantity (used when sheet-only windows join an existing room).
+function mergeGroups(groups) {
+  const out = [];
+  groups.forEach(g => {
+    const same = out.find(o => !o._key && !g._key && o.width === g.width && o.height === g.height && o.controlType === g.controlType && o.solar === g.solar);
+    if (same) same.quantity = String((parseInt(same.quantity) || 0) + 1);
+    else out.push({ ...g });
+  });
+  return out.map((g, i) => ({ ...g, id: i + 1 }));
+}
+
+function fabricFor(rows, fallbackFabric, fallbackTypes, detectBlindTypes) {
+  const fabrics = [...new Set(rows.map(r => str(r.fabricNumber)).filter(Boolean))];
+  const norm = s => str(s).split(',').map(f => f.trim()).filter(Boolean).join(', ').toLowerCase();
+  if (fabrics.length === 0 || fabrics.join(', ').toLowerCase() === norm(fallbackFabric)) {
+    return { fabricInput: fallbackFabric || '', blindTypes: fallbackTypes };
+  }
+  const fabricInput = fabrics.join(', ');
+  const detected = detectBlindTypes(fabricInput);
+  return { fabricInput, blindTypes: Array.isArray(detected) && detected.length > 0 ? detected : fallbackTypes };
+}
 
 // Rooms built from rows alone (no source quote to lean on).
-function roomsFromRowsOnly(rows, detectBlindTypes, firstRoomId) {
+function roomsFromRowsOnly(rows, detectBlindTypes, nextId) {
   const byName = new Map();
   rows.forEach(row => {
     const key = str(row.locationBase) || `Window ${row.locationIndex || 1}`;
     if (!byName.has(key)) byName.set(key, []);
     byName.get(key).push(row);
   });
-  return Array.from(byName.entries()).map(([name, roomRows], i) => {
-    const windowGroups = groupRows(roomRows, r => ({ width: str(r.width), height: str(r.height) }))
-      .map((e, gi) => ({ ...BLANK_GROUP, id: gi + 1, quantity: String(e.count), width: e.width, height: e.height, controlType: e.motor ? 'Motor' : 'Manual', solar: e.solar, _labels: e.labels }));
-    // A quote room carries ONE fabricInput string - distinct fabrics are
-    // comma-joined, the same way a mixed-fabric room is typed by hand.
-    const fabricInput = distinctFabrics(roomRows).join(', ');
-    const fallbackBlindType = roomRows.find(r => r.blindType)?.blindType || 'Roller';
-    const detected = fabricInput ? detectBlindTypes(fabricInput) : null;
-    return {
-      id: firstRoomId + i,
-      name,
-      fabricInput,
-      blindTypes: Array.isArray(detected) && detected.length > 0 ? detected : [fallbackBlindType],
-      windowGroups: windowGroups.length > 0 ? windowGroups : [{ ...BLANK_GROUP }]
-    };
+  const rooms = [];
+  byName.forEach((roomRows, base) => {
+    const names = windowNames(base, roomRows);
+    roomRows.forEach((row, i) => {
+      const fallbackType = row.blindType || 'Roller';
+      rooms.push({
+        id: nextId(),
+        name: names[i],
+        ...fabricFor([row], '', [fallbackType], detectBlindTypes),
+        windowGroups: [{ ...groupFromRow(row, null, null), id: 1 }]
+      });
+    });
   });
+  return rooms;
 }
 
 /**
@@ -95,88 +127,65 @@ function roomsFromRowsOnly(rows, detectBlindTypes, firstRoomId) {
 export function buildRoomsFromSheet(sheet, sourceQuote, detectBlindTypes) {
   const rows = sheet?.rows || [];
   if (!sourceQuote) {
-    return { rooms: roomsFromRowsOnly(rows, detectBlindTypes, 1), unmeasured: 0, extraRows: 0 };
+    let n = 0;
+    return { rooms: roomsFromRowsOnly(rows, detectBlindTypes, () => ++n), unmeasured: 0, extraRows: 0 };
   }
 
   const srcRooms = sourceQuote.rooms || [];
   const srcRoomIds = new Set(srcRooms.map(r => r.id));
-  const isFromRoom = (row, room) => row.sourceQuoteId === sourceQuote.id && row.sourceRoomId === room.id;
+  let maxId = Math.max(0, ...srcRooms.map(r => Number(r.id) || 0));
+  const newId = () => ++maxId;
   const extra = rows.filter(r => !(r.sourceQuoteId === sourceQuote.id && srcRoomIds.has(r.sourceRoomId)));
   let unmeasured = 0;
-
   const rooms = [];
+
   srcRooms.forEach(room => {
-    const roomRows = rows.filter(r => isFromRoom(r, room));
+    const roomRows = rows.filter(r => r.sourceQuoteId === sourceQuote.id && r.sourceRoomId === room.id);
     if (roomRows.length === 0) return; // every window of this room was removed from the sheet
     const srcGroups = room.windowGroups || [];
-    const windowGroups = [];
+    const srcTypes = Array.isArray(room.blindTypes) && room.blindTypes.length > 0 ? room.blindTypes : ['Roller'];
+    const base = str(room.name) || str(roomRows[0].locationBase) || 'Room';
+    const names = windowNames(base, roomRows);
 
-    // Quote order first: one source group at a time, split by precise size.
-    const idxs = [...new Set(roomRows.map(r => r.sourceGroupIdx))]
-      .sort((a, b) => (typeof a === 'number' ? a : 1e9) - (typeof b === 'number' ? b : 1e9));
-    idxs.forEach(idx => {
+    const pieces = roomRows.map(row => {
+      const idx = row.sourceGroupIdx;
       const src = (typeof idx === 'number' && srcGroups[idx]) ? srcGroups[idx] : null;
-      const gRows = roomRows.filter(r => r.sourceGroupIdx === idx);
-      gRows.forEach(r => { if (!str(r.width) || !str(r.height)) unmeasured += 1; });
+      if (!str(row.width) || !str(row.height)) unmeasured += 1;
       // A window not measured yet keeps the quote's size rather than being
       // dropped as a blank group (which would silently remove it).
-      const sizeOf = r => ({
-        width: str(r.width) || (src ? str(src.width) : ''),
-        height: str(r.height) || (src ? str(src.height) : '')
-      });
-      groupRows(gRows, sizeOf).forEach(e => {
-        windowGroups.push({
-          ...BLANK_GROUP,
-          ...(src ? { mount: src.mount || 'Inside', surchargeOverride: src.surchargeOverride ?? null } : {}),
-          id: windowGroups.length + 1,
-          quantity: String(e.count),
-          width: e.width,
-          height: e.height,
-          controlType: e.motor ? 'Motor' : 'Manual',
-          solar: e.solar,
-          _labels: e.labels,
-          // Untagged when the source group is gone: it then never claims a saved price.
-          ...(src ? { _origIdx: idx } : {})
-        });
-      });
+      const group = groupFromRow(row, src, src);
+      // Untagged when the source group is gone: it then never claims a saved price.
+      if (src) group._key = `${room.id}_${idx}`;
+      return { row, group };
     });
 
-    // Fabric: what the sheet says (the confirmed order) wins; a room whose
-    // windows have no fabric in the sheet keeps the quote's fabric/blind type.
-    const sheetFabrics = distinctFabrics(roomRows);
-    const sameAsQuote = sheetFabrics.length === 0 ||
-      sheetFabrics.join(', ').toLowerCase() === str(room.fabricInput).split(',').map(f => f.trim()).filter(Boolean).join(', ').toLowerCase();
-    let fabricInput = room.fabricInput || '';
-    let blindTypes = Array.isArray(room.blindTypes) && room.blindTypes.length > 0 ? room.blindTypes : ['Roller'];
-    if (!sameAsQuote) {
-      fabricInput = sheetFabrics.join(', ');
-      const detected = detectBlindTypes(fabricInput);
-      if (Array.isArray(detected) && detected.length > 0) blindTypes = detected;
+    if (roomRows.length === 1) {
+      rooms.push({ ...room, ...fabricFor(roomRows, room.fabricInput, srcTypes, detectBlindTypes), windowGroups: [{ ...pieces[0].group, id: 1 }] });
+      return;
     }
-
-    rooms.push({ ...room, fabricInput, blindTypes, windowGroups });
+    // One room per window. The first keeps the quote room's id.
+    pieces.forEach(({ row, group }, i) => {
+      rooms.push({
+        ...room,
+        id: i === 0 ? room.id : newId(),
+        name: names[i],
+        ...fabricFor([row], room.fabricInput, srcTypes, detectBlindTypes),
+        windowGroups: [{ ...group, id: 1 }]
+      });
+    });
   });
 
-  // Windows added in the sheet itself (no quote behind them): join the quote
-  // room with the same name, else become new rooms after the quote's own.
-  if (extra.length > 0) {
-    const leftovers = [];
-    extra.forEach(row => {
-      const name = str(row.locationBase).toLowerCase();
-      const room = name && rooms.find(r => str(r.name).toLowerCase() === name);
-      if (room) room._extraRows = [...(room._extraRows || []), row];
-      else leftovers.push(row);
-    });
-    rooms.forEach(room => {
-      if (!room._extraRows) return;
-      groupRows(room._extraRows, r => ({ width: str(r.width), height: str(r.height) })).forEach(e => {
-        room.windowGroups.push({ ...BLANK_GROUP, id: room.windowGroups.length + 1, quantity: String(e.count), width: e.width, height: e.height, controlType: e.motor ? 'Motor' : 'Manual', solar: e.solar, _labels: e.labels });
-      });
-      delete room._extraRows;
-    });
-    const maxId = Math.max(0, ...srcRooms.map(r => Number(r.id) || 0));
-    rooms.push(...roomsFromRowsOnly(leftovers, detectBlindTypes, maxId + 1));
-  }
+  // Windows added in the sheet itself (no quote behind them): a lone extra
+  // window whose name matches a single-window room joins it; the rest become
+  // their own rooms after the quote's.
+  const leftovers = [];
+  extra.forEach(row => {
+    const name = str(row.locationBase).toLowerCase();
+    const room = name && rooms.find(r => str(r.name).toLowerCase() === name);
+    if (room) room.windowGroups = mergeGroups([...room.windowGroups, groupFromRow(row, null, null)]);
+    else leftovers.push(row);
+  });
+  rooms.push(...roomsFromRowsOnly(leftovers, detectBlindTypes, newId));
 
   return { rooms, unmeasured, extraRows: extra.length };
 }
