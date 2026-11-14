@@ -4,7 +4,8 @@ import { PRICING_DATA } from './data/pricingData';
 import { getPricingSnapshot, DEFAULT_HUB } from './utils/constants';
 import { getQuoteNamePrefix, getNextVersion, autoDetectBlindTypes } from './utils/pricing';
 import { isRangeOverride } from './utils/formatters';
-import { pruneRooms, remapPriceKeys, isBlankGroup } from './utils/quoteGroups';
+import { pruneRooms, remapPriceKeysMulti, isBlankGroup } from './utils/quoteGroups';
+import { findSheetSourceQuote, buildRoomsFromSheet } from './utils/sheetToQuote';
 
 // ✅ NEW (Phase 2): Supplier Measurements - fully isolated feature, own files,
 // own storage key. Only reads the `quotes` array (never writes it) to build
@@ -684,7 +685,9 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       return;
     }
     const cleanRooms = pruned.rooms;
-    const savedPricesRemapped = editingQuote ? remapPriceKeys(editingQuote.editedPrices?.perWindowPrices, pruned.keyMap) : {};
+    // Multi: one saved group may have been split into several in the form (Generate
+    // Quote from a measurement sheet) - every piece keeps the window's price.
+    const savedPricesRemapped = editingQuote ? remapPriceKeysMulti(editingQuote.editedPrices?.perWindowPrices, pruned.keyTargets) : {};
 
     const staleRangeKeys = [];
     if (editingQuote) {
@@ -949,71 +952,65 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     }
   };
 
-  // ✅ NEW: the reverse of the usual flow (Quote Create -> Pull Existing
-  // Quote -> build a Supplier Measurements sheet from it). Sometimes
-  // precise measurements get taken FIRST, with no quote behind them yet
-  // (Supplier Measurements' own "Start blank" flow exists for exactly
-  // this) - this takes that sheet's rows and rebuilds them into a fresh
-  // Quote Create draft, so the client's real dimensions/fabric don't have
-  // to be retyped from scratch. Rows are grouped back into rooms by
-  // locationBase, then within each room grouped again by identical
-  // width/height/motor/solar into one window group with a quantity -
-  // exactly the reverse of expandQuoteIntoRows (measurementUtils.js),
-  // which is what built rows out of a quote's rooms in the first place.
+  // "Generate Quote from this Sheet" (Supplier Measurements). Two cases, see
+  // utils/sheetToQuote.js:
+  //  - The sheet was pulled from ONE quote: open that quote in the Edit form
+  //    (saves as its next version) with the sheet's real measurements in place
+  //    of the rough sizes. Client name/phone/location, hub, other expenses and
+  //    every saved price (motor/solar/tax, per-window prices) carry over - the
+  //    owner reported having to retype these for a sheet pulled from a v6 quote.
+  //  - Otherwise (Start blank, combined sheet, source quote deleted): a fresh
+  //    Quote Create draft from the rows alone, as before.
+  // The confirm lives here (not in the sheet screen) because only here are
+  // the quotes available to say which case applies.
   const generateQuoteFromSheet = (sheet) => {
     try {
-      const rows = sheet.rows || [];
-      const roomsByKey = new Map();
-      rows.forEach(row => {
-        const key = (row.locationBase || '').trim() || `Window ${row.locationIndex || 1}`;
-        if (!roomsByKey.has(key)) roomsByKey.set(key, []);
-        roomsByKey.get(key).push(row);
-      });
+      const detect = (fabricInput) => autoDetectBlindTypes(fabricInput, PRICING_DATA);
+      const source = findSheetSourceQuote(sheet, quotes);
 
-      const rooms = Array.from(roomsByKey.entries()).map(([roomName, roomRows], roomIdx) => {
-        const groupsByKey = new Map();
-        roomRows.forEach(row => {
-          const isMotor = !!(row.motor && row.motor !== 'Manual');
-          const groupKey = JSON.stringify([row.width || '', row.height || '', isMotor, row.solar || false]);
-          if (!groupsByKey.has(groupKey)) groupsByKey.set(groupKey, { row, count: 0 });
-          groupsByKey.get(groupKey).count += 1;
+      if (source.status === 'single') {
+        const quote = source.quote;
+        const { rooms, unmeasured, extraRows } = buildRoomsFromSheet(sheet, quote, detect);
+        const label = quote.quoteName || `${quote.clientName} ${quote.version || ''}`.trim();
+        const notes = [];
+        if (quote.trashedAt) notes.push('Note: that quote is in Trash.');
+        if (unmeasured > 0) notes.push(`${unmeasured} window${unmeasured === 1 ? ' has' : 's have'} no measurement yet and keep${unmeasured === 1 ? 's' : ''} the quote's size.`);
+        if (extraRows > 0) notes.push(`${extraRows} window${extraRows === 1 ? '' : 's'} added in this sheet will be added to the quote.`);
+        const message = `Make a new version of "${label}" using this sheet's measurements?\n\n` +
+          `Client name, phone, address, hub, other expenses and your saved prices are copied from that quote. ` +
+          `Window sizes, fabric, motor and solar come from this sheet.` +
+          (notes.length ? `\n\n${notes.join('\n')}` : '') +
+          `\n\nYou can review everything before saving.`;
+        if (!window.confirm(message)) return;
+        if (rooms.length === 0) {
+          alert('This sheet has no windows to put on a quote.');
+          return;
+        }
+        setFormData({
+          clientName: quote.clientName || '',
+          clientPhone: quote.clientPhone || '',
+          // The quote's own location (not the sheet's address box) - the new
+          // version number is looked up by client name + location.
+          location: quote.location || '',
+          date: quote.date || new Date().toISOString().split('T')[0],
+          hub: sanitizeHub(quote.hub),
+          otherExpensesAmount: typeof quote.editedPrices?.otherExpenses?.amount === 'number' ? quote.editedPrices.otherExpenses.amount : 0,
+          otherExpensesLabel: quote.editedPrices?.otherExpenses?.label || '',
+          rooms
         });
+        setEditingQuote(quote);
+        setCurrentView('bulkQuote');
+        return;
+      }
 
-        const windowGroups = Array.from(groupsByKey.values()).map((entry, groupIdx) => ({
-          id: groupIdx + 1,
-          quantity: String(entry.count),
-          width: entry.row.width || '',
-          height: entry.row.height || '',
-          controlType: (entry.row.motor && entry.row.motor !== 'Manual') ? 'Motor' : 'Manual',
-          solar: entry.row.solar || false,
-          mount: 'Inside',
-          surchargeOverride: null
-        }));
+      const why = source.status === 'multiple'
+        ? 'This sheet combines several quotes, so it can\'t be turned into one of them.\n\n'
+        : source.status === 'missing'
+          ? 'The quote this sheet came from no longer exists.\n\n'
+          : '';
+      if (!window.confirm(`${why}Build a new quote from this sheet's windows (location, size, fabric, motor, solar)?\n\nYou'll still need to add the client's phone number and review pricing before generating the quote.`)) return;
 
-        // A quote room carries ONE fabricInput string - if every window in
-        // this room shares the same fabric, use it directly; if they
-        // differ, comma-join the distinct ones, matching how a mixed-
-        // fabric room is already typed manually on the quote side.
-        const fabrics = [...new Set(roomRows.map(r => (r.fabricNumber || '').trim()).filter(Boolean))];
-        const fabricInput = fabrics.join(', ');
-        // Re-detecting from the fabric (when there is one) is more
-        // reliable than trusting the row's own stored blindType, which -
-        // especially on an older sheet - could predate the fabric it's
-        // currently set to.
-        const fallbackBlindType = roomRows.find(r => r.blindType)?.blindType || 'Roller';
-        const blindTypes = fabricInput ? autoDetectBlindTypes(fabricInput, PRICING_DATA) : [fallbackBlindType];
-
-        return {
-          id: roomIdx + 1,
-          name: roomName,
-          fabricInput,
-          blindTypes,
-          windowGroups: windowGroups.length > 0 ? windowGroups : [{
-            id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null
-          }]
-        };
-      });
-
+      const { rooms } = buildRoomsFromSheet(sheet, null, detect);
       setFormData({
         clientName: sheet.clientNames?.[0] || '',
         clientPhone: '',
