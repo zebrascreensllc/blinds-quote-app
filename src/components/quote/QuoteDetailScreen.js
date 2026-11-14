@@ -553,6 +553,23 @@ export default function QuoteDetailScreen({
       }
     };
 
+    // "Mark as Ordered": the client said yes. Stored on this version as
+    // orderedAt; Statistics counts the whole quote (lineage) as an order.
+    const toggleOrdered = async () => {
+      if (isSavingVersion) return; // shares the save guard with Save All Changes
+      const undo = !!selectedQuote.orderedAt;
+      if (undo && !window.confirm('Mark this quote as NOT ordered?')) return;
+      const updated = { ...selectedQuote, orderedAt: undo ? null : new Date().toISOString() };
+      setIsSavingVersion(true);
+      try {
+        const result = await updateQuotes(quotes.map(q => (q.id === selectedQuote.id ? updated : q)));
+        if (!result.success) { alert(syncFailureMessage(result.errors)); return; }
+        setSelectedQuote(updated);
+      } finally {
+        setIsSavingVersion(false);
+      }
+    };
+
     // Motor stepper on a window card: moves ONE window of that size between Manual and
     // Motor (splitting/merging groups - see stepMotor). Pending until Save.
     const onStepMotor = (room, group, direction) => {
@@ -1069,6 +1086,7 @@ export default function QuoteDetailScreen({
             selectedQuote={selectedQuote}
             setCopiedId={setCopiedId}
             setSelectedQuote={setSelectedQuote}
+            toggleOrdered={toggleOrdered}
           />
         </div>
       </div>

@@ -119,6 +119,31 @@ export function validateMeasurementFormat(text) {
 }
 
 /**
+ * Rewrites a measurement typed in halves, quarters or eighths into the
+ * sixteenths this business sends the supplier: "70 1/2" -> "70 8/16",
+ * "3/4" -> "12/16", "34 7/8\"" -> "34 14/16". A trailing inch mark is
+ * dropped ("34\"" -> "34"). Anything else comes back unchanged, so a real
+ * typo (5/15, 1/3) is still caught by validateMeasurementFormat.
+ *
+ * Safe to run on every keystroke: 2, 4 and 8 can never be the start of
+ * "16", so a value is only rewritten once its denominator is complete.
+ */
+export function toSixteenths(text) {
+  if (typeof text !== 'string') return text;
+  const m = text.match(/^\s*(\d+\s+)?(\d+)\s*\/\s*(2|4|8)\s*(?:"|”|in|inch|inches)?\s*$/i);
+  if (m) {
+    const numerator = parseInt(m[2], 10);
+    const denominator = parseInt(m[3], 10);
+    if (numerator <= 0 || numerator >= denominator) return text;
+    const sixteenths = `${numerator * (16 / denominator)}/16`;
+    return m[1] ? `${m[1].trim()} ${sixteenths}` : sixteenths;
+  }
+  const inchMark = text.match(/^\s*(\d+(?:\s+\d+\s*\/\s*16)?)\s*(?:"|”)\s*$/);
+  if (inchMark) return inchMark[1];
+  return text;
+}
+
+/**
  * Derives a "room family" from a location name by stripping a trailing
  * number - "Living 1" / "Living 2" / "Living 3" (space before the number)
  * AND "bf1" / "bf2" / "master1" / "master4" (no space) all normalize to

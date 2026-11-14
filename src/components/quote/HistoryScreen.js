@@ -231,7 +231,10 @@ export default function HistoryScreen({
                   >
                     <div>
                       <p style={{ fontWeight: 'bold', color: '#fff', fontSize: '18px', marginBottom: '4px' }}>{clientName}</p>
-                      <p style={{ color: '#888', fontSize: '14px' }}>{groupedByClient[clientName].length} version(s)</p>
+                      <p style={{ color: '#888', fontSize: '14px' }}>
+                        {groupedByClient[clientName].length} version(s)
+                        {groupedByClient[clientName].some(q => q.orderedAt) && <span style={{ color: '#4ade80', fontWeight: 'bold' }}> • ✅ Ordered</span>}
+                      </p>
                     </div>
                     {expandedClients[clientName] ? <ChevronUp size={24} color="#d4af37" /> : <ChevronDown size={24} color="#d4af37" />}
                   </button>
@@ -259,7 +262,7 @@ export default function HistoryScreen({
                             style={{ flex: 1, textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', paddingLeft: '0' }}
                           >
                             <p style={{ color: '#d4af37', fontWeight: 'bold', fontSize: '14px', marginBottom: '2px' }}>{quote.quoteName}</p>
-                            <p style={{ color: '#888', fontSize: '12px' }}>{quote.date}</p>
+                            <p style={{ color: '#888', fontSize: '12px' }}>{quote.date}{quote.orderedAt && <span style={{ color: '#4ade80', fontWeight: 'bold' }}> • ✅ Ordered</span>}</p>
                           </button>
                           <button onClick={() => loadQuoteForEdit(quote)} style={{ padding: '6px', borderRadius: '4px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}>
                             <Edit2 size={16} />

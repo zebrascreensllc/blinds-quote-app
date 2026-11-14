@@ -6,6 +6,7 @@ import {
   MOUNT_OPTIONS,
   SOLAR_PANEL_OPTIONS,
   validateMeasurementFormat,
+  toSixteenths,
   getLocationLabel,
   getIncompleteFields,
   findRoomsWithMixedFabric,
@@ -328,7 +329,7 @@ export default function BulkEditorScreen({
                         <input
                           type="text"
                           value={row.width}
-                          onChange={(e) => updateRow(row.id, { width: e.target.value })}
+                          onChange={(e) => updateRow(row.id, { width: toSixteenths(e.target.value) })}
                           placeholder="e.g. 34 5/16"
                           style={{ ...inputStyle, border: !widthCheck.valid ? '1px solid #ef4444' : (showWidthWarning ? '1px solid #f59e0b' : inputStyle.border) }}
                         />
@@ -349,7 +350,7 @@ export default function BulkEditorScreen({
                         <input
                           type="text"
                           value={row.height}
-                          onChange={(e) => updateRow(row.id, { height: e.target.value })}
+                          onChange={(e) => updateRow(row.id, { height: toSixteenths(e.target.value) })}
                           placeholder="e.g. 75 13/16"
                           style={{ ...inputStyle, border: !heightCheck.valid ? '1px solid #ef4444' : (showHeightWarning ? '1px solid #f59e0b' : inputStyle.border) }}
                         />
