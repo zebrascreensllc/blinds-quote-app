@@ -78,6 +78,9 @@ export function buildInvoiceLineItems(quote) {
           width: group.width || '',
           height: group.height || '',
           motorSmart: group.controlType === 'Motor' ? 'Smart' : 'Manual',
+          // The exact type when a fabric is picked; otherwise every type
+          // the room is still choosing between ("Roller / Zebra").
+          blindType: fabricNumbers.length > 0 ? actualBlindType : (room.blindTypes || [actualBlindType]).join(' / '),
           // ✅ FIX: `!!group.solar` coerced away which panel/wire was
           // actually selected, collapsing it back down to a plain boolean -
           // exactly the "field exists, one consumer forgets to read it
@@ -118,8 +121,8 @@ const NO_BORDERS = {
   right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
 };
 
-const headerCell = (text) => new TableCell({
-  width: { size: 100, type: WidthType.PERCENTAGE },
+const headerCell = (text, widthDxa) => new TableCell({
+  width: widthDxa ? { size: widthDxa, type: WidthType.DXA } : { size: 100, type: WidthType.PERCENTAGE },
   borders: CELL_BORDERS,
   margins: CELL_MARGIN,
   shading: { type: ShadingType.SOLID, color: '2a2a2a', fill: '2a2a2a' },
@@ -127,18 +130,20 @@ const headerCell = (text) => new TableCell({
   children: [new Paragraph({ children: [new TextRun({ text, bold: true, size: 20, color: 'FFFFFF' })] })]
 });
 
-const bodyCell = (text, { align = AlignmentType.LEFT, bold = false } = {}) => new TableCell({
-  width: { size: 100, type: WidthType.PERCENTAGE },
+const bodyCell = (text, { align = AlignmentType.LEFT, bold = false, widthDxa } = {}) => new TableCell({
+  width: widthDxa ? { size: widthDxa, type: WidthType.DXA } : { size: 100, type: WidthType.PERCENTAGE },
   borders: CELL_BORDERS,
   margins: CELL_MARGIN,
   verticalAlign: VerticalAlign.CENTER,
   children: [new Paragraph({ alignment: align, children: [new TextRun({ text: String(text), bold, size: 20 })] })]
 });
 
-const summaryRow = (label, value, { bold = false, valueColor = '000000' } = {}) => new TableRow({
+// A totals row: the label spans every column but the last, the value sits
+// under the last column - works for any number of chosen columns (>= 2).
+const summaryRow = (label, value, colCount, { bold = false, valueColor = '000000' } = {}) => new TableRow({
   children: [
     new TableCell({
-      columnSpan: 6,
+      columnSpan: colCount - 1,
       borders: CELL_BORDERS,
       margins: CELL_MARGIN,
       children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: label, bold, size: 20 })] })]
@@ -151,12 +156,11 @@ const summaryRow = (label, value, { bold = false, valueColor = '000000' } = {}) 
   ]
 });
 
-const bulletParagraph = (text) => new Paragraph({ bullet: { level: 0 }, spacing: { after: 80 }, children: [new TextRun({ text, size: 20 })] });
+const TABLE_WIDTH_DXA = 10800; // 8.5in page - 2 x 0.5in margins
 
-async function loadLogoBytes() {
-  const response = await fetch(zebraLogoUrl);
-  return response.arrayBuffer();
-}
+const DOCX_ALIGN = { left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT };
+
+const bulletParagraph = (text) => new Paragraph({ bullet: { level: 0 }, spacing: { after: 80 }, children: [new TextRun({ text, size: 20 })] });
 
 /**
  * Builds the invoice number + line for record-keeping - there's no
@@ -170,16 +174,6 @@ function buildInvoiceNumber(quote) {
   return `INV-${datePart}-${idTail}`;
 }
 
-/**
- * Generates the invoice .docx as a Blob. advanceAmount/discountAmount are
- * plain numbers (0 if not applicable) - the caller (QuoteDetailScreen)
- * collects those before calling this.
- */
-/**
- * Builds the docx.Document object (not yet packed to a file) - split out
- * from generateInvoiceDocx so it can be exercised directly in a Node test
- * with real logo bytes from disk, without needing the browser's fetch API.
- */
 /**
  * Cost math shared by the invoice and the price breakdown Excel - keeping
  * this in one place means the two can never disagree on Motor/Solar/Hub/
@@ -218,12 +212,124 @@ export function computeInvoiceTotals(quote, items, { advanceAmount = 0, discount
   };
 }
 
-export function buildInvoiceDocument(quote, { advanceAmount = 0, discountAmount = 0 } = {}, logoBytes) {
+// ---- invoice table: the owner picks which columns appear ----------------
+
+/**
+ * Every column the line-item table can show, in display order. The owner
+ * ticks which ones they want each time they create an invoice; the Word
+ * and the PDF invoice are both built from buildInvoiceModel() below, so the
+ * two formats always show the same columns, rows and totals.
+ */
+export const INVOICE_COLUMNS = [
+  { key: 'itemNo', label: 'Item No', align: 'center', weight: 0.9 },
+  { key: 'location', label: 'LOCATION', align: 'left', weight: 2.2 },
+  { key: 'count', label: 'Count', align: 'center', weight: 0.8 },
+  { key: 'width', label: 'Width (Inches)', align: 'center', weight: 1.1 },
+  { key: 'height', label: 'Height (Inches)', align: 'center', weight: 1.1 },
+  { key: 'blindType', label: 'Blind Type', align: 'center', weight: 1.3 },
+  { key: 'motorSmart', label: 'Manual/Smart', align: 'center', weight: 1.4 },
+  { key: 'unitPrice', label: 'UNIT PRICE', align: 'right', weight: 1.4 }
+];
+
+// Used the first time (before the owner has made a choice on this phone):
+// the columns of the business's reference invoice.
+export const DEFAULT_INVOICE_COLUMN_KEYS = ['itemNo', 'location', 'count', 'width', 'height', 'motorSmart', 'unitPrice'];
+
+/**
+ * Turns any saved/passed column choice into a safe, ordered list of known
+ * column keys. Unknown keys are dropped, order always follows
+ * INVOICE_COLUMNS, and anything that leaves fewer than 2 columns (the
+ * totals rows need a label cell AND a value cell) falls back to the
+ * default set, so a bad saved choice can never produce a broken table.
+ */
+export function normalizeInvoiceColumns(keys) {
+  const wanted = new Set(Array.isArray(keys) ? keys : []);
+  const cleaned = INVOICE_COLUMNS.filter(c => wanted.has(c.key)).map(c => c.key);
+  return cleaned.length >= 2 ? cleaned : [...DEFAULT_INVOICE_COLUMN_KEYS];
+}
+
+const blankIfMissing = (v) => (v === null || v === undefined ? '' : String(v).trim());
+
+function invoiceCellText(key, it, idx) {
+  switch (key) {
+    case 'itemNo': return String(idx + 1);
+    case 'location': return it.locationLabel;
+    case 'count': return '1';
+    case 'width': return blankIfMissing(it.width);
+    case 'height': return blankIfMissing(it.height);
+    case 'blindType': return blankIfMissing(it.blindType);
+    case 'motorSmart': return it.motorSmart === 'Smart' && it.solar ? 'Smart+Solar' : it.motorSmart;
+    case 'unitPrice': return `$${formatMoney(it.unitPrice)}`;
+    default: return '';
+  }
+}
+
+/**
+ * Everything both invoice formats print, as plain data: header facts, the
+ * chosen columns, one row of cell text per window, and the totals rows.
+ * advanceAmount/discountAmount are plain numbers (0 if not applicable).
+ */
+export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0, columns } = {}) {
   const { items } = buildInvoiceLineItems(quote);
   const {
     motorCount, solarCount, effectiveMotorCost, effectiveSolarCost, motorGrandTotal, solarGrandTotal, hubTotal,
     total, taxRate, salesTax, otherExpensesAmount, otherExpensesLabel, grandTotal, remainingBalance
   } = computeInvoiceTotals(quote, items, { advanceAmount, discountAmount });
+
+  const columnKeys = normalizeInvoiceColumns(columns || DEFAULT_INVOICE_COLUMN_KEYS);
+  const cols = columnKeys.map(k => INVOICE_COLUMNS.find(c => c.key === k));
+  const rows = items.map((it, idx) => cols.map(c => invoiceCellText(c.key, it, idx)));
+
+  const summary = [];
+  if (motorCount > 0) summary.push({ label: `Motor windows ${motorCount}*$${formatMoney(effectiveMotorCost)}`, value: `$${formatMoney(motorGrandTotal)}` });
+  if (solarCount > 0) summary.push({ label: `Solar windows ${solarCount}*$${formatMoney(effectiveSolarCost)}`, value: `$${formatMoney(solarGrandTotal)}` });
+  if (quote.hub?.included) {
+    const hubLabel = quote.hub.quantity > 1 ? `Hub ${quote.hub.quantity}*$${formatMoney(quote.hub.price)}` : 'Hub';
+    summary.push({ label: hubLabel, value: hubTotal === 0 ? 'Complimentary' : `$${formatMoney(hubTotal)}` });
+  }
+  summary.push({ label: 'Total', value: `$${formatMoney(total)}`, bold: true });
+  summary.push({ label: `Sales Tax ${formatMoney(taxRate * 100)}%`, value: `$${formatMoney(salesTax)}` });
+  if (discountAmount > 0) summary.push({ label: 'Discount', value: `-$${formatMoney(discountAmount)}`, color: 'CC0000' });
+  if (otherExpensesAmount > 0) summary.push({ label: otherExpensesLabel, value: `$${formatMoney(otherExpensesAmount)}` });
+  summary.push({ label: 'Grand Total', value: `$${formatMoney(grandTotal)}`, bold: true });
+  summary.push({ label: 'Advance Payment', value: `$${formatMoney(advanceAmount)}`, bold: true, color: '0e7490' });
+  summary.push({ label: 'Remaining Balance', value: `$${formatMoney(remainingBalance)}`, bold: true, color: '0e7490' });
+
+  return {
+    invoiceNumber: buildInvoiceNumber(quote),
+    dateText: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+    billTo: [quote.clientName || '', quote.location || '', quote.clientPhone || ''],
+    columns: cols,
+    rows,
+    summary,
+    grandTotal,
+    remainingBalance
+  };
+}
+
+/** Safe download file name for an invoice of this quote. */
+export function invoiceFileName(quote, ext) {
+  return `${(quote.quoteName || 'quote').replace(/[^a-z0-9]/gi, '_')}_invoice.${ext}`;
+}
+
+export async function loadLogoBytes() {
+  const response = await fetch(zebraLogoUrl);
+  if (!response.ok) throw new Error(`Logo request failed (${response.status})`);
+  return response.arrayBuffer();
+}
+
+/**
+ * Builds the docx.Document object (not yet packed to a file) - split out
+ * from generateInvoiceDocx so it can be exercised directly in a Node test
+ * with real logo bytes from disk, without needing the browser's fetch API.
+ */
+export function buildInvoiceDocument(quote, options = {}, logoBytes) {
+  const model = buildInvoiceModel(quote, options);
+  const colCount = model.columns.length;
+  // Same relative column widths as the PDF (Location wider, Count narrow),
+  // in twentieths of a point across the 7.5in printable width.
+  const totalWeight = model.columns.reduce((s, c) => s + c.weight, 0);
+  const widthsDxa = model.columns.map(c => Math.round((c.weight / totalWeight) * TABLE_WIDTH_DXA));
 
   const headerTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -247,8 +353,8 @@ export function buildInvoiceDocument(quote, { advanceAmount = 0, discountAmount 
             width: { size: 40, type: WidthType.PERCENTAGE },
             borders: NO_BORDERS,
             children: [
-              new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `Invoice #: ${buildInvoiceNumber(quote)}`, bold: true, size: 20 })] }),
-              new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 60 }, children: [new TextRun({ text: `Date: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, bold: true, size: 20 })] })
+              new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `Invoice #: ${model.invoiceNumber}`, bold: true, size: 20 })] }),
+              new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 60 }, children: [new TextRun({ text: `Date: ${model.dateText}`, bold: true, size: 20 })] })
             ]
           })
         ]
@@ -259,9 +365,7 @@ export function buildInvoiceDocument(quote, { advanceAmount = 0, discountAmount 
             borders: NO_BORDERS,
             children: [
               new Paragraph({ spacing: { before: 200 }, children: [new TextRun({ text: 'Bill To:', bold: true, size: 20 })] }),
-              new Paragraph({ children: [new TextRun({ text: quote.clientName || '', bold: true, size: 20 })] }),
-              new Paragraph({ children: [new TextRun({ text: quote.location || '', size: 20 })] }),
-              new Paragraph({ children: [new TextRun({ text: quote.clientPhone || '', size: 20 })] })
+              ...model.billTo.map((line, i) => new Paragraph({ children: [new TextRun({ text: line, bold: i === 0, size: 20 })] }))
             ]
           }),
           new TableCell({ borders: NO_BORDERS, children: [new Paragraph({ children: [] })] })
@@ -270,43 +374,17 @@ export function buildInvoiceDocument(quote, { advanceAmount = 0, discountAmount 
     ]
   });
 
-  const itemRows = items.map((it, idx) => new TableRow({
-    children: [
-      bodyCell(idx + 1, { align: AlignmentType.CENTER }),
-      bodyCell(it.locationLabel),
-      bodyCell(1, { align: AlignmentType.CENTER }),
-      bodyCell('', { align: AlignmentType.CENTER }),
-      bodyCell('', { align: AlignmentType.CENTER }),
-      bodyCell(it.motorSmart, { align: AlignmentType.CENTER }),
-      bodyCell(`$${formatMoney(it.unitPrice)}`, { align: AlignmentType.RIGHT })
-    ]
+  const itemRows = model.rows.map(cells => new TableRow({
+    children: cells.map((text, i) => bodyCell(text, { align: DOCX_ALIGN[model.columns[i].align], widthDxa: widthsDxa[i] }))
   }));
 
-  const summaryRows = [];
-  if (motorCount > 0) summaryRows.push(summaryRow(`Motor windows ${motorCount}*$${formatMoney(effectiveMotorCost)}`, `$${formatMoney(motorGrandTotal)}`));
-  if (solarCount > 0) summaryRows.push(summaryRow(`Solar windows ${solarCount}*$${formatMoney(effectiveSolarCost)}`, `$${formatMoney(solarGrandTotal)}`));
-  if (quote.hub?.included) {
-    const hubLabel = quote.hub.quantity > 1 ? `Hub ${quote.hub.quantity}*$${formatMoney(quote.hub.price)}` : 'Hub';
-    summaryRows.push(summaryRow(hubLabel, hubTotal === 0 ? 'Complimentary' : `$${formatMoney(hubTotal)}`));
-  }
-  summaryRows.push(summaryRow('Total', `$${formatMoney(total)}`, { bold: true }));
-  summaryRows.push(summaryRow(`Sales Tax ${formatMoney(taxRate * 100)}%`, `$${formatMoney(salesTax)}`));
-  if (discountAmount > 0) summaryRows.push(summaryRow('Discount', `-$${formatMoney(discountAmount)}`, { valueColor: 'CC0000' }));
-  if (otherExpensesAmount > 0) summaryRows.push(summaryRow(otherExpensesLabel, `$${formatMoney(otherExpensesAmount)}`));
-  summaryRows.push(summaryRow('Grand Total', `$${formatMoney(grandTotal)}`, { bold: true }));
-  // ✅ NEW: the two rows this feature was specifically requested for.
-  summaryRows.push(summaryRow('Advance Payment', `$${formatMoney(advanceAmount)}`, { bold: true, valueColor: '0e7490' }));
-  summaryRows.push(summaryRow('Remaining Balance', `$${formatMoney(remainingBalance)}`, { bold: true, valueColor: '0e7490' }));
+  const summaryRows = model.summary.map(s => summaryRow(s.label, s.value, colCount, { bold: !!s.bold, valueColor: s.color || '000000' }));
 
   const itemsTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: { size: TABLE_WIDTH_DXA, type: WidthType.DXA },
+    columnWidths: widthsDxa,
     rows: [
-      new TableRow({
-        children: [
-          headerCell('Item No'), headerCell('LOCATION'), headerCell('Count'),
-          headerCell('Width (Inches)'), headerCell('Height (Inches)'), headerCell('Motor/Smart'), headerCell('UNIT PRICE')
-        ]
-      }),
+      new TableRow({ tableHeader: true, children: model.columns.map((c, i) => headerCell(c.label, widthsDxa[i])) }),
       ...itemRows,
       ...summaryRows
     ]
@@ -340,9 +418,7 @@ export function buildInvoiceDocument(quote, { advanceAmount = 0, discountAmount 
 /**
  * Generates the invoice .docx as a Blob for the browser to download -
  * fetches the logo bytes, then delegates the actual document assembly to
- * buildInvoiceDocument. advanceAmount/discountAmount are plain numbers (0
- * if not applicable) - the caller (QuoteDetailScreen) collects those
- * before calling this.
+ * buildInvoiceDocument. options: { advanceAmount, discountAmount, columns }.
  */
 export async function generateInvoiceDocx(quote, options = {}) {
   const logoBytes = await loadLogoBytes();
