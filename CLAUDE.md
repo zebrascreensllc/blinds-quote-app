@@ -122,6 +122,8 @@ set after outside reviews). Add to this list when the owner asks for something n
   created and check each (see rule 7 and the case study).
 - **Verify on what the owner sees.** A fix isn't done because it was pushed: check the screen and data path the owner
   uses. If the owner's screenshot looks old, suspect an old deployment or cached page before suspecting the code.
+  The app now shows a "New version ready - Update" bar (`components/UpdateBanner.js`) when the live build differs from
+  the one running - on iPhone a home-screen app often resumes the old copy even after being "closed" (2026-11-14).
 - **Validation prompts, in the owner's words** (set in the groceries project, apply here too): "test various scenarios...
   if you were the user, what would you expect"; "review again step by step at your maximum efforts, both best and worst
   scenarios... as if using it daily"; "run every prompt and test scenario on the final main" (that is `/full-review`);
