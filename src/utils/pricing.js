@@ -533,16 +533,8 @@ export const computeQuoteFinancials = (quote) => {
 // Get next version number
 // ✅ DEFENSIVE: quotes defaults to [] so a missing argument can never crash quote creation.
 // Also parses versions safely (strips any non-digits) and ignores unparseable ones.
-export const getNextVersion = (clientName, location, quotes = []) => {
-  const list = Array.isArray(quotes) ? quotes : [];
-  const clientQuotes = list.filter(q => q && q.clientName === clientName && q.location === location);
-  if (clientQuotes.length === 0) return 1;
-  const versions = clientQuotes
-    .map(q => parseInt(String(q.version || '').replace(/[^0-9]/g, ''), 10))
-    .filter(n => !isNaN(n));
-  if (versions.length === 0) return 1;
-  return Math.max(...versions) + 1;
-};
+// getNextVersion moved to utils/quoteLineage.js (getNextVersionNumber): the
+// next version follows the quote's lineage, not just its client name.
 
 // ---- "Roller vs Zebra" options: per-blind-type pricing for undecided rooms ----
 

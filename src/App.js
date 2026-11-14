@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 import { PRICING_DATA } from './data/pricingData';
 import { getPricingSnapshot, DEFAULT_HUB } from './utils/constants';
-import { getQuoteNamePrefix, getNextVersion, autoDetectBlindTypes } from './utils/pricing';
+import { getQuoteNamePrefix, autoDetectBlindTypes } from './utils/pricing';
+import { getNextVersionNumber, findRestartedVersionChains } from './utils/quoteLineage';
 import { isRangeOverride } from './utils/formatters';
 import { pruneRooms, remapPriceKeysMulti, isBlankGroup } from './utils/quoteGroups';
 import { findSheetSourceQuote, buildRoomsFromSheet } from './utils/sheetToQuote';
@@ -504,6 +505,27 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quotes, hasLoaded]);
 
+  // ✅ REPAIR (2026-11-14): before this fix, correcting a client's name on an
+  // edit (Harshita v7 -> Harshitha) restarted the version count at v1. Once
+  // the quotes load, any such restarted chain is renumbered to continue its
+  // own history (that v1 becomes v8). Only the version label changes - never
+  // prices, rooms or dates. Runs by itself and is a no-op once fixed, so it
+  // is safe on several devices at once (they all compute the same result).
+  const versionRepairRunning = useRef(false);
+  useEffect(() => {
+    if (!hasLoaded || quotes.length === 0 || versionRepairRunning.current) return;
+    const repaired = findRestartedVersionChains(quotes);
+    if (repaired.length === 0) return;
+    versionRepairRunning.current = true;
+    const byId = new Map(repaired.map(q => [q.id, q]));
+    updateQuotes(quotes.map(q => byId.get(q.id) || q))
+      .then(result => { if (!result.success) console.error('Version repair failed:', result.errors); })
+      .catch(err => console.error('Version repair failed:', err))
+      .finally(() => { versionRepairRunning.current = false; });
+    // Same reasoning as the Trash sweep above: only reacts to quotes/hasLoaded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quotes, hasLoaded]);
+
   // ✅ SAFETY: restore the pre-delete snapshot
   const undoLastDelete = () => {
     if (!undoBuffer) return;
@@ -714,7 +736,11 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     
     // ✅ BUGFIX: `quotes` was missing here, which threw a TypeError and silently
     // broke quote creation entirely. Always pass the quotes array.
-    const newVersion = `v${getNextVersion(formData.clientName, formData.location, quotes)}`;
+    // ✅ BUGFIX (2026-11-14): an edit continues its OWN quote's version chain
+    // (by lineageId), not whatever the typed name + address happens to have -
+    // correcting "Harshita" to "Harshitha" on v7 used to save v1, not v8.
+    const editingLineageId = editingQuote ? (editingQuote.lineageId || editingQuote.id) : null;
+    const newVersion = `v${getNextVersionNumber(formData.clientName, formData.location, quotes, editingLineageId)}`;
     
     // Create quote name based on fabrics
     const quoteName = `${formData.clientName}-${formData.location}-${quoteNamePrefix}-quote-${newVersion}`;
@@ -994,8 +1020,8 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         setFormData({
           clientName: quote.clientName || '',
           clientPhone: quote.clientPhone || '',
-          // The quote's own location (not the sheet's address box) - the new
-          // version number is looked up by client name + location.
+          // The quote's own location (not the sheet's address box) - keeps the
+          // quote's address; the new version number follows the quote's lineage.
           location: quote.location || '',
           date: quote.date || new Date().toISOString().split('T')[0],
           hub: sanitizeHub(quote.hub),

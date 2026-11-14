@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Search, Edit2, ChevronDown, ChevronUp, RotateCcw, Trash2 } from 'lucide-react';
+import { historyGroupKeys } from '../../utils/quoteLineage';
 
 const daysRemaining = (trashedAt) => {
   const elapsedMs = Date.now() - new Date(trashedAt).getTime();
@@ -46,8 +47,12 @@ export default function HistoryScreen({
   const archivedQuotes = quotes.filter(q => q.archived && !q.trashedAt);
 
   const groupedByClient = {};
+  // Every version of one quote stays in one group under its LATEST name +
+  // address, so correcting a client's name (Harshita -> Harshitha) doesn't
+  // split the history into two clients.
+  const groupKeyById = historyGroupKeys(activeQuotes);
   activeQuotes.forEach(quote => {
-    const clientKey = `${quote.clientName} - ${quote.location}`;
+    const clientKey = groupKeyById.get(quote.id) || `${quote.clientName} - ${quote.location}`;
     if (!groupedByClient[clientKey]) {
       groupedByClient[clientKey] = [];
     }
@@ -89,7 +94,13 @@ export default function HistoryScreen({
     return isNaN(v) ? max : Math.max(max, v);
   }, 0);
   const filteredClients = Object.keys(groupedByClient)
-    .filter(client => client.toLowerCase().includes(searchQuery.toLowerCase()))
+    // Matches the group's name OR any older name a version had (a client
+    // whose name was corrected is still found by the old spelling).
+    .filter(client => {
+      const qText = searchQuery.toLowerCase();
+      return client.toLowerCase().includes(qText)
+        || groupedByClient[client].some(q => `${q.clientName} - ${q.location}`.toLowerCase().includes(qText));
+    })
     .sort((a, b) => {
       const latestA = latestValidTime(groupedByClient[a]);
       const latestB = latestValidTime(groupedByClient[b]);

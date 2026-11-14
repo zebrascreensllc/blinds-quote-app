@@ -4,6 +4,7 @@ import { BUSINESS_NAME, SALES_TAX_RATE, DEFAULT_HUB, getPricingSnapshot } from '
 import { formatMoney, formatPrice, isRangeOverride, parseUnits } from '../../utils/formatters';
 import { isFabricValid, calculateGroupQuote, estimateBlindTypes, estimateOptionTotals, optionGrandTotals, isOptionRoom, computeQuoteFinancials, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics, findClosestFabricMatch } from '../../utils/pricing';
 import { pruneRooms, remapPriceKeys, buildEffectiveRooms, stepMotor } from '../../utils/quoteGroups';
+import { nextVersionInLineage } from '../../utils/quoteLineage';
 import CurrentPricingSection from './CurrentPricingSection';
 import PricingDetailsSection from './PricingDetailsSection';
 import QuoteActionButtons from './QuoteActionButtons';
@@ -527,7 +528,9 @@ export default function QuoteDetailScreen({
       const before = computeQuoteFinancials(selectedQuote);
       const after = computeQuoteFinancials({ ...selectedQuote, pricing: upgradedPricing });
       const sameNow = Math.abs(before.revenueSubtotal - after.revenueSubtotal) < 0.005 && Math.abs(before.revenueSubtotalMax - after.revenueSubtotalMax) < 0.005;
-      const newVersionString = `v${parseVersion(selectedQuote.version) + 1}`;
+      // Next number in this quote's whole history (never a duplicate when
+      // saving from an older version, or after the client's name was corrected).
+      const newVersionString = `v${Math.max(parseVersion(selectedQuote.version) + 1, nextVersionInLineage(quotes, quoteLineageId))}`;
       const stale = isViewingStaleVersion
         ? `\n\nNote: a newer version (v${newestVersionElsewhere}) of this quote already exists - this makes ${newVersionString} from THIS older data.`
         : '';
@@ -984,7 +987,9 @@ export default function QuoteDetailScreen({
                 }
 
                 const versionNumber = parseVersion(selectedQuote.version);
-                const newVersionNumber = versionNumber + 1;
+                // Next number in this quote's whole history: saving from an older
+                // v3 while v6 exists makes v7 (it used to make a second v4).
+                const newVersionNumber = Math.max(versionNumber + 1, nextVersionInLineage(quotes, quoteLineageId));
                 const newVersionString = `v${newVersionNumber}`;
 
                 // ✅ Multi-device conflict guard - reuses the same live check
