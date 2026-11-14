@@ -121,6 +121,10 @@ const NO_BORDERS = {
   right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
 };
 
+// Light yellow fill on solar windows' rows, plus a one-line key under the table.
+export const SOLAR_ROW_FILL = 'FFF2CC';
+export const SOLAR_ROW_NOTE = 'Highlighted rows: windows with solar panels';
+
 const headerCell = (text, widthDxa) => new TableCell({
   width: widthDxa ? { size: widthDxa, type: WidthType.DXA } : { size: 100, type: WidthType.PERCENTAGE },
   borders: CELL_BORDERS,
@@ -130,10 +134,11 @@ const headerCell = (text, widthDxa) => new TableCell({
   children: [new Paragraph({ children: [new TextRun({ text, bold: true, size: 20, color: 'FFFFFF' })] })]
 });
 
-const bodyCell = (text, { align = AlignmentType.LEFT, bold = false, widthDxa } = {}) => new TableCell({
+const bodyCell = (text, { align = AlignmentType.LEFT, bold = false, widthDxa, fill } = {}) => new TableCell({
   width: widthDxa ? { size: widthDxa, type: WidthType.DXA } : { size: 100, type: WidthType.PERCENTAGE },
   borders: CELL_BORDERS,
   margins: CELL_MARGIN,
+  ...(fill ? { shading: { type: ShadingType.CLEAR, color: 'auto', fill } } : {}),
   verticalAlign: VerticalAlign.CENTER,
   children: [new Paragraph({ alignment: align, children: [new TextRun({ text: String(text), bold, size: 20 })] })]
 });
@@ -261,7 +266,7 @@ function invoiceCellText(key, it, idx) {
     case 'width': return blankIfMissing(it.width);
     case 'height': return blankIfMissing(it.height);
     case 'blindType': return blankIfMissing(it.blindType);
-    case 'motorSmart': return it.motorSmart === 'Smart' && it.solar ? 'Smart+Solar' : it.motorSmart;
+    case 'motorSmart': return it.solar ? `${it.motorSmart}+Solar` : it.motorSmart;
     case 'unitPrice': return `$${formatMoney(it.unitPrice)}`;
     default: return '';
   }
@@ -295,6 +300,9 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
   const columnKeys = normalizeInvoiceColumns(columns || DEFAULT_INVOICE_COLUMN_KEYS);
   const cols = columnKeys.map(k => INVOICE_COLUMNS.find(c => c.key === k));
   const rows = items.map((it, idx) => cols.map(c => invoiceCellText(c.key, it, idx)));
+  // Solar windows are highlighted (whole row) so they're easy to spot,
+  // whichever columns were chosen (owner's request, 2026-11-14).
+  const solarRows = items.map(it => !!it.solar);
 
   const summary = [];
   const showsUnitPrice = columnKeys.includes('unitPrice');
@@ -306,7 +314,7 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
     summary.push({ label: 'Grand Total', value: `$${formatMoney(shortGrand)}`, bold: true });
     summary.push({ label: 'Advance Payment', value: `$${formatMoney(advanceAmount)}`, bold: true, color: '0e7490' });
     summary.push({ label: 'Remaining Balance', value: `$${formatMoney(shortGrand - advanceAmount)}`, bold: true, color: '0e7490' });
-    return finishModel(quote, cols, rows, summary, grandTotal, shortGrand, shortGrand - advanceAmount);
+    return finishModel(quote, cols, rows, solarRows, summary, grandTotal, shortGrand, shortGrand - advanceAmount);
   }
   if (motorCount > 0) summary.push({ label: `Motor windows ${motorCount}*$${formatMoney(effectiveMotorCost)}`, value: `$${formatMoney(motorGrandTotal)}` });
   if (solarCount > 0) summary.push({ label: `Solar windows ${solarCount}*$${formatMoney(effectiveSolarCost)}`, value: `$${formatMoney(solarGrandTotal)}` });
@@ -332,10 +340,10 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
   summary.push({ label: 'Advance Payment', value: `$${formatMoney(advanceAmount)}`, bold: true, color: '0e7490' });
   summary.push({ label: 'Remaining Balance', value: `$${formatMoney(finalRemaining)}`, bold: true, color: '0e7490' });
 
-  return finishModel(quote, cols, rows, summary, grandTotal, finalGrand, finalRemaining);
+  return finishModel(quote, cols, rows, solarRows, summary, grandTotal, finalGrand, finalRemaining);
 }
 
-function finishModel(quote, cols, rows, summary, calculatedGrandTotal, grandTotal, remainingBalance) {
+function finishModel(quote, cols, rows, solarRows, summary, calculatedGrandTotal, grandTotal, remainingBalance) {
   return {
     invoiceNumber: buildInvoiceNumber(quote),
     dateText: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
@@ -346,6 +354,8 @@ function finishModel(quote, cols, rows, summary, calculatedGrandTotal, grandTota
       .filter(l => l.value),
     columns: cols,
     rows,
+    solarRows,
+    hasSolarRows: solarRows.some(Boolean),
     summary,
     calculatedGrandTotal,
     grandTotal,
@@ -427,8 +437,8 @@ export function buildInvoiceDocument(quote, options = {}, logoBytes) {
     ]
   });
 
-  const itemRows = model.rows.map(cells => new TableRow({
-    children: cells.map((text, i) => bodyCell(text, { align: DOCX_ALIGN[model.columns[i].align], widthDxa: widthsDxa[i] }))
+  const itemRows = model.rows.map((cells, r) => new TableRow({
+    children: cells.map((text, i) => bodyCell(text, { align: DOCX_ALIGN[model.columns[i].align], widthDxa: widthsDxa[i], fill: model.solarRows[r] ? SOLAR_ROW_FILL : undefined }))
   }));
 
   const summaryRows = model.summary.map((s, i) => summaryRow(s.label, s.value, colCount, { bold: !!s.bold, valueColor: s.color || '000000', keepNext: i < model.summary.length - 1 }));
@@ -462,6 +472,10 @@ export function buildInvoiceDocument(quote, options = {}, logoBytes) {
         headerTable,
         new Paragraph({ spacing: { before: 200, after: 200 }, children: [] }),
         itemsTable,
+        ...(model.hasSolarRows ? [new Paragraph({ spacing: { before: 120 }, children: [
+          new TextRun({ text: '      ', size: 18, shading: { type: ShadingType.CLEAR, color: 'auto', fill: SOLAR_ROW_FILL } }),
+          new TextRun({ text: `  ${SOLAR_ROW_NOTE}`, italics: true, size: 18 })
+        ] })] : []),
         ...termsParagraphs
       ]
     }]
