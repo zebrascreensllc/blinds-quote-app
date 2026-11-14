@@ -118,3 +118,20 @@ describe('measurements are checked against windows quoted at the same size', () 
     expect(ids(findRoomSizeOutliers([...a, ...b], 'width'))).toEqual([]);
   });
 });
+
+describe('toSixteenths (halves/quarters/eighths typed on site)', () => {
+  const { toSixteenths, validateMeasurementFormat } = require('./measurementUtils');
+  test.each([
+    ['70 1/2', '70 8/16'], ['70 1/4', '70 4/16'], ['34 7/8', '34 14/16'], ['3/4', '12/16'],
+    ['34 7/8"', '34 14/16'], ['34"', '34'], ['34 5/16"', '34 5/16'], ['72 3/8 in', '72 6/16'],
+    ['70  1 / 2 ', '70 8/16'], ['70 2/4', '70 8/16']
+  ])('%s -> %s', (input, expected) => {
+    expect(toSixteenths(input)).toBe(expected);
+    expect(validateMeasurementFormat(toSixteenths(input)).valid).toBe(true);
+  });
+  test.each(['70 1/3', '70 5/15', '70 8/8', '70 0/8', '70 1/', '70 1/1', '70 1/16', '', 'abc', '70.5', '1/2/3'])(
+    'leaves %s unchanged', (input) => { expect(toSixteenths(input)).toBe(input); });
+  test('typing 1/16 one key at a time is never rewritten early', () => {
+    ['7', '70', '70 ', '70 1', '70 1/', '70 1/1', '70 1/16'].forEach(t => expect(toSixteenths(t)).toBe(t));
+  });
+});

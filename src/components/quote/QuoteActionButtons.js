@@ -24,7 +24,8 @@ export default function QuoteActionButtons({
   safeDeleteQuotes,
   selectedQuote,
   setCopiedId,
-  setSelectedQuote
+  setSelectedQuote,
+  toggleOrdered
 }) {
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
   return (
@@ -32,6 +33,16 @@ export default function QuoteActionButtons({
       {showInvoiceDialog && (
         <InvoiceDialog quote={selectedQuote} grandMin={grandMin} onClose={() => setShowInvoiceDialog(false)} />
       )}
+      {/* The client said yes: counts as an order in Statistics. */}
+      <button
+        onClick={toggleOrdered}
+        style={{ width: '100%', padding: '12px', marginBottom: '12px', borderRadius: '8px', fontWeight: 'bold', fontSize: '14px', background: selectedQuote.orderedAt ? 'transparent' : '#15803d', color: selectedQuote.orderedAt ? '#4ade80' : '#fff', border: selectedQuote.orderedAt ? '1px solid #15803d' : 'none', cursor: 'pointer' }}
+      >
+        {selectedQuote.orderedAt
+          ? `✅ Ordered on ${new Date(selectedQuote.orderedAt).toLocaleDateString()} (tap to undo)`
+          : '✅ Mark as Ordered (client said yes)'}
+      </button>
+
       <button
         onClick={async () => {
           // Invoice (PDF or Word) matching the business's reference
@@ -68,7 +79,17 @@ export default function QuoteActionButtons({
           // (prefillMeasurements: true), since this is a fast
           // confirmation pass, not precise measurements.
           try {
-            const rows = expandQuoteIntoRows(selectedQuote, { prefillMeasurements: true });
+            // A room still choosing between blind types used to go out as
+            // just its first type ("Roller"), so the supplier priced only
+            // that. Show every type it is choosing between instead, and say so.
+            const optionRooms = (selectedQuote.rooms || []).filter(isOptionRoom);
+            if (optionRooms.length > 0) {
+              const list = optionRooms.map(r => `• ${r.name || 'Unnamed room'}: ${[...new Set(r.blindTypes)].join(' or ')}`).join('\n');
+              if (!window.confirm(`These rooms haven't picked a blind type yet:\n\n${list}\n\nThe supplier file will show both types (e.g. "Roller/Zebra") for them. Use "Client chose..." on the quote first if the client has decided.\n\nDownload anyway?`)) return;
+            }
+            const optionTypesByRoom = new Map(optionRooms.map(r => [r.id, [...new Set(r.blindTypes)].join('/')]));
+            const rows = expandQuoteIntoRows(selectedQuote, { prefillMeasurements: true })
+              .map(r => (optionTypesByRoom.has(r.sourceRoomId) ? { ...r, blindType: optionTypesByRoom.get(r.sourceRoomId) } : r));
             const buffer = await sheetToExcelBuffer({ address: selectedQuote.location }, rows);
             const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
             const url = URL.createObjectURL(blob);

@@ -49,7 +49,11 @@ export default function StatisticsScreen({ quotes, setCurrentView, uid }) {
     });
     return () => unsubscribe();
   }, [uid]);
-  const confirmedLineageIds = new Set(analysisEntries.map(e => e.quoteLineageId).filter(Boolean));
+  const confirmedLineageIds = new Set([
+    ...analysisEntries.map(e => e.quoteLineageId).filter(Boolean),
+    // "Mark as Ordered" on any (non-trashed) version counts the whole quote.
+    ...quotes.filter(q => q.orderedAt && !q.trashedAt).map(q => q.lineageId || q.id)
+  ]);
 
   const activeQuotes = quotes.filter(q => !q.archived && !q.trashedAt);
   // Only the latest version of each quote lineage

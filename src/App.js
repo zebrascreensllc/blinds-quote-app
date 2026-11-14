@@ -807,7 +807,12 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
 
     resetForm();
     setEditingQuote(null);
-    setCurrentView('menu');
+    // Open the quote just saved (it used to go back to the menu, so the next
+    // step - checking prices, copying it to the client - meant finding it in
+    // Pull Existing Quote first). Back from there goes to the quote list.
+    // JSON round-trip: the same plain shape the real-time listener delivers.
+    setSelectedQuote(JSON.parse(JSON.stringify(quoteData)));
+    setCurrentView('history');
     } finally {
       setIsGeneratingQuote(false);
     }

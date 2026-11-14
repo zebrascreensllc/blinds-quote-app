@@ -103,6 +103,8 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
   else if (!changingPrice && discountAmount === null) problem = 'Discount must be a number, e.g. 0 or 150.';
   else if (advanceAmount > (changingPrice ? finalPrice : calculatedGrandTotal) + 0.005) problem = 'Advance Payment is more than the Grand Total.';
 
+  const [downloaded, setDownloaded] = useState({});
+
   const create = async (format) => {
     if (problem || busy) return;
     setBusy(format);
@@ -113,7 +115,9 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
     try {
       const blob = format === 'pdf' ? await generateInvoicePdf(quote, options) : await generateInvoiceDocx(quote, options);
       downloadBlob(blob, invoiceFileName(quote, format));
-      onClose();
+      // Stay open so the other format can be downloaded too without
+      // re-entering the advance/discount; × closes it.
+      setDownloaded(prev => ({ ...prev, [format]: true }));
     } catch (err) {
       console.error('Invoice generation failed:', err);
       alert('❌ Could not create the invoice. Please try again.');
@@ -207,16 +211,21 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
             disabled={disabled}
             style={{ ...buttonBase, background: '#b91c1c', color: '#fff', opacity: disabled ? 0.5 : 1, cursor: disabled ? 'default' : 'pointer' }}
           >
-            {busy === 'pdf' ? 'Creating...' : '📄 Download PDF'}
+            {busy === 'pdf' ? 'Creating...' : (downloaded.pdf ? '✓ PDF again' : '📄 Download PDF')}
           </button>
           <button
             onClick={() => create('docx')}
             disabled={disabled}
             style={{ ...buttonBase, background: '#1d4ed8', color: '#fff', opacity: disabled ? 0.5 : 1, cursor: disabled ? 'default' : 'pointer' }}
           >
-            {busy === 'docx' ? 'Creating...' : '📝 Download Word'}
+            {busy === 'docx' ? 'Creating...' : (downloaded.docx ? '✓ Word again' : '📝 Download Word')}
           </button>
         </div>
+        {(downloaded.pdf || downloaded.docx) && (
+          <div style={{ color: '#4ade80', fontSize: '13px', marginTop: '12px', textAlign: 'center' }}>
+            Downloaded. Tap × when you're done.
+          </div>
+        )}
       </div>
     </div>
   );
