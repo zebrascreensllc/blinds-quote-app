@@ -262,7 +262,7 @@ export default function BulkEditorScreen({
             const hasFormatError = !widthCheck.valid || !heightCheck.valid;
             const summaryText = missing.length > 0
               ? `Missing: ${missing.join(', ')}`
-              : `${row.width} x ${row.height}`;
+              : `${hasFormatError ? '⚠️ Check: ' : ''}${row.width} x ${row.height}`;
             const summaryColor = missing.length > 0 || hasFormatError ? '#ef4444' : '#4ade80';
 
             return (
@@ -715,7 +715,15 @@ export default function BulkEditorScreen({
               {rows.map((row, idx) => {
                 const f = buildRowExportFields(row, idx, remoteLabels);
                 const incompleteFields = getIncompleteFields(row);
-                const isIncomplete = incompleteFields.length > 0;
+                // A width/height in the wrong format (e.g. 70 1/4 instead of
+                // 70 4/16) blocks Copy/Download too, so it must not read
+                // "Ready" here - it used to, and the owner only found out
+                // when the download was refused.
+                const badFormatFields = [
+                  !validateMeasurementFormat(row.width).valid && 'width',
+                  !validateMeasurementFormat(row.height).valid && 'height'
+                ].filter(Boolean);
+                const isIncomplete = incompleteFields.length > 0 || badFormatFields.length > 0;
                 const mixedFabricWarning = roomsWithMixedFabric.has(roomScopeKey(row));
                 // ✅ NEW: on-screen-only red flag for a width/height that's an
                 // outlier vs. the rest of its room family (same detection the
@@ -742,7 +750,9 @@ export default function BulkEditorScreen({
                     <td style={{ ...cellStyle, color: widthIsOutlier ? '#f87171' : 'inherit', fontWeight: widthIsOutlier ? 'bold' : 'normal', background: widthIsOutlier ? 'rgba(239,68,68,0.15)' : 'transparent' }}>{f.width || '—'}</td>
                     <td style={{ ...cellStyle, color: heightIsOutlier ? '#f87171' : 'inherit', fontWeight: heightIsOutlier ? 'bold' : 'normal', background: heightIsOutlier ? 'rgba(239,68,68,0.15)' : 'transparent' }}>{f.height || '—'}</td>
                     <td style={{ ...cellStyle, color: isIncomplete ? '#f87171' : '#4ade80', fontWeight: 'bold' }}>
-                      {isIncomplete ? `Missing: ${incompleteFields.join(', ')}` : 'Ready'}
+                      {incompleteFields.length > 0
+                        ? `Missing: ${incompleteFields.join(', ')}`
+                        : (badFormatFields.length > 0 ? `Fix ${badFormatFields.join(' & ')} (use 16ths)` : 'Ready')}
                     </td>
                   </tr>
                 );

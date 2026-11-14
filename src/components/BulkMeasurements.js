@@ -217,6 +217,16 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
       alert('Select at least one quote first.');
       return;
     }
+    // Same duplicate check "Start blank" already has: tapping a quote that
+    // already has a sheet silently made a second one, and measurements could
+    // then be typed into the wrong copy. Confirm only - a client can have two jobs.
+    const selectedNames = new Set(selected.map(q => (q.clientName || '').trim().toLowerCase()).filter(Boolean));
+    const existingForClient = sheets.filter(s => (s.clientNames || []).some(n => selectedNames.has((n || '').trim().toLowerCase())));
+    if (existingForClient.length > 0) {
+      const names = [...new Set(existingForClient.flatMap(s => s.clientNames || []))].join(', ');
+      const proceed = window.confirm(`${names} already ${existingForClient.length > 1 ? `has ${existingForClient.length} measurement sheets` : 'has a measurement sheet'} - open ${existingForClient.length > 1 ? 'one' : 'it'} from the Supplier Measurements list to keep working on it.\n\nCreate another, separate sheet anyway?`);
+      if (!proceed) return;
+    }
     let allRows = [];
     selected.forEach(q => { allRows = allRows.concat(expandQuoteIntoRows(q)); });
     const newSheet = {
@@ -228,6 +238,11 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
       sourceQuoteNames: selected.map(q => q.quoteName || q.clientName),
       rows: allRows
     };
+    // Carry the quote's hub into the sheet's Hub Count (still editable) - it
+    // used to start blank, so a hub the client paid for could be left off the
+    // supplier order unless it was remembered and typed in again.
+    const quotedHubs = selected.reduce((n, q) => n + (q.hub && q.hub.included ? (parseInt(q.hub.quantity) || 1) : 0), 0);
+    if (quotedHubs > 0) newSheet.hub = String(quotedHubs);
     setCreatingSheet(true);
     const result = await updateSheets(prev => [...prev, newSheet]);
     setCreatingSheet(false);

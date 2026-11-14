@@ -93,7 +93,7 @@ export default function MenuScreen({ onLogout, quotes, resetForm, setCurrentView
         </div>
 
         <div style={{ marginTop: '48px', textAlign: 'center' }}>
-          <p style={{ color: '#666', fontSize: '12px' }}>All data is securely stored on your device</p>
+          <p style={{ color: '#666', fontSize: '12px' }}>Saved to your account and on this phone - works without signal</p>
         </div>
       </div>
     </div>

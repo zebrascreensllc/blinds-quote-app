@@ -6,8 +6,8 @@ export function subscribeToQuotes(uid, onUpdate, onError) {
   return subscribeToCollection(uid, COLLECTION, onUpdate, onError);
 }
 
-export function saveQuoteRemote(uid, quote) {
-  return saveDocument(uid, COLLECTION, quote);
+export function saveQuoteRemote(uid, quote, options) {
+  return saveDocument(uid, COLLECTION, quote, options);
 }
 
 export function deleteQuoteRemote(uid, quoteId) {
