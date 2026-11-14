@@ -13,7 +13,17 @@ import { parseUnits } from './formatters';
 
 // ---- Dropdown option constants -------------------------------------------
 
-export const MOTOR_OPTIONS = ['Manual', 'motor-recharge', 'motor-Zigbee', 'motor-wire-zigbee', 'Custom'];
+// Chain wand options are manual (no motor) windows - the owner asked for them
+// at the bottom of the list (2026-11-14). Use isManualMotor() for every
+// "is this window manual?" check, never `motor === 'Manual'`.
+export const CHAIN_WAND_OPTIONS = [
+  'Manual - Chain wand - White',
+  'Manual - Chain wand - Sage',
+  'Manual - Chain wand - Grey',
+  'Manual - Chain wand - Black'
+];
+export const MOTOR_OPTIONS = ['Manual', 'motor-recharge', 'motor-Zigbee', 'motor-wire-zigbee', 'Custom', ...CHAIN_WAND_OPTIONS];
+export const isManualMotor = motor => motor === 'Manual' || CHAIN_WAND_OPTIONS.includes(motor);
 export const DEFAULT_MOTOR_TYPE = 'motor-Zigbee';
 
 // ✅ NEW: Solar went from a plain yes/no to naming which panel/wire was
@@ -531,7 +541,7 @@ export function getIncompleteFields(row) {
   // A motorized window needs EITHER a remote group OR an explicit "No remote"
   // (noRemote) - the second exists so a motor that genuinely has no remote
   // doesn't block the export forever waiting for a group it will never get.
-  if (row.motor !== 'Manual' && !row.remoteGroup && !row.noRemote) missing.push('remote group');
+  if (!isManualMotor(row.motor) && !row.remoteGroup && !row.noRemote) missing.push('remote group');
   return missing;
 }
 
@@ -553,7 +563,8 @@ function escapeCsv(val) {
  * the underlying data existed, but only one code path read it).
  */
 export function buildRowExportFields(row, idx, remoteLabels) {
-  const isMotor = row.motor !== 'Manual';
+  const isMotor = !isManualMotor(row.motor);
+  const isChainWand = CHAIN_WAND_OPTIONS.includes(row.motor);
   const variants = [];
   // Side is Right by default and only written when it's Left: the motor side
   // for a motorized window, the chain side for a Manual (chain) one. Each is
@@ -566,7 +577,9 @@ export function buildRowExportFields(row, idx, remoteLabels) {
   // `true` (an older saved row from before this changed) just shows "Solar".
   if (row.solar) variants.push(typeof row.solar === 'string' ? `Solar - ${row.solar}` : 'Solar');
   const manualSmart = (isMotor ? 'Smart' : 'Manual') + (variants.length ? ' - ' + variants.join(' - ') : '');
-  const motorType = isMotor ? (row.motor === 'Custom' ? row.motorCustomText : row.motor) : '';
+  // A chain wand window is Manual, but the supplier still needs the wand colour,
+  // so its full option text goes in the Motor-type column.
+  const motorType = isMotor ? (row.motor === 'Custom' ? row.motorCustomText : row.motor) : (isChainWand ? row.motor : '');
   const cassette = row.cassette === 'Custom' ? row.cassetteCustomText : row.cassette;
   return {
     sNo: idx + 1,

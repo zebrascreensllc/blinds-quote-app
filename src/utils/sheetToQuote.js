@@ -22,12 +22,12 @@
 // pruneRooms() (generateQuote) moves the price to wherever the window ends up,
 // even when one saved group (qty 6) becomes six rooms (keyTargets).
 
-import { getLocationLabel } from './measurementUtils';
+import { getLocationLabel, isManualMotor } from './measurementUtils';
 
 const BLANK_GROUP = { id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null };
 
 const str = v => String(v ?? '').trim();
-const isMotorRow = row => !!(row.motor && row.motor !== 'Manual');
+const isMotorRow = row => !!(row.motor && !isManualMotor(row.motor));
 
 /**
  * Which quote was this sheet pulled from?

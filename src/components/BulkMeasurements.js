@@ -12,6 +12,7 @@ import {
   MAX_REMOTE_CHANNELS,
   sheetToCSV,
   DEFAULT_MOTOR_TYPE,
+  isManualMotor,
   DEFAULT_CASSETTE,
   DEFAULT_MOUNT,
   createBlankMeasurementRow,
@@ -507,7 +508,7 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
     const newRows = activeSheet.rows.map(r => {
       if (!motorSelectedRowIds.has(r.id)) return r;
       const patch = { motor: bulkMotorValue };
-      if (bulkMotorValue === 'Manual') {
+      if (isManualMotor(bulkMotorValue)) {
         patch.solar = false;
         patch.remoteGroup = null;
         patch.remoteChannel = null;

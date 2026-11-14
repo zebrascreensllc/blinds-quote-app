@@ -2,6 +2,7 @@ import React from 'react';
 import { Trash2 } from 'lucide-react';
 import {
   MOTOR_OPTIONS,
+  isManualMotor,
   CASSETTE_OPTIONS,
   MOUNT_OPTIONS,
   SOLAR_PANEL_OPTIONS,
@@ -184,8 +185,8 @@ export default function BulkEditorScreen({
   }
 
   const rows = activeSheet.rows;
-  const motorizedRows = rows.filter(r => r.motor !== 'Manual');
-  const manualRows = rows.filter(r => r.motor === 'Manual');
+  const motorizedRows = rows.filter(r => !isManualMotor(r.motor));
+  const manualRows = rows.filter(r => isManualMotor(r.motor));
   const roomsWithMixedFabric = new Set(findRoomsWithMixedFabric(rows));
 
   return (
@@ -448,7 +449,7 @@ export default function BulkEditorScreen({
               style={{ ...inputStyle, marginBottom: '10px' }}
             />
           )}
-          {bulkMotorValue === 'Manual' && (
+          {isManualMotor(bulkMotorValue) && (
             <p style={{ fontSize: '11px', color: '#888', marginBottom: '10px', fontStyle: 'italic' }}>Setting to Manual also clears Solar and Remote Group on the selected windows.</p>
           )}
           <RowChecklist
@@ -561,7 +562,7 @@ export default function BulkEditorScreen({
               setSelectedIds={setChainSideSelectedRowIds}
               accentColor="#99f6e4"
               renderLabel={(row) => (
-                <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — Manual, Chain side currently {row.chainSide === 'Left' ? 'Left' : 'Right (default)'}</span></>
+                <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {row.motor}, Chain side currently {row.chainSide === 'Left' ? 'Left' : 'Right (default)'}</span></>
               )}
             />
           )}
