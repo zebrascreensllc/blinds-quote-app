@@ -92,11 +92,13 @@ export const formatCurrency = (value) => {
   return typeof value === 'number' ? value.toFixed(2) : '0.00';
 };
 
-// Format a dollar amount, trimming trailing zeros (e.g. 42.50 -> "42.5", 42.00 -> "42")
+// Format a dollar amount: 42.00 -> "42", 42.5 -> "42.50"
 export const formatMoney = (num) => {
   const val = parseFloat(num);
   if (isNaN(val)) return '0';
-  return val.toFixed(2).replace(/\.?0+$/, '');
+  // Whole dollars drop the cents ($42); anything else keeps both digits
+  // ($42.50, $1698.90) - "$1698.9" on a client invoice looked like a typo.
+  return val.toFixed(2).replace(/\.00$/, '');
 };
 
 // True if v is a valid {min, max} custom range price override.

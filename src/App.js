@@ -239,7 +239,9 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     const failures = [];
     for (const q of migrationQuotes) {
       try {
-        await saveQuoteRemote(uid, q);
+        // waitForServer: this loop then marks the old local data as migrated,
+        // so it must know the server really has every quote.
+        await saveQuoteRemote(uid, q, { waitForServer: true });
       } catch (e) {
         console.error(`Migration failed for quote "${q.quoteName || q.id}":`, e);
         failures.push({ name: q.quoteName || q.clientName || q.id, message: e?.message || String(e) });
@@ -333,13 +335,15 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     const oldById = new Map(quotes.map(q => [q.id, q]));
     const newIds = new Set(newQuotes.map(q => q.id));
     const errors = [];
+    let queued = 0;
+    const noteQueued = (r) => { if (r && r.queued) queued += 1; };
 
     const writes = newQuotes
       .filter(q => {
         const old = oldById.get(q.id);
         return !old || JSON.stringify(old) !== JSON.stringify(q);
       })
-      .map(q => saveQuoteRemote(uid, q).catch(err => {
+      .map(q => saveQuoteRemote(uid, q).then(noteQueued).catch(err => {
         console.error('Failed to save quote', q.id, err);
         errors.push({ name: q.quoteName || q.clientName || q.id, message: err?.message || String(err) });
       }));
@@ -347,7 +351,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     const deletes = [];
     oldById.forEach((q, id) => {
       if (!newIds.has(id)) {
-        deletes.push(deleteQuoteRemote(uid, id).catch(err => {
+        deletes.push(deleteQuoteRemote(uid, id).then(noteQueued).catch(err => {
           console.error('Failed to delete quote', id, err);
           errors.push({ name: q.quoteName || q.clientName || id, message: err?.message || String(err) });
         }));
@@ -355,7 +359,8 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     });
 
     await Promise.all([...writes, ...deletes]);
-    return { success: errors.length === 0, errors };
+    // queued > 0: saved on this phone, waiting for signal to upload.
+    return { success: errors.length === 0, errors, queued };
   };
 
   // Builds the user-facing warning text for a partial/failed sync, reused by
@@ -365,6 +370,10 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     const more = errors.length > 3 ? `\n...and ${errors.length - 3} more` : '';
     return `⚠️ Saved on this device, but ${errors.length} item${errors.length > 1 ? 's' : ''} failed to reach the cloud:\n\n${preview}${more}\n\nIt will keep retrying in the background. If this persists, check your connection - your local copy is safe either way.`;
   };
+
+  const offlineNote = (result) => (result && result.queued
+    ? '\n\n📶 No signal right now - saved on this phone. It uploads by itself when you are back online.'
+    : '');
 
   // ✅ SAFETY: snapshot current state so the last delete can be undone
   const snapshotForUndo = (label) => {
@@ -734,6 +743,8 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     const quoteData = {
       ...restFormData,
       rooms: cleanRooms,
+      // The form lets the hub quantity box be empty while typing; never save it empty.
+      hub: sanitizeHub(restFormData.hub),
       // Identity fields come AFTER the spread so they can never be clobbered
       id: uniqueId,
       lineageId: editingQuote ? (editingQuote.lineageId || editingQuote.id) : uniqueId,
@@ -780,14 +791,19 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       }
     };
 
-    if (editingQuote) {
-      // Create new version without archiving - keep all versions visible
-      const result = await updateQuotes([...quotes, quoteData]);
-      alert(result.success ? `✅ Quote updated successfully! New version created (${quoteNamePrefix}-${newVersion})` : syncFailureMessage(result.errors));
-    } else {
-      const result = await updateQuotes([...quotes, quoteData]);
-      alert(result.success ? `✅ Quote created successfully!\n\n${quoteNamePrefix.toUpperCase()}` : syncFailureMessage(result.errors));
+    // Create new version without archiving - keep all versions visible
+    const result = await updateQuotes([...quotes, quoteData]);
+    if (!result.success) {
+      // Firestore refused the write outright (it never reached the phone's
+      // offline copy either). Stay on the form so nothing typed is lost -
+      // resetting here used to throw the whole quote away.
+      const reason = result.errors.slice(0, 2).map(e => e.message).join('\n');
+      alert(`⚠️ This quote could not be saved, so the form is kept as it is.\n\n${reason}\n\nPlease try Generate again in a moment.`);
+      return;
     }
+    alert(editingQuote
+      ? `✅ Quote updated successfully! New version created (${quoteNamePrefix}-${newVersion})${offlineNote(result)}`
+      : `✅ Quote created successfully!\n\n${quoteNamePrefix.toUpperCase()}${offlineNote(result)}`);
 
     resetForm();
     setEditingQuote(null);

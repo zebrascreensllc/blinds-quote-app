@@ -591,21 +591,15 @@ export default function QuoteDetailScreen({
         // Now: each group gets its own correct "Motor+Solar"-style label, and
         // rooms with more than one group get one line PER group (with size,
         // so they're distinguishable) instead of being merged together.
-        if (room.windowGroups.length === 1) {
-          const group = room.windowGroups[0];
+        // Every line carries its size (a one-size room used to leave it out,
+        // so the client's copy didn't say which windows were meant).
+        room.windowGroups.forEach(group => {
           const qty = parseInt(group.quantity) || 1;
           totalWindows += qty;
           const controlLabel = (group.controlType || 'Manual') + (group.solar ? `+Solar${typeof group.solar === 'string' ? ` (${group.solar})` : ''}` : '');
-          text += `${room.name} (${qty} windows) - ${controlLabel}\n`;
-        } else {
-          room.windowGroups.forEach(group => {
-            const qty = parseInt(group.quantity) || 1;
-            totalWindows += qty;
-            const controlLabel = (group.controlType || 'Manual') + (group.solar ? `+Solar${typeof group.solar === 'string' ? ` (${group.solar})` : ''}` : '');
-            const size = `${group.width}x${group.height}`;
-            text += `${room.name} (${qty} windows, ${size}) - ${controlLabel}\n`;
-          });
-        }
+          const size = `${group.width}x${group.height}`;
+          text += `${room.name} (${qty} window${qty === 1 ? '' : 's'}, ${size}) - ${controlLabel}\n`;
+        });
       });
 
       text += `\nTOTAL WINDOWS: ${totalWindows}\n\n`;

@@ -574,7 +574,11 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
                         type="number"
                         min="1"
                         value={hub.quantity}
-                        onChange={(e) => setFormData({ ...formData, hub: { ...hub, quantity: parseInt(e.target.value) || 1 } })}
+                        // The box may be empty while typing: forcing 1 back in on
+                        // every keystroke turned "delete, then type 2" into 12
+                        // hubs. Blank becomes 1 on blur and when the quote is saved.
+                        onChange={(e) => setFormData({ ...formData, hub: { ...hub, quantity: e.target.value === '' ? '' : (parseInt(e.target.value) || 1) } })}
+                        onBlur={() => { if (!(parseInt(hub.quantity) >= 1)) setFormData({ ...formData, hub: { ...hub, quantity: 1 } }); }}
                         style={inputStyle}
                       />
                     </div>
@@ -587,7 +591,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
                         onChange={(e) => setFormData({ ...formData, hub: { ...hub, price: e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0) } })}
                         style={inputStyle}
                       />
-                      <p style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>{hub.price === 0 ? 'Complimentary (not charged)' : `Total: $${(hub.quantity * hub.price).toFixed(2)}`}</p>
+                      <p style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>{hub.price === 0 ? 'Complimentary (not charged)' : `Total: $${((parseInt(hub.quantity) || 1) * hub.price).toFixed(2)}`}</p>
                     </div>
                   </div>
                 )}

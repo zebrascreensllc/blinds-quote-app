@@ -62,15 +62,56 @@ function sanitizeForFirestore(value) {
   return value;
 }
 
+// How long a save/delete waits for the server to confirm before it counts as
+// "saved on this phone, uploading when there's signal". Firestore applies the
+// write to the offline cache straight away (the real-time listener shows it
+// within milliseconds), but the promise from setDoc/deleteDoc only settles once
+// the SERVER acknowledges it - with no signal that's never, so every
+// "Creating..." / "Saving..." button used to spin until signal came back.
+// That was the exact on-site, no-signal case this app exists for.
+const SERVER_ACK_WAIT_MS = 4000;
+const OFFLINE_ACK_WAIT_MS = 800;
+
+// Resolves when the server confirms, OR after a short wait (the write is then
+// queued in the offline cache and Firestore uploads it on its own when signal
+// returns). Rejects only if Firestore rejects before that wait ends (bad data,
+// permission). A rejection that arrives later is logged; the real-time
+// listener then drops the item and the sync banner reflects it.
+function settleWrite(writePromise, label) {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      resolve({ queued: true });
+    }, offline ? OFFLINE_ACK_WAIT_MS : SERVER_ACK_WAIT_MS);
+    writePromise.then(
+      () => { if (done) return; done = true; clearTimeout(timer); resolve({ queued: false }); },
+      (err) => {
+        if (done) { console.error(`${label} was rejected after it was queued:`, err); return; }
+        done = true; clearTimeout(timer); reject(err);
+      }
+    );
+  });
+}
+
 /**
  * Saves (creates or overwrites) one document, using item.id as the document
  * ID. Safe to call while offline - it writes to the local cache immediately
  * and queues the actual network write for when connectivity returns.
+ *
+ * Resolves to { queued } - queued: true means the server hadn't confirmed yet
+ * (no/weak signal) and the write is waiting in the offline cache. Pass
+ * { waitForServer: true } only where the caller must know the server has it
+ * (the one-time localStorage migration, which then marks local data migrated).
  */
-export async function saveDocument(uid, collectionName, item) {
+export async function saveDocument(uid, collectionName, item, { waitForServer = false } = {}) {
   if (!item || !item.id) throw new Error('saveDocument requires an item with an id');
   const docRef = doc(db, 'users', uid, collectionName, item.id);
-  await setDoc(docRef, sanitizeForFirestore(item));
+  const write = setDoc(docRef, sanitizeForFirestore(item));
+  if (waitForServer) { await write; return { queued: false }; }
+  return settleWrite(write, `Save of ${collectionName}/${item.id}`);
 }
 
 /**
@@ -78,5 +119,5 @@ export async function saveDocument(uid, collectionName, item) {
  */
 export async function deleteDocument(uid, collectionName, itemId) {
   const docRef = doc(db, 'users', uid, collectionName, itemId);
-  await deleteDoc(docRef);
+  return settleWrite(deleteDoc(docRef), `Delete of ${collectionName}/${itemId}`);
 }
