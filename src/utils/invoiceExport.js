@@ -381,10 +381,21 @@ export function invoiceFileName(quote, ext) {
   return `${name}-invoice-zebrascreensllc.${ext}`;
 }
 
-export async function loadLogoBytes() {
-  const response = await fetch(zebraLogoUrl);
-  if (!response.ok) throw new Error(`Logo request failed (${response.status})`);
-  return response.arrayBuffer();
+// Fetched once and reused: the invoice dialog preloads it so that, by the
+// time a button is tapped, creating the file needs no network wait (this
+// keeps the iPhone share sheet allowed to open). A failed fetch is forgotten
+// so the next try fetches again.
+let logoPromise = null;
+export function loadLogoBytes() {
+  if (!logoPromise) {
+    logoPromise = fetch(zebraLogoUrl)
+      .then(response => {
+        if (!response.ok) throw new Error(`Logo request failed (${response.status})`);
+        return response.arrayBuffer();
+      })
+      .catch(err => { logoPromise = null; throw err; });
+  }
+  return logoPromise;
 }
 
 /**

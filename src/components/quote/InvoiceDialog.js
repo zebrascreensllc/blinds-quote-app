@@ -1,11 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '../../utils/formatters';
-import { INVOICE_COLUMNS, DEFAULT_INVOICE_COLUMN_KEYS, normalizeInvoiceColumns, generateInvoiceDocx, invoiceFileName, buildInvoiceModel } from '../../utils/invoiceExport';
+import { INVOICE_COLUMNS, DEFAULT_INVOICE_COLUMN_KEYS, normalizeInvoiceColumns, generateInvoiceDocx, invoiceFileName, buildInvoiceModel, loadLogoBytes } from '../../utils/invoiceExport';
 import { generateInvoicePdf } from '../../utils/invoicePdf';
 
 // "Create Invoice" options, shown as one sheet instead of a chain of
 // pop-up prompts: which columns go in the item table, the advance payment,
-// the discount, then Download PDF or Download Word. Both buttons build the
+// the discount, then Download PDF or Download Word (on a phone: the share
+// sheet with just the file, no link). Both buttons build the
 // same invoice (same columns, rows and totals) - only the file type differs.
 
 const COLUMNS_STORAGE_KEY = 'invoiceColumns';
@@ -38,6 +39,30 @@ export function parseMoneyInput(text) {
   if (!/^\d*\.?\d+$|^\d+\.$/.test(cleaned)) return null;
   const value = parseFloat(cleaned);
   return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+// The invoice as a File the phone's share sheet can send. Sharing ONLY the
+// file (no title/text/url) is what keeps a link out of the client's message:
+// the old way (download, then share from Safari's viewer) also pasted the
+// viewer page's blob: link (owner's report, 2026-11-14).
+const INVOICE_MIME = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+};
+function invoiceFile(blob, fileName, format) {
+  try {
+    return new File([blob], fileName, { type: INVOICE_MIME[format] || blob.type });
+  } catch (e) {
+    return null; // very old browsers without the File constructor
+  }
+}
+function canShareFile(file) {
+  try {
+    // Phones/tablets only - a computer keeps the normal download.
+    return !!file && navigator.maxTouchPoints > 0 && typeof navigator.share === 'function' && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
+  } catch (e) {
+    return false;
+  }
 }
 
 function downloadBlob(blob, fileName) {
@@ -104,6 +129,27 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
   else if (advanceAmount > (changingPrice ? finalPrice : calculatedGrandTotal) + 0.005) problem = 'Advance Payment is more than the Grand Total.';
 
   const [downloaded, setDownloaded] = useState({});
+  // A created file waiting for a tap on "Send", used when the phone won't
+  // open the share sheet straight after creating (it needs a fresh tap).
+  const [pendingShare, setPendingShare] = useState(null);
+
+  // Preload the logo so creating the file right after a tap is instant.
+  useEffect(() => { loadLogoBytes().catch(() => {}); }, []);
+
+  const shareFile = async (file, format) => {
+    try {
+      await navigator.share({ files: [file] });
+      setPendingShare(null);
+      setDownloaded(prev => ({ ...prev, [format]: true }));
+    } catch (err) {
+      if (err && err.name === 'AbortError') { setPendingShare(null); return; } // closed the share sheet
+      if (err && err.name === 'NotAllowedError') { setPendingShare({ file, format }); return; } // needs a fresh tap
+      console.error('Invoice share failed:', err);
+      setPendingShare(null);
+      downloadBlob(file, file.name);
+      setDownloaded(prev => ({ ...prev, [format]: true }));
+    }
+  };
 
   const create = async (format) => {
     if (problem || busy) return;
@@ -114,7 +160,14 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
       : { advanceAmount, discountAmount, columns: ordered };
     try {
       const blob = format === 'pdf' ? await generateInvoicePdf(quote, options) : await generateInvoiceDocx(quote, options);
-      downloadBlob(blob, invoiceFileName(quote, format));
+      const fileName = invoiceFileName(quote, format);
+      const file = invoiceFile(blob, fileName, format);
+      if (canShareFile(file)) {
+        // Phone: open the share sheet with just the file (no link).
+        await shareFile(file, format);
+        return;
+      }
+      downloadBlob(blob, fileName);
       // Stay open so the other format can be downloaded too without
       // re-entering the advance/discount; × closes it.
       setDownloaded(prev => ({ ...prev, [format]: true }));
@@ -221,9 +274,17 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
             {busy === 'docx' ? 'Creating...' : (downloaded.docx ? '✓ Word again' : '📝 Download Word')}
           </button>
         </div>
-        {(downloaded.pdf || downloaded.docx) && (
+        {pendingShare && (
+          <button
+            onClick={() => shareFile(pendingShare.file, pendingShare.format)}
+            style={{ ...buttonBase, width: '100%', marginTop: '10px', background: '#0e7490', color: '#fff', cursor: 'pointer' }}
+          >
+            📤 Send {pendingShare.format === 'pdf' ? 'PDF' : 'Word'} file
+          </button>
+        )}
+        {(downloaded.pdf || downloaded.docx) && !pendingShare && (
           <div style={{ color: '#4ade80', fontSize: '13px', marginTop: '12px', textAlign: 'center' }}>
-            Downloaded. Tap × when you're done.
+            Done. Tap × when you're finished.
           </div>
         )}
       </div>
