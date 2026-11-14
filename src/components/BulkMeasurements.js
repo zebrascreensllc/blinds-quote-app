@@ -69,6 +69,8 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
   // ✅ NEW: parity with the original feature's per-row Right/Left toggle -
   // motorSide only makes sense for a motorized window, same scoping as Solar.
   const [motorSideSelectedRowIds, setMotorSideSelectedRowIds] = useState(new Set());
+  // chainSide is the Manual-window twin of motorSide (which side the chain hangs).
+  const [chainSideSelectedRowIds, setChainSideSelectedRowIds] = useState(new Set());
   const [remoteSelectedRowIds, setRemoteSelectedRowIds] = useState(new Set());
   const [cassetteSelectedRowIds, setCassetteSelectedRowIds] = useState(new Set());
   const [mountSelectedRowIds, setMountSelectedRowIds] = useState(new Set());
@@ -78,6 +80,7 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
   const [bulkMotorCustomText, setBulkMotorCustomText] = useState('');
   const [bulkSolarValue, setBulkSolarValue] = useState('');
   const [bulkMotorSideValue, setBulkMotorSideValue] = useState(''); // '' = Right (default), 'Left' = the exception
+  const [bulkChainSideValue, setBulkChainSideValue] = useState(''); // '' = Right (default), 'Left' = the exception
   const [bulkCassetteValue, setBulkCassetteValue] = useState(DEFAULT_CASSETTE);
   const [bulkCassetteCustomText, setBulkCassetteCustomText] = useState('');
   const [bulkMountValue, setBulkMountValue] = useState(DEFAULT_MOUNT);
@@ -102,6 +105,7 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
   const [showMotorTool, setShowMotorTool] = useState(false);
   const [showSolarTool, setShowSolarTool] = useState(false);
   const [showMotorSideTool, setShowMotorSideTool] = useState(false);
+  const [showChainSideTool, setShowChainSideTool] = useState(false);
   const [showRemoteTool, setShowRemoteTool] = useState(false);
   const [showCassetteTool, setShowCassetteTool] = useState(false);
   const [showMountTool, setShowMountTool] = useState(false);
@@ -499,10 +503,11 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
         // the original SheetEditorScreen.js's handleMotorChange - not
         // touched there since it's out of scope for the Bulk feature fix.
         patch.motorSide = '';
-      } else if (bulkMotorValue === 'Custom') {
-        patch.motorCustomText = bulkMotorCustomText.trim();
       } else {
-        patch.motorCustomText = '';
+        // Same in reverse: a motorized window has no chain, so a chain side
+        // picked while it was Manual must not follow it.
+        patch.chainSide = '';
+        patch.motorCustomText = bulkMotorValue === 'Custom' ? bulkMotorCustomText.trim() : '';
       }
       return { ...r, ...patch };
     });
@@ -537,6 +542,18 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
     const count = motorSideSelectedRowIds.size;
     setMotorSideSelectedRowIds(new Set());
     alert(`Set Side = ${bulkMotorSideValue === 'Left' ? 'Left' : 'Right (default)'} for ${count} window${count > 1 ? 's' : ''}.`);
+  };
+
+  // ---- Bulk chain side tool - the Manual-window twin of the motor side tool ----
+  const applyBulkChainSide = () => {
+    if (!activeSheet) return;
+    if (chainSideSelectedRowIds.size === 0) { alert('Select at least one manual window first.'); return; }
+
+    const newRows = activeSheet.rows.map(r => (chainSideSelectedRowIds.has(r.id) ? { ...r, chainSide: bulkChainSideValue } : r));
+    updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
+    const count = chainSideSelectedRowIds.size;
+    setChainSideSelectedRowIds(new Set());
+    alert(`Set Chain Side = ${bulkChainSideValue === 'Left' ? 'Left' : 'Right (default)'} for ${count} window${count > 1 ? 's' : ''}.`);
   };
 
   // ---- Bulk remote group tool (identical to the original feature) ----
@@ -871,6 +888,13 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
       motorSideSelectedRowIds={motorSideSelectedRowIds}
       setMotorSideSelectedRowIds={setMotorSideSelectedRowIds}
       applyBulkMotorSide={applyBulkMotorSide}
+      showChainSideTool={showChainSideTool}
+      setShowChainSideTool={setShowChainSideTool}
+      bulkChainSideValue={bulkChainSideValue}
+      setBulkChainSideValue={setBulkChainSideValue}
+      chainSideSelectedRowIds={chainSideSelectedRowIds}
+      setChainSideSelectedRowIds={setChainSideSelectedRowIds}
+      applyBulkChainSide={applyBulkChainSide}
 
       showRemoteTool={showRemoteTool}
       setShowRemoteTool={setShowRemoteTool}

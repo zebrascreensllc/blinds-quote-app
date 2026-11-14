@@ -304,6 +304,7 @@ export function expandQuoteIntoRows(quote, options = {}) {
           motor: isMotor ? DEFAULT_MOTOR_TYPE : 'Manual',
           motorCustomText: '',
           motorSide: '', // '' = Right (default, not written to export), 'Left' = the exception
+          chainSide: '', // same idea for a Manual (chain) window: '' = Right (default), 'Left' = the exception
           // ✅ FIX: `!!group.solar` coerced away which panel/wire was
           // actually selected on the quote side, collapsing it to a plain
           // boolean before the supplier sheet - the supplier needs to know
@@ -353,6 +354,7 @@ export function createBlankMeasurementRow({ clientName = '', locationBase = '' }
     motor: 'Manual',
     motorCustomText: '',
     motorSide: '',
+    chainSide: '',
     solar: false,
     remoteGroup: null,
     remoteChannel: null,
@@ -470,7 +472,12 @@ function escapeCsv(val) {
 export function buildRowExportFields(row, idx, remoteLabels) {
   const isMotor = row.motor !== 'Manual';
   const variants = [];
-  if (row.motorSide === 'Left') variants.push('Left side');
+  // Side is Right by default and only written when it's Left: the motor side
+  // for a motorized window, the chain side for a Manual (chain) one. Each is
+  // only read for its own kind of window, so a stale value left over from
+  // before a Manual<->Motor switch can never leak into the export.
+  if (isMotor && row.motorSide === 'Left') variants.push('Left side');
+  if (!isMotor && row.chainSide === 'Left') variants.push('Left side');
   // row.solar now names the specific panel/wire (e.g. "AOK") instead of a
   // plain yes/no - the supplier needs to know which one to ship. A legacy
   // `true` (an older saved row from before this changed) just shows "Solar".
