@@ -273,11 +273,14 @@ function invoiceCellText(key, it, idx) {
  * advanceAmount/discountAmount are plain numbers (0 if not applicable).
  *
  * finalPrice (optional number): a final price agreed with the client
- * instead of the calculated one. When set, the totals block shows only
- * Grand Total (= finalPrice), Advance Payment and Remaining Balance - no
- * Motor/Solar/Hub/Total/Sales Tax/Discount lines, since those would no
- * longer add up to the agreed price. discountAmount is ignored then (the
- * agreed price already includes any discount).
+ * instead of the calculated one. discountAmount is ignored then (the agreed
+ * price already includes any discount).
+ *  - Unit Price column NOT shown: the totals block is only Grand Total
+ *    (= finalPrice), Advance Payment and Remaining Balance.
+ *  - Unit Price column shown: the full breakdown stays (Motor, Solar, Hub,
+ *    Total, Sales Tax...) and one "Discount" (or "Price adjustment" if the
+ *    agreed price is higher) line makes it add up exactly to finalPrice,
+ *    so a client checking the math always lands on the agreed number.
  */
 export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0, columns, finalPrice = null } = {}) {
   const useFinalPrice = typeof finalPrice === 'number' && Number.isFinite(finalPrice) && finalPrice >= 0;
@@ -285,7 +288,7 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
   const { items } = buildInvoiceLineItems(quote);
   const {
     motorCount, solarCount, effectiveMotorCost, effectiveSolarCost, motorGrandTotal, solarGrandTotal, hubTotal,
-    total, taxRate, salesTax, otherExpensesAmount, otherExpensesLabel, grandTotal, remainingBalance
+    total, taxRate, salesTax, otherExpensesAmount, otherExpensesLabel, grandTotal
   } = computeInvoiceTotals(quote, items, { advanceAmount, discountAmount });
 
   const columnKeys = normalizeInvoiceColumns(columns || DEFAULT_INVOICE_COLUMN_KEYS);
@@ -293,7 +296,8 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
   const rows = items.map((it, idx) => cols.map(c => invoiceCellText(c.key, it, idx)));
 
   const summary = [];
-  if (useFinalPrice) {
+  const showsUnitPrice = columnKeys.includes('unitPrice');
+  if (useFinalPrice && !showsUnitPrice) {
     summary.push({ label: 'Grand Total', value: `$${formatMoney(finalPrice)}`, bold: true });
     summary.push({ label: 'Advance Payment', value: `$${formatMoney(advanceAmount)}`, bold: true, color: '0e7490' });
     summary.push({ label: 'Remaining Balance', value: `$${formatMoney(finalPrice - advanceAmount)}`, bold: true, color: '0e7490' });
@@ -309,20 +313,32 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
   summary.push({ label: `Sales Tax ${formatMoney(taxRate * 100)}%`, value: `$${formatMoney(salesTax)}` });
   if (discountAmount > 0) summary.push({ label: 'Discount', value: `-$${formatMoney(discountAmount)}`, color: 'CC0000' });
   if (otherExpensesAmount > 0) summary.push({ label: otherExpensesLabel, value: `$${formatMoney(otherExpensesAmount)}` });
-  summary.push({ label: 'Grand Total', value: `$${formatMoney(grandTotal)}`, bold: true });
+  // Agreed final price with the breakdown shown: one adjustment line bridges
+  // the calculated Grand Total to the agreed one (rounded to cents first so
+  // a sub-cent difference never prints as "-$0").
+  const finalGrand = useFinalPrice ? finalPrice : grandTotal;
+  if (useFinalPrice) {
+    const diff = Math.round((finalPrice - grandTotal) * 100) / 100;
+    if (diff < 0) summary.push({ label: 'Discount', value: `-$${formatMoney(-diff)}`, color: 'CC0000' });
+    else if (diff > 0) summary.push({ label: 'Price adjustment', value: `$${formatMoney(diff)}` });
+  }
+  const finalRemaining = finalGrand - advanceAmount;
+  summary.push({ label: 'Grand Total', value: `$${formatMoney(finalGrand)}`, bold: true });
   summary.push({ label: 'Advance Payment', value: `$${formatMoney(advanceAmount)}`, bold: true, color: '0e7490' });
-  summary.push({ label: 'Remaining Balance', value: `$${formatMoney(remainingBalance)}`, bold: true, color: '0e7490' });
+  summary.push({ label: 'Remaining Balance', value: `$${formatMoney(finalRemaining)}`, bold: true, color: '0e7490' });
 
-  return finishModel(quote, cols, rows, summary, grandTotal, grandTotal, remainingBalance);
+  return finishModel(quote, cols, rows, summary, grandTotal, finalGrand, finalRemaining);
 }
 
 function finishModel(quote, cols, rows, summary, calculatedGrandTotal, grandTotal, remainingBalance) {
   return {
     invoiceNumber: buildInvoiceNumber(quote),
     dateText: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
-    // Client name, then phone, then address - the order the owner asked
-    // for. Blank lines are dropped so nothing leaves a gap.
-    billTo: [quote.clientName, quote.clientPhone, quote.location].map(v => String(v || '').trim()).filter(Boolean),
+    // "Client: / Phone: / Address:" in that order, as the owner asked.
+    // A blank one is left out so nothing prints an empty label.
+    billTo: [['Client', quote.clientName], ['Phone', quote.clientPhone], ['Address', quote.location]]
+      .map(([label, v]) => ({ label, value: String(v || '').trim() }))
+      .filter(l => l.value),
     columns: cols,
     rows,
     summary,
@@ -390,7 +406,10 @@ export function buildInvoiceDocument(quote, options = {}, logoBytes) {
             borders: NO_BORDERS,
             children: [
               new Paragraph({ spacing: { before: 200 }, children: [new TextRun({ text: 'Bill To:', bold: true, size: 20 })] }),
-              ...model.billTo.map((line, i) => new Paragraph({ children: [new TextRun({ text: line, bold: i === 0, size: 20 })] }))
+              ...model.billTo.map(line => new Paragraph({ children: [
+                new TextRun({ text: `${line.label}: `, bold: true, size: 20 }),
+                new TextRun({ text: line.value, size: 20 })
+              ] }))
             ]
           }),
           new TableCell({ borders: NO_BORDERS, children: [new Paragraph({ children: [] })] })

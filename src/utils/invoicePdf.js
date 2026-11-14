@@ -61,12 +61,16 @@ export function buildInvoicePdf(quote, options = {}, logoBytes) {
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
   doc.text('Bill To:', PAGE_MARGIN, y);
-  model.billTo.filter(line => line).forEach((line, i) => {
+  // "Client: / Phone: / Address:" - labels bold, values lined up after the
+  // widest label; a long address wraps under its value, not the label.
+  const labelWidth = Math.max(...model.billTo.map(l => doc.getTextWidth(`${l.label}:`)), 0) + 6;
+  model.billTo.forEach(line => {
     y += 13;
-    doc.setFont('helvetica', i === 0 ? 'bold' : 'normal');
-    // A long address wraps instead of running off the page.
-    const wrapped = doc.splitTextToSize(line, contentWidth * 0.6);
-    doc.text(wrapped, PAGE_MARGIN, y);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${line.label}:`, PAGE_MARGIN, y);
+    doc.setFont('helvetica', 'normal');
+    const wrapped = doc.splitTextToSize(line.value, contentWidth * 0.6);
+    doc.text(wrapped, PAGE_MARGIN + labelWidth, y);
     y += (wrapped.length - 1) * 12;
   });
 
