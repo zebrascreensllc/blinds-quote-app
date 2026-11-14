@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { buildInvoiceModel, loadLogoBytes, SOLAR_ROW_FILL, SOLAR_ROW_NOTE } from './invoiceExport';
+import { buildInvoiceModel, loadLogoBytes } from './invoiceExport';
 import { INVOICE_BUSINESS, TERMS_AND_CONDITIONS, WARRANTY_SUMMARY, WARRANTY_SECTIONS } from './invoiceContent';
 
 // PDF version of the invoice. It prints exactly what the Word invoice
@@ -113,9 +113,10 @@ export function buildInvoicePdf(quote, options = {}, logoBytes) {
     headStyles: { fillColor: [42, 42, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
     // Repeat the dark header row when the table runs onto a second page.
     showHead: 'everyPage',
-    // Light yellow fill on every cell of a solar window's row.
+    // Smart rows light blue, solar rows yellow (model.rowFills).
     didParseCell: (data) => {
-      if (data.section === 'body' && model.solarRows[data.row.index]) data.cell.styles.fillColor = hexToRgb(SOLAR_ROW_FILL);
+      const fill = data.section === 'body' && model.rowFills[data.row.index];
+      if (fill) data.cell.styles.fillColor = hexToRgb(fill);
     }
   });
 
@@ -138,17 +139,22 @@ export function buildInvoicePdf(quote, options = {}, logoBytes) {
     showHead: false
   });
 
-  // A one-line key for the yellow solar rows, right under the totals.
-  if (model.hasSolarRows) {
+  // A one-line key for the highlight colors used, right under the totals.
+  if (model.highlightKey.length) {
     let noteY = doc.lastAutoTable.finalY + 16;
     if (noteY > pageHeight - PAGE_MARGIN) { doc.addPage(); noteY = PAGE_MARGIN + 10; }
-    doc.setFillColor(...hexToRgb(SOLAR_ROW_FILL));
-    doc.setDrawColor(153, 153, 153);
-    doc.rect(PAGE_MARGIN, noteY - 8, 16, 10, 'FD');
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(9);
     doc.setTextColor(0, 0, 0);
-    doc.text(SOLAR_ROW_NOTE, PAGE_MARGIN + 22, noteY);
+    doc.setDrawColor(153, 153, 153);
+    doc.text('Highlighted rows:', PAGE_MARGIN, noteY);
+    let x = PAGE_MARGIN + doc.getTextWidth('Highlighted rows:') + 12;
+    model.highlightKey.forEach(k => {
+      doc.setFillColor(...hexToRgb(k.fill));
+      doc.rect(x, noteY - 8, 16, 10, 'FD');
+      doc.text(k.label, x + 22, noteY);
+      x += 22 + doc.getTextWidth(k.label) + 16;
+    });
   }
 
   // ---- terms & warranty (always start on a fresh page, like the Word file) ----
