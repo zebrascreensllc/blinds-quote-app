@@ -271,8 +271,17 @@ function invoiceCellText(key, it, idx) {
  * Everything both invoice formats print, as plain data: header facts, the
  * chosen columns, one row of cell text per window, and the totals rows.
  * advanceAmount/discountAmount are plain numbers (0 if not applicable).
+ *
+ * finalPrice (optional number): a final price agreed with the client
+ * instead of the calculated one. When set, the totals block shows only
+ * Grand Total (= finalPrice), Advance Payment and Remaining Balance - no
+ * Motor/Solar/Hub/Total/Sales Tax/Discount lines, since those would no
+ * longer add up to the agreed price. discountAmount is ignored then (the
+ * agreed price already includes any discount).
  */
-export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0, columns } = {}) {
+export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0, columns, finalPrice = null } = {}) {
+  const useFinalPrice = typeof finalPrice === 'number' && Number.isFinite(finalPrice) && finalPrice >= 0;
+  if (useFinalPrice) discountAmount = 0;
   const { items } = buildInvoiceLineItems(quote);
   const {
     motorCount, solarCount, effectiveMotorCost, effectiveSolarCost, motorGrandTotal, solarGrandTotal, hubTotal,
@@ -284,6 +293,12 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
   const rows = items.map((it, idx) => cols.map(c => invoiceCellText(c.key, it, idx)));
 
   const summary = [];
+  if (useFinalPrice) {
+    summary.push({ label: 'Grand Total', value: `$${formatMoney(finalPrice)}`, bold: true });
+    summary.push({ label: 'Advance Payment', value: `$${formatMoney(advanceAmount)}`, bold: true, color: '0e7490' });
+    summary.push({ label: 'Remaining Balance', value: `$${formatMoney(finalPrice - advanceAmount)}`, bold: true, color: '0e7490' });
+    return finishModel(quote, cols, rows, summary, grandTotal, finalPrice, finalPrice - advanceAmount);
+  }
   if (motorCount > 0) summary.push({ label: `Motor windows ${motorCount}*$${formatMoney(effectiveMotorCost)}`, value: `$${formatMoney(motorGrandTotal)}` });
   if (solarCount > 0) summary.push({ label: `Solar windows ${solarCount}*$${formatMoney(effectiveSolarCost)}`, value: `$${formatMoney(solarGrandTotal)}` });
   if (quote.hub?.included) {
@@ -298,13 +313,20 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
   summary.push({ label: 'Advance Payment', value: `$${formatMoney(advanceAmount)}`, bold: true, color: '0e7490' });
   summary.push({ label: 'Remaining Balance', value: `$${formatMoney(remainingBalance)}`, bold: true, color: '0e7490' });
 
+  return finishModel(quote, cols, rows, summary, grandTotal, grandTotal, remainingBalance);
+}
+
+function finishModel(quote, cols, rows, summary, calculatedGrandTotal, grandTotal, remainingBalance) {
   return {
     invoiceNumber: buildInvoiceNumber(quote),
     dateText: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
-    billTo: [quote.clientName || '', quote.location || '', quote.clientPhone || ''],
+    // Client name, then phone, then address - the order the owner asked
+    // for. Blank lines are dropped so nothing leaves a gap.
+    billTo: [quote.clientName, quote.clientPhone, quote.location].map(v => String(v || '').trim()).filter(Boolean),
     columns: cols,
     rows,
     summary,
+    calculatedGrandTotal,
     grandTotal,
     remainingBalance
   };
