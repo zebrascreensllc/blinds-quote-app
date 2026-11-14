@@ -272,15 +272,16 @@ function invoiceCellText(key, it, idx) {
  * chosen columns, one row of cell text per window, and the totals rows.
  * advanceAmount/discountAmount are plain numbers (0 if not applicable).
  *
+ * Unit Price column NOT shown: the totals block is only Grand Total,
+ * Advance Payment and Remaining Balance - always, whatever the price.
+ * Unit Price column shown: the full breakdown (Motor, Solar, Hub, Total,
+ * Sales Tax, Discount, Grand Total, Advance, Remaining).
+ *
  * finalPrice (optional number): a final price agreed with the client
  * instead of the calculated one. discountAmount is ignored then (the agreed
- * price already includes any discount).
- *  - Unit Price column NOT shown: the totals block is only Grand Total
- *    (= finalPrice), Advance Payment and Remaining Balance.
- *  - Unit Price column shown: the full breakdown stays (Motor, Solar, Hub,
- *    Total, Sales Tax...) and one "Discount" (or "Price adjustment" if the
- *    agreed price is higher) line makes it add up exactly to finalPrice,
- *    so a client checking the math always lands on the agreed number.
+ * price already includes any discount). With the breakdown shown, one
+ * "Discount" (or "Price adjustment" if the agreed price is higher) line
+ * makes it add up exactly to finalPrice.
  */
 export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0, columns, finalPrice = null } = {}) {
   const useFinalPrice = typeof finalPrice === 'number' && Number.isFinite(finalPrice) && finalPrice >= 0;
@@ -297,11 +298,15 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
 
   const summary = [];
   const showsUnitPrice = columnKeys.includes('unitPrice');
-  if (useFinalPrice && !showsUnitPrice) {
-    summary.push({ label: 'Grand Total', value: `$${formatMoney(finalPrice)}`, bold: true });
+  // No Unit Price column -> no breakdown at all (the owner's rule): just
+  // Grand Total (agreed price, or the calculated one incl. tax/discount),
+  // Advance Payment and Remaining Balance.
+  if (!showsUnitPrice) {
+    const shortGrand = useFinalPrice ? finalPrice : grandTotal;
+    summary.push({ label: 'Grand Total', value: `$${formatMoney(shortGrand)}`, bold: true });
     summary.push({ label: 'Advance Payment', value: `$${formatMoney(advanceAmount)}`, bold: true, color: '0e7490' });
-    summary.push({ label: 'Remaining Balance', value: `$${formatMoney(finalPrice - advanceAmount)}`, bold: true, color: '0e7490' });
-    return finishModel(quote, cols, rows, summary, grandTotal, finalPrice, finalPrice - advanceAmount);
+    summary.push({ label: 'Remaining Balance', value: `$${formatMoney(shortGrand - advanceAmount)}`, bold: true, color: '0e7490' });
+    return finishModel(quote, cols, rows, summary, grandTotal, shortGrand, shortGrand - advanceAmount);
   }
   if (motorCount > 0) summary.push({ label: `Motor windows ${motorCount}*$${formatMoney(effectiveMotorCost)}`, value: `$${formatMoney(motorGrandTotal)}` });
   if (solarCount > 0) summary.push({ label: `Solar windows ${solarCount}*$${formatMoney(effectiveSolarCost)}`, value: `$${formatMoney(solarGrandTotal)}` });
