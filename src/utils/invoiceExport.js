@@ -121,8 +121,8 @@ const NO_BORDERS = {
   right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
 };
 
-// Light yellow fill on solar windows' rows, plus a one-line key under the table.
-export const SOLAR_ROW_FILL = 'FFF2CC';
+// Yellow fill (strong enough to see on a phone screen) on solar windows' rows, plus a one-line key under the table.
+export const SOLAR_ROW_FILL = 'FFE066';
 export const SOLAR_ROW_NOTE = 'Highlighted rows: windows with solar panels';
 
 const headerCell = (text, widthDxa) => new TableCell({
