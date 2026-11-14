@@ -183,7 +183,9 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
         {changingPrice ? (
           <>
             <input id="invoice-final" type="text" inputMode="decimal" aria-label="Final price" value={finalText} onChange={(e) => onFinalTextChange(e.target.value)} style={{ ...inputStyle, marginBottom: '4px' }} />
-            <div style={{ fontSize: '12px', color: '#888', marginBottom: '14px' }}>The invoice will show only Grand Total, Advance Payment and Remaining Balance (no Total, Sales Tax or Motor lines).</div>
+            <div style={{ fontSize: '12px', color: '#888', marginBottom: '14px' }}>{ordered.includes('unitPrice')
+                ? 'Unit Price is ticked, so the full breakdown stays (Motor, Solar, Hub, Total, Sales Tax) with a Discount line so it adds up to this price.'
+                : 'Unit Price is not ticked, so the invoice shows only Grand Total, Advance Payment and Remaining Balance.'}</div>
           </>
         ) : (
           <>
