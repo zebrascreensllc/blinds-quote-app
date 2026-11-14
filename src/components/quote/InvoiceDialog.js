@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { formatMoney } from '../../utils/formatters';
-import { INVOICE_COLUMNS, DEFAULT_INVOICE_COLUMN_KEYS, normalizeInvoiceColumns, generateInvoiceDocx, invoiceFileName } from '../../utils/invoiceExport';
+import { INVOICE_COLUMNS, DEFAULT_INVOICE_COLUMN_KEYS, normalizeInvoiceColumns, generateInvoiceDocx, invoiceFileName, buildInvoiceModel } from '../../utils/invoiceExport';
 import { generateInvoicePdf } from '../../utils/invoicePdf';
 
 // "Create Invoice" options, shown as one sheet instead of a chain of
@@ -54,7 +54,14 @@ function downloadBlob(blob, fileName) {
 export default function InvoiceDialog({ quote, grandMin, onClose }) {
   const [columns, setColumns] = useState(loadSavedColumns);
   const [advanceText, setAdvanceText] = useState(formatMoney(grandMin / 2));
+  // Once the owner types an advance, it's theirs - changing the final price
+  // no longer re-fills it with "half".
+  const [advanceTouched, setAdvanceTouched] = useState(false);
   const [discountText, setDiscountText] = useState('0');
+  // 'keep' = the calculated Grand Total; 'change' = a final price agreed
+  // with the client (then only Grand Total / Advance / Remaining show).
+  const [priceMode, setPriceMode] = useState('keep');
+  const [finalText, setFinalText] = useState('');
   const [busy, setBusy] = useState(null); // 'pdf' | 'docx' while creating
 
   const toggleColumn = (key) => {
@@ -63,18 +70,46 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
 
   const advanceAmount = parseMoneyInput(advanceText);
   const discountAmount = parseMoneyInput(discountText);
+  const changingPrice = priceMode === 'change';
+  const finalPrice = changingPrice ? parseMoneyInput(finalText) : null;
   const ordered = INVOICE_COLUMNS.filter(c => columns.includes(c.key)).map(c => c.key);
+
+  // The Grand Total the invoice would print with the calculated prices
+  // (same function the invoice uses, so this number always matches it).
+  const calculatedGrandTotal = useMemo(() => {
+    try {
+      return buildInvoiceModel(quote, { discountAmount: discountAmount || 0 }).grandTotal;
+    } catch (e) {
+      return grandMin;
+    }
+  }, [quote, discountAmount, grandMin]);
+
+  const onFinalTextChange = (text) => {
+    setFinalText(text);
+    const value = parseMoneyInput(text);
+    if (!advanceTouched && value !== null && value > 0) setAdvanceText(formatMoney(value / 2));
+  };
+
+  const choosePriceMode = (mode) => {
+    setPriceMode(mode);
+    if (mode === 'change' && finalText === '') setFinalText(formatMoney(calculatedGrandTotal));
+    if (mode === 'keep' && !advanceTouched) setAdvanceText(formatMoney(calculatedGrandTotal / 2));
+  };
 
   let problem = '';
   if (ordered.length < 2) problem = 'Pick at least 2 columns.';
+  else if (changingPrice && (finalPrice === null || finalPrice <= 0)) problem = 'Enter the final price, e.g. 5500.';
   else if (advanceAmount === null) problem = 'Advance Payment must be a number, e.g. 1800.';
-  else if (discountAmount === null) problem = 'Discount must be a number, e.g. 0 or 150.';
+  else if (!changingPrice && discountAmount === null) problem = 'Discount must be a number, e.g. 0 or 150.';
+  else if (advanceAmount > (changingPrice ? finalPrice : calculatedGrandTotal) + 0.005) problem = 'Advance Payment is more than the Grand Total.';
 
   const create = async (format) => {
     if (problem || busy) return;
     setBusy(format);
     saveColumns(ordered);
-    const options = { advanceAmount, discountAmount, columns: ordered };
+    const options = changingPrice
+      ? { advanceAmount, discountAmount: 0, finalPrice, columns: ordered }
+      : { advanceAmount, discountAmount, columns: ordered };
     try {
       const blob = format === 'pdf' ? await generateInvoicePdf(quote, options) : await generateInvoiceDocx(quote, options);
       downloadBlob(blob, invoiceFileName(quote, format));
@@ -125,12 +160,42 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
           })}
         </div>
 
-        <label style={labelStyle} htmlFor="invoice-advance">Advance Payment ($)</label>
-        <input id="invoice-advance" type="text" inputMode="decimal" value={advanceText} onChange={(e) => setAdvanceText(e.target.value)} style={{ ...inputStyle, marginBottom: '4px' }} />
-        <div style={{ fontSize: '12px', color: '#888', marginBottom: '14px' }}>Starts at half of the Grand Total - change it if different.</div>
+        <span style={labelStyle}>Final price</span>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+          {[
+            { mode: 'keep', label: `Keep $${formatMoney(calculatedGrandTotal)}` },
+            { mode: 'change', label: 'Change it' }
+          ].map(opt => {
+            const on = priceMode === opt.mode;
+            return (
+              <button
+                key={opt.mode}
+                type="button"
+                onClick={() => choosePriceMode(opt.mode)}
+                aria-pressed={on}
+                style={{ padding: '12px 10px', borderRadius: '8px', border: `1px solid ${on ? '#0e7490' : '#444'}`, background: on ? '#0e749033' : '#1f1f1f', color: '#fff', fontSize: '14px', fontWeight: on ? 'bold' : 'normal', minHeight: '44px', cursor: 'pointer' }}
+              >
+                {on ? '● ' : '○ '}{opt.label}
+              </button>
+            );
+          })}
+        </div>
+        {changingPrice ? (
+          <>
+            <input id="invoice-final" type="text" inputMode="decimal" aria-label="Final price" value={finalText} onChange={(e) => onFinalTextChange(e.target.value)} style={{ ...inputStyle, marginBottom: '4px' }} />
+            <div style={{ fontSize: '12px', color: '#888', marginBottom: '14px' }}>The invoice will show only Grand Total, Advance Payment and Remaining Balance (no Total, Sales Tax or Motor lines).</div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: '12px', color: '#888', marginBottom: '14px' }}>Grand Total from the quote, including tax.</div>
+            <label style={labelStyle} htmlFor="invoice-discount">Discount ($)</label>
+            <input id="invoice-discount" type="text" inputMode="decimal" value={discountText} onChange={(e) => setDiscountText(e.target.value)} style={{ ...inputStyle, marginBottom: '16px' }} />
+          </>
+        )}
 
-        <label style={labelStyle} htmlFor="invoice-discount">Discount ($)</label>
-        <input id="invoice-discount" type="text" inputMode="decimal" value={discountText} onChange={(e) => setDiscountText(e.target.value)} style={{ ...inputStyle, marginBottom: '16px' }} />
+        <label style={labelStyle} htmlFor="invoice-advance">Advance Payment ($)</label>
+        <input id="invoice-advance" type="text" inputMode="decimal" value={advanceText} onChange={(e) => { setAdvanceTouched(true); setAdvanceText(e.target.value); }} style={{ ...inputStyle, marginBottom: '4px' }} />
+        <div style={{ fontSize: '12px', color: '#888', marginBottom: '16px' }}>Starts at half of the Grand Total - change it if different.</div>
 
         {problem && <div style={{ color: '#f87171', fontSize: '13px', marginBottom: '12px' }}>{problem}</div>}
 
