@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   validateMeasurementFormat,
   findRoomSizeOutliers,
+  getQuotedSize,
   getLocationLabel,
   computeRemoteLabels,
   expandQuoteIntoRows,
@@ -813,8 +814,17 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
 
   // screen === 'editor'
   const remoteLabels = activeSheet ? computeRemoteLabels(activeSheet.rows) : {};
-  const widthOutlierIds = activeSheet ? findRoomSizeOutliers(activeSheet.rows, 'width') : new Set();
-  const heightOutlierIds = activeSheet ? findRoomSizeOutliers(activeSheet.rows, 'height') : new Set();
+  // Each window is checked only against windows QUOTED at the same size in
+  // its room (see findRoomSizeOutliers). `quotes` lets older sheets, whose
+  // rows don't store their quoted size yet, look it up from the quote.
+  const widthOutlierIds = activeSheet ? findRoomSizeOutliers(activeSheet.rows, 'width', quotes) : new Set();
+  const heightOutlierIds = activeSheet ? findRoomSizeOutliers(activeSheet.rows, 'height', quotes) : new Set();
+  const quotedSizes = {};
+  if (activeSheet) {
+    activeSheet.rows.forEach(row => {
+      quotedSizes[row.id] = { width: getQuotedSize(row, 'width', quotes), height: getQuotedSize(row, 'height', quotes) };
+    });
+  }
 
   return (
     <BulkEditorScreen
@@ -831,6 +841,7 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
       remoteLabels={remoteLabels}
       widthOutlierIds={widthOutlierIds}
       heightOutlierIds={heightOutlierIds}
+      quotedSizes={quotedSizes}
       acknowledgedWarnings={acknowledgedWarnings}
       warningKey={warningKey}
       acknowledgeWarning={acknowledgeWarning}
