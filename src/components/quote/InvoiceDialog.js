@@ -193,7 +193,7 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
           </>
         ) : (
           <>
-            <div style={{ fontSize: '12px', color: '#888', marginBottom: '14px' }}>Grand Total from the quote, including tax.</div>
+            <div style={{ fontSize: '12px', color: '#888', marginBottom: '14px' }}>Grand Total from the quote, including tax.{ordered.includes('unitPrice') ? '' : ' Unit Price is not ticked, so the invoice shows only Grand Total, Advance Payment and Remaining Balance.'}</div>
             <label style={labelStyle} htmlFor="invoice-discount">Discount ($)</label>
             <input id="invoice-discount" type="text" inputMode="decimal" value={discountText} onChange={(e) => setDiscountText(e.target.value)} style={{ ...inputStyle, marginBottom: '16px' }} />
           </>
