@@ -3,6 +3,10 @@ import { Trash2 } from 'lucide-react';
 import {
   MOTOR_OPTIONS,
   isManualMotor,
+  isCustomMotor,
+  motorOptionLabel,
+  motorDisplay,
+  looksManualText,
   CASSETTE_OPTIONS,
   MOUNT_OPTIONS,
   SOLAR_PANEL_OPTIONS,
@@ -438,16 +442,19 @@ export default function BulkEditorScreen({
         <BulkToolPanel title="Motor Type" icon="⚙️" bg="#2a2a1a" border="#8a7a4a" accentColor="#fbbf24" isOpen={showMotorTool} onToggle={() => setShowMotorTool(!showMotorTool)}>
           <label style={labelStyle}>Set Motor to</label>
           <select value={bulkMotorValue} onChange={(e) => setBulkMotorValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
-            {MOTOR_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+            {MOTOR_OPTIONS.map(opt => <option key={opt} value={opt}>{motorOptionLabel(opt)}</option>)}
           </select>
-          {bulkMotorValue === 'Custom' && (
+          {isCustomMotor(bulkMotorValue) && (
             <input
               type="text"
-              placeholder="Type motor type"
+              placeholder={bulkMotorValue === 'Custom' ? 'Type motor type' : 'Type manual detail, e.g. chain 6ft'}
               value={bulkMotorCustomText}
               onChange={(e) => setBulkMotorCustomText(e.target.value)}
               style={{ ...inputStyle, marginBottom: '10px' }}
             />
+          )}
+          {bulkMotorValue === 'Custom' && looksManualText(bulkMotorCustomText) && (
+            <p style={{ fontSize: '12px', color: '#fbbf24', marginBottom: '10px' }}>This looks like a manual window. "Custom (Smart / motor)" exports as Smart - pick "Manual - Custom" at the bottom of the list instead.</p>
           )}
           {isManualMotor(bulkMotorValue) && (
             <p style={{ fontSize: '11px', color: '#888', marginBottom: '10px', fontStyle: 'italic' }}>Setting to Manual also clears Solar and Remote Group on the selected windows.</p>
@@ -459,7 +466,7 @@ export default function BulkEditorScreen({
             setSelectedIds={setMotorSelectedRowIds}
             accentColor="#fbbf24"
             renderLabel={(row) => (
-              <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — currently {row.motor}</span></>
+              <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — currently {motorDisplay(row)}</span></>
             )}
           />
           <button onClick={applyBulkMotor} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#a16207', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>
@@ -485,7 +492,7 @@ export default function BulkEditorScreen({
               setSelectedIds={setSolarSelectedRowIds}
               accentColor="#fde047"
               renderLabel={(row) => (
-                <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {row.motor}, Solar currently {row.solar || 'No'}</span></>
+                <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {motorDisplay(row)}, Solar currently {row.solar || 'No'}</span></>
               )}
             />
           )}
@@ -524,7 +531,7 @@ export default function BulkEditorScreen({
               setSelectedIds={setMotorSideSelectedRowIds}
               accentColor="#fca5a5"
               renderLabel={(row) => (
-                <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {row.motor}, Side currently {row.motorSide === 'Left' ? 'Left' : 'Right (default)'}</span></>
+                <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {motorDisplay(row)}, Side currently {row.motorSide === 'Left' ? 'Left' : 'Right (default)'}</span></>
               )}
             />
           )}
@@ -562,7 +569,7 @@ export default function BulkEditorScreen({
               setSelectedIds={setChainSideSelectedRowIds}
               accentColor="#99f6e4"
               renderLabel={(row) => (
-                <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {row.motor}, Chain side currently {row.chainSide === 'Left' ? 'Left' : 'Right (default)'}</span></>
+                <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {motorDisplay(row)}, Chain side currently {row.chainSide === 'Left' ? 'Left' : 'Right (default)'}</span></>
               )}
             />
           )}
@@ -586,7 +593,7 @@ export default function BulkEditorScreen({
               renderLabel={(row) => {
                 const currentLabel = remoteLabels[row.id] || (row.noRemote ? 'No remote' : '');
                 return (
-                  <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {row.motor}{currentLabel ? ` (currently ${currentLabel})` : ''}</span></>
+                  <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — {motorDisplay(row)}{currentLabel ? ` (currently ${currentLabel})` : ''}</span></>
                 );
               }}
             />

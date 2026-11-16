@@ -22,8 +22,30 @@ export const CHAIN_WAND_OPTIONS = [
   'Manual - Chain wand - Grey',
   'Manual - Chain wand - Black'
 ];
-export const MOTOR_OPTIONS = ['Manual', 'motor-recharge', 'motor-Zigbee', 'motor-wire-zigbee', 'Custom', ...CHAIN_WAND_OPTIONS];
-export const isManualMotor = motor => motor === 'Manual' || CHAIN_WAND_OPTIONS.includes(motor);
+// 'Custom' is a typed-in SMART (motor) type. 'Manual - Custom' is a typed-in
+// MANUAL detail, e.g. a custom chain length "chain 6ft" (2026-11-16: a custom
+// chain typed under 'Custom' showed as Smart). Both keep the text in
+// row.motorCustomText.
+export const MANUAL_CUSTOM_MOTOR = 'Manual - Custom';
+export const MOTOR_OPTIONS = ['Manual', 'motor-recharge', 'motor-Zigbee', 'motor-wire-zigbee', 'Custom', ...CHAIN_WAND_OPTIONS, MANUAL_CUSTOM_MOTOR];
+export const isManualMotor = motor => motor === 'Manual' || motor === MANUAL_CUSTOM_MOTOR || CHAIN_WAND_OPTIONS.includes(motor);
+export const isCustomMotor = motor => motor === 'Custom' || motor === MANUAL_CUSTOM_MOTOR;
+// Dropdown text only - the stored value stays the plain option.
+export const motorOptionLabel = opt => opt === 'Custom' ? 'Custom (Smart / motor)' : opt === MANUAL_CUSTOM_MOTOR ? 'Manual - Custom (e.g. chain length)' : opt;
+// Typed text that clearly describes a manual window - used only to warn when
+// it is typed under the Smart 'Custom' option.
+export const looksManualText = text => /\b(chain|manual|wand|cord|crank)/i.test(text || '');
+// What a row's motor reads as on screen (custom text instead of "Custom").
+export function motorDisplay(row) {
+  if (row.motor === 'Custom') return row.motorCustomText || 'Custom';
+  if (row.motor === MANUAL_CUSTOM_MOTOR) return manualCustomText(row.motorCustomText);
+  return row.motor;
+}
+function manualCustomText(text) {
+  const t = (text || '').trim();
+  if (!t) return MANUAL_CUSTOM_MOTOR;
+  return /^manual\b/i.test(t) ? t : `Manual - ${t}`;
+}
 export const DEFAULT_MOTOR_TYPE = 'motor-Zigbee';
 
 // ✅ NEW: Solar went from a plain yes/no to naming which panel/wire was
@@ -581,7 +603,11 @@ export function buildRowExportFields(row, idx, remoteLabels) {
   const manualSmart = (isMotor ? 'Smart' : 'Manual') + (variants.length ? ' - ' + variants.join(' - ') : '');
   // A chain wand window is Manual, but the supplier still needs the wand colour,
   // so its full option text goes in the Motor-type column.
-  const motorType = isMotor ? (row.motor === 'Custom' ? row.motorCustomText : row.motor) : (isChainWand ? row.motor : '');
+  // A 'Manual - Custom' window (e.g. custom chain length) shows its typed text
+  // the same way: "Manual - chain 6ft".
+  const motorType = isMotor
+    ? (row.motor === 'Custom' ? row.motorCustomText : row.motor)
+    : (isChainWand ? row.motor : row.motor === MANUAL_CUSTOM_MOTOR ? manualCustomText(row.motorCustomText) : '');
   const cassette = row.cassette === 'Custom' ? row.cassetteCustomText : row.cassette;
   return {
     sNo: idx + 1,
