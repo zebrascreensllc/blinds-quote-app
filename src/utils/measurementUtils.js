@@ -74,6 +74,30 @@ export const DEFAULT_CASSETTE = CASSETTE_S1;
 // cassette by default instead of the standard S1.
 export const CASSETTE_S3_HEIGHT_THRESHOLD = 90;
 
+// Picking this mount asks how many extended brackets each window needs
+// (row.extendedBrackets). The count is shown next to the mount everywhere
+// (screen + CSV/Excel via mountDisplay) and the export is blocked until it's set.
+export const EXTENDED_BRACKETS_MOUNT = 'Outside - No Deduction - with Extended Brackets';
+
+// Whole number >= 1, or null. Accepts a number or typed text.
+export function parseBracketCount(value) {
+  const str = String(value ?? '').trim();
+  if (!/^\d+$/.test(str)) return null;
+  const n = parseInt(str, 10);
+  return n >= 1 ? n : null;
+}
+
+export function needsBracketCount(row) {
+  return row.mount === EXTENDED_BRACKETS_MOUNT;
+}
+
+// What the supplier sees in the MOUNT column.
+export function mountDisplay(row) {
+  if (!needsBracketCount(row)) return row.mount;
+  const n = parseBracketCount(row.extendedBrackets);
+  return n ? `${row.mount} - ${n} extended bracket${n > 1 ? 's' : ''}` : row.mount;
+}
+
 export const MOUNT_OPTIONS = [
   'Inside',
   'Inside-side',
@@ -82,7 +106,7 @@ export const MOUNT_OPTIONS = [
   'Inside - Side Mount - with Brackets',
   'Outside - No deduction',
   'Outside - only height deduction',
-  'Outside - No Deduction - with Extended Brackets',
+  EXTENDED_BRACKETS_MOUNT,
   'Outside - stand deduction'
 ];
 export const DEFAULT_MOUNT = 'Inside';
@@ -566,6 +590,7 @@ export function getIncompleteFields(row) {
   // (noRemote) - the second exists so a motor that genuinely has no remote
   // doesn't block the export forever waiting for a group it will never get.
   if (!isManualMotor(row.motor) && !row.remoteGroup && !row.noRemote) missing.push('remote group');
+  if (needsBracketCount(row) && !parseBracketCount(row.extendedBrackets)) missing.push('number of extended brackets');
   return missing;
 }
 
@@ -619,7 +644,7 @@ export function buildRowExportFields(row, idx, remoteLabels) {
     // Explicit "No remote" so the supplier can tell "deliberately none" from a blank.
     remote: remoteLabels[row.id] || (isMotor && row.noRemote ? 'No remote' : ''),
     cassette,
-    mount: row.mount,
+    mount: mountDisplay(row),
     fabricNumber: row.fabricNumber,
     width: row.width,
     height: row.height,

@@ -17,6 +17,8 @@ import {
   motorDisplay,
   DEFAULT_CASSETTE,
   DEFAULT_MOUNT,
+  EXTENDED_BRACKETS_MOUNT,
+  parseBracketCount,
   createBlankMeasurementRow,
   recomputeLocationIndices,
   collectSheetExportProblems
@@ -95,6 +97,9 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
   // straight into row.mount - no separate mountCustomText field needed,
   // and export needs no changes since it already just reads row.mount as-is.
   const [bulkMountCustomText, setBulkMountCustomText] = useState('');
+  // Only used when the Extended Brackets mount is picked: how many brackets
+  // each selected window needs (typed text, validated on Apply).
+  const [bulkBracketCount, setBulkBracketCount] = useState('');
 
   // Accordion - only one window's Width/Height/Comment card is open at a
   // time, so entering measurements for many windows in sequence doesn't
@@ -674,12 +679,18 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
     if (mountSelectedRowIds.size === 0) { alert('Select at least one window first.'); return; }
     if (bulkMountValue === 'Custom' && !bulkMountCustomText.trim()) { alert('Type the custom mount first.'); return; }
 
+    const isExtended = bulkMountValue === EXTENDED_BRACKETS_MOUNT;
+    const brackets = isExtended ? parseBracketCount(bulkBracketCount) : null;
+    if (isExtended && !brackets) { alert('How many extended brackets does each window need? Type a whole number (1 or more).'); return; }
+
     const effectiveMount = bulkMountValue === 'Custom' ? bulkMountCustomText.trim() : bulkMountValue;
-    const newRows = activeSheet.rows.map(r => (mountSelectedRowIds.has(r.id) ? { ...r, mount: effectiveMount } : r));
+    // Any other mount clears the bracket count so a stale number can't follow the window.
+    const newRows = activeSheet.rows.map(r => (mountSelectedRowIds.has(r.id) ? { ...r, mount: effectiveMount, extendedBrackets: brackets } : r));
     updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
     const count = mountSelectedRowIds.size;
     setMountSelectedRowIds(new Set());
-    alert(`Set Mount = "${effectiveMount}" for ${count} window${count > 1 ? 's' : ''}.`);
+    const shown = isExtended ? `${effectiveMount} - ${brackets} extended bracket${brackets > 1 ? 's' : ''} each` : effectiveMount;
+    alert(`Set Mount = "${shown}" for ${count} window${count > 1 ? 's' : ''}.`);
   };
 
 
@@ -954,6 +965,8 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
       mountSelectedRowIds={mountSelectedRowIds}
       setMountSelectedRowIds={setMountSelectedRowIds}
       applyBulkMount={applyBulkMount}
+      bulkBracketCount={bulkBracketCount}
+      setBulkBracketCount={setBulkBracketCount}
 
       showHubTool={showHubTool}
       setShowHubTool={setShowHubTool}
