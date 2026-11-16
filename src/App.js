@@ -1155,6 +1155,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
             pendingSyncQuoteIds={pendingSyncQuoteIds}
             priceEditMode={priceEditMode}
             quotes={quotes}
+            uid={uid}
             safeDeleteQuotes={safeDeleteQuotes}
             selectedQuote={selectedQuote}
             setActiveEditText={setActiveEditText}

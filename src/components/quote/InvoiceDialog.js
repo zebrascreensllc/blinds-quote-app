@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '../../utils/formatters';
 import { INVOICE_COLUMNS, DEFAULT_INVOICE_COLUMN_KEYS, normalizeInvoiceColumns, generateInvoiceDocx, invoiceFileName, buildInvoiceModel, loadLogoBytes } from '../../utils/invoiceExport';
 import { generateInvoicePdf } from '../../utils/invoicePdf';
+import { invoiceMotorLabels } from '../../utils/invoiceMotorTypes';
+import { subscribeToBulkSheets } from '../../services/bulkMeasurementSync';
 
 // "Create Invoice" options, shown as one sheet instead of a chain of
 // pop-up prompts: which columns go in the item table, the advance payment,
@@ -76,7 +78,33 @@ function downloadBlob(blob, fileName) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export default function InvoiceDialog({ quote, grandMin, onClose }) {
+function quoteWindowCount(quote) {
+  return (quote.rooms || []).reduce((n, r) => n + (r.windowGroups || []).reduce((m, g) => m + (parseInt(g.quantity) || 1), 0), 0);
+}
+
+export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose }) {
+  // Measurement sheets (read only), for the motor/chain type of each window:
+  // undefined while loading, [] if none or they couldn't be read.
+  const [sheets, setSheets] = useState(undefined);
+  useEffect(() => {
+    if (!uid) { setSheets([]); return undefined; }
+    let unsubscribe = () => {};
+    try {
+      unsubscribe = subscribeToBulkSheets(uid, list => setSheets(Array.isArray(list) ? list : []), () => setSheets([]));
+    } catch (e) {
+      setSheets([]);
+    }
+    return () => { try { unsubscribe(); } catch (e) { /* already closed */ } };
+  }, [uid]);
+  const motorInfo = useMemo(() => {
+    if (!sheets) return undefined;
+    try {
+      return invoiceMotorLabels(quote, sheets, quotes);
+    } catch (e) {
+      console.error('Could not read motor types from the measurement sheet:', e);
+      return null;
+    }
+  }, [quote, sheets, quotes]);
   const [columns, setColumns] = useState(loadSavedColumns);
   const [advanceText, setAdvanceText] = useState(formatMoney(grandMin / 2));
   // Once the owner types an advance, it's theirs - changing the final price
@@ -162,9 +190,10 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
     if (problem || busy) return;
     setBusy(format);
     saveColumns(ordered);
+    const motorLabels = motorInfo ? motorInfo.labels : null;
     const options = changingPrice
-      ? { advanceAmount, discountAmount: 0, finalPrice, columns: ordered }
-      : { advanceAmount, discountAmount, columns: ordered };
+      ? { advanceAmount, discountAmount: 0, finalPrice, columns: ordered, motorLabels }
+      : { advanceAmount, discountAmount, columns: ordered, motorLabels };
     try {
       const blob = format === 'pdf' ? await generateInvoicePdf(quote, options) : await generateInvoiceDocx(quote, options);
       const fileName = invoiceFileName(quote, format);
@@ -247,6 +276,16 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
               })}
             </div>
             {showsFabric && <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>Adds a "Fabric No" column next to Blind Type. Windows with no fabric picked yet stay blank.</div>}
+          </div>
+        )}
+
+        {ordered.includes('motorSmart') && (
+          <div style={{ fontSize: '12px', color: '#888', marginTop: '-8px', marginBottom: '16px' }}>
+            {motorInfo === undefined
+              ? 'Checking the measurement sheet for motor types...'
+              : motorInfo && motorInfo.count > 0
+                ? `Manual/Smart shows the motor and chain types from this client's measurement sheet (${motorInfo.count} of ${quoteWindowCount(quote)} windows).`
+                : 'No motor types found in a measurement sheet for this quote, so Manual/Smart shows Smart or Manual.'}
           </div>
         )}
 

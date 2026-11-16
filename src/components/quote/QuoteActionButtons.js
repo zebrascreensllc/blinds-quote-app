@@ -25,13 +25,15 @@ export default function QuoteActionButtons({
   selectedQuote,
   setCopiedId,
   setSelectedQuote,
-  toggleOrdered
+  toggleOrdered,
+  quotes,
+  uid
 }) {
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
   return (
     <>
       {showInvoiceDialog && (
-        <InvoiceDialog quote={selectedQuote} grandMin={grandMin} onClose={() => setShowInvoiceDialog(false)} />
+        <InvoiceDialog quote={selectedQuote} quotes={quotes} uid={uid} grandMin={grandMin} onClose={() => setShowInvoiceDialog(false)} />
       )}
       {/* The client said yes: counts as an order in Statistics. */}
       <button

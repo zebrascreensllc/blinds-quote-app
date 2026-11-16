@@ -25,7 +25,11 @@ const isRangeOverride = (v) => v !== null && typeof v === 'object' && typeof v.m
  * window still has no exact fabric/price resolved, so the caller can warn
  * before generating a client-facing invoice with an estimate still baked in.
  */
-export function buildInvoiceLineItems(quote) {
+// options.motorLabels (optional): { [`${room.id}_${groupIdx}`]: [label per
+// window] } from invoiceMotorTypes.js - the motor/chain type set in the
+// measurement sheet ("Smart - Wired", "Manual - Chain wand - White"). Plain
+// strings only, so this file never imports measurement code.
+export function buildInvoiceLineItems(quote, { motorLabels = null } = {}) {
   const storedPricing = quote.pricing || null;
   const fabricData = storedPricing?.PRICING_DATA || PRICING_DATA;
   const items = [];
@@ -72,12 +76,15 @@ export function buildInvoiceLineItems(quote) {
         perWindowPriceMax = q.baseMaxQuote / quantity;
       }
 
+      const groupLabels = (motorLabels && Array.isArray(motorLabels[priceKey])) ? motorLabels[priceKey] : [];
       for (let i = 0; i < quantity; i++) {
         items.push({
           location: room.name || 'Room',
           width: group.width || '',
           height: group.height || '',
           motorSmart: group.controlType === 'Motor' ? 'Smart' : 'Manual',
+          // The specific type from the measurement sheet, if any (display only).
+          motorLabel: typeof groupLabels[i] === 'string' && groupLabels[i].trim() ? groupLabels[i].trim() : null,
           // The exact type when a fabric is picked; otherwise every type
           // the room is still choosing between ("Roller / Zebra").
           blindType: fabricNumbers.length > 0 ? actualBlindType : (room.blindTypes || [actualBlindType]).join(' / '),
@@ -281,7 +288,10 @@ function invoiceCellText(key, it, idx) {
     case 'height': return blankIfMissing(it.height);
     case 'blindType': return blankIfMissing(it.blindType);
     case 'fabric': return blankIfMissing(it.fabric);
-    case 'motorSmart': return it.solar ? `${it.motorSmart}+Solar` : it.motorSmart;
+    case 'motorSmart': {
+      const base = it.motorLabel || it.motorSmart;
+      return it.solar ? `${base}+Solar` : base;
+    }
     case 'unitPrice': return `$${formatMoney(it.unitPrice)}`;
     default: return '';
   }
@@ -303,10 +313,10 @@ function invoiceCellText(key, it, idx) {
  * "Discount" (or "Price adjustment" if the agreed price is higher) line
  * makes it add up exactly to finalPrice.
  */
-export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0, columns, finalPrice = null } = {}) {
+export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0, columns, finalPrice = null, motorLabels = null } = {}) {
   const useFinalPrice = typeof finalPrice === 'number' && Number.isFinite(finalPrice) && finalPrice >= 0;
   if (useFinalPrice) discountAmount = 0;
-  const { items } = buildInvoiceLineItems(quote);
+  const { items } = buildInvoiceLineItems(quote, { motorLabels });
   const {
     motorCount, solarCount, effectiveMotorCost, effectiveSolarCost, motorGrandTotal, solarGrandTotal, hubTotal,
     total, taxRate, salesTax, otherExpensesAmount, otherExpensesLabel, grandTotal
