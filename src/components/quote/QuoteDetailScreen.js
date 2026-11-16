@@ -89,6 +89,7 @@ export default function QuoteDetailScreen({
   setTableEditValues,
   syncFailureMessage,
   tableEditValues,
+  uid,
   updateQuotes
 }) {
   // ✅ NEW: local UI-only state for the Bulk Assign Fabric tool below -
@@ -1092,6 +1093,8 @@ export default function QuoteDetailScreen({
             setCopiedId={setCopiedId}
             setSelectedQuote={setSelectedQuote}
             toggleOrdered={toggleOrdered}
+            quotes={quotes}
+            uid={uid}
           />
         </div>
       </div>
