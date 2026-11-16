@@ -6,7 +6,8 @@ import { getQuoteNamePrefix, autoDetectBlindTypes } from './utils/pricing';
 import { getNextVersionNumber, findRestartedVersionChains } from './utils/quoteLineage';
 import { isRangeOverride } from './utils/formatters';
 import { pruneRooms, remapPriceKeysMulti, isBlankGroup } from './utils/quoteGroups';
-import { findSheetSourceQuote, buildRoomsFromSheet } from './utils/sheetToQuote';
+import { buildRoomsFromSheet, resolveSheetQuote } from './utils/sheetToQuote';
+import { parseUnits } from './utils/formatters';
 
 // ✅ NEW (Phase 2): Supplier Measurements - fully isolated feature, own files,
 // own storage key. Only reads the `quotes` array (never writes it) to build
@@ -997,46 +998,63 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   const generateQuoteFromSheet = (sheet) => {
     try {
       const detect = (fabricInput) => autoDetectBlindTypes(fabricInput, PRICING_DATA);
-      const source = findSheetSourceQuote(sheet, quotes);
+      // Which existing quote this sheet becomes the next version of - one
+      // function covers every way a sheet can be made (pulled, pulled from an
+      // old/trashed version, started blank, combined). See sheetToQuote.js.
+      const resolved = resolveSheetQuote(sheet, quotes, parseUnits);
 
-      if (source.status === 'single') {
-        const quote = source.quote;
-        const { rooms, unmeasured, extraRows } = buildRoomsFromSheet(sheet, quote, detect);
+      if (resolved.quote) {
+        const quote = resolved.quote;
+        const { rooms, unmeasured, extraRows } = buildRoomsFromSheet(resolved.sheet, quote, detect);
         const label = quote.quoteName || `${quote.clientName} ${quote.version || ''}`.trim();
         const notes = [];
         if (quote.trashedAt) notes.push('Note: that quote is in Trash.');
         if (unmeasured > 0) notes.push(`${unmeasured} window${unmeasured === 1 ? ' has' : 's have'} no measurement yet and keep${unmeasured === 1 ? 's' : ''} the quote's size.`);
-        if (extraRows > 0) notes.push(`${extraRows} window${extraRows === 1 ? '' : 's'} added in this sheet will be added to the quote.`);
-        const message = `Make a new version of "${label}" using this sheet's measurements?\n\n` +
+        const total = (sheet.rows || []).length;
+        if (resolved.how === 'newer') notes.push(`This sheet was made from "${resolved.fromName}"; the newest version is used so later price changes are kept.`);
+        if (typeof resolved.matched === 'number') {
+          // Windows were lined up with the quote by room name and size.
+          notes.push(`${resolved.matched} of ${total} window${total === 1 ? '' : 's'} matched a window on that quote by room name and size${resolved.matched < total ? ' - the rest are added as new rooms with no saved price' : ''}.`);
+        } else if (extraRows > 0) {
+          notes.push(`${extraRows} window${extraRows === 1 ? '' : 's'} added in this sheet will be added to the quote.`);
+        }
+        const message = (resolved.how === 'client' ? `This client already has a quote: "${label}".\n\n` : '') +
+          `Make a new version of "${label}" using this sheet's measurements?\n\n` +
           `Client name, phone, address, hub, other expenses and your saved prices are copied from that quote. ` +
           `Window sizes, fabric, motor and solar come from this sheet.` +
           (notes.length ? `\n\n${notes.join('\n')}` : '') +
           `\n\nYou can review everything before saving.`;
-        if (!window.confirm(message)) return;
-        if (rooms.length === 0) {
-          alert('This sheet has no windows to put on a quote.');
+        const useQuote = window.confirm(message);
+        // Blank sheet: Cancel still lets them make a separate new quote below.
+        if (!useQuote && resolved.how !== 'client') return;
+        if (useQuote) {
+          if (rooms.length === 0) {
+            alert('This sheet has no windows to put on a quote.');
+            return;
+          }
+          setFormData({
+            clientName: quote.clientName || '',
+            clientPhone: quote.clientPhone || '',
+            // The quote's own location (not the sheet's address box) - keeps the
+            // quote's address; the new version number follows the quote's lineage.
+            location: quote.location || '',
+            date: quote.date || new Date().toISOString().split('T')[0],
+            hub: sanitizeHub(quote.hub),
+            otherExpensesAmount: typeof quote.editedPrices?.otherExpenses?.amount === 'number' ? quote.editedPrices.otherExpenses.amount : 0,
+            otherExpensesLabel: quote.editedPrices?.otherExpenses?.label || '',
+            rooms
+          });
+          setEditingQuote(quote);
+          setCurrentView('bulkQuote');
           return;
         }
-        setFormData({
-          clientName: quote.clientName || '',
-          clientPhone: quote.clientPhone || '',
-          // The quote's own location (not the sheet's address box) - keeps the
-          // quote's address; the new version number follows the quote's lineage.
-          location: quote.location || '',
-          date: quote.date || new Date().toISOString().split('T')[0],
-          hub: sanitizeHub(quote.hub),
-          otherExpensesAmount: typeof quote.editedPrices?.otherExpenses?.amount === 'number' ? quote.editedPrices.otherExpenses.amount : 0,
-          otherExpensesLabel: quote.editedPrices?.otherExpenses?.label || '',
-          rooms
-        });
-        setEditingQuote(quote);
-        setCurrentView('bulkQuote');
-        return;
       }
 
-      const why = source.status === 'multiple'
+      const why = resolved.how === 'client'
+        ? 'Make a separate NEW quote instead (not a new version)?\n\n'
+        : resolved.reason === 'multiple'
         ? 'This sheet combines several quotes, so it can\'t be turned into one of them.\n\n'
-        : source.status === 'missing'
+        : resolved.reason === 'missing'
           ? 'The quote this sheet came from no longer exists.\n\n'
           : '';
       if (!window.confirm(`${why}Build a new quote from this sheet's windows (location, size, fabric, motor, solar)?\n\nYou'll still need to add the client's phone number and review pricing before generating the quote.`)) return;
