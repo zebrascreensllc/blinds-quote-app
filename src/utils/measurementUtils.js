@@ -56,8 +56,10 @@ export const MOUNT_OPTIONS = [
   'Inside',
   'Inside-side',
   'Inside - No deduction',
+  'Inside - only height deduction',
   'Inside - Side Mount - with Brackets',
   'Outside - No deduction',
+  'Outside - only height deduction',
   'Outside - No Deduction - with Brackets',
   'Outside - stand deduction'
 ];
