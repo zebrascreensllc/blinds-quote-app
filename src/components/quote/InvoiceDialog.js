@@ -97,7 +97,14 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
   const discountAmount = parseMoneyInput(discountText);
   const changingPrice = priceMode === 'change';
   const finalPrice = changingPrice ? parseMoneyInput(finalText) : null;
-  const ordered = INVOICE_COLUMNS.filter(c => columns.includes(c.key)).map(c => c.key);
+  // A dependent column (Fabric No) only counts while its parent (Blind
+  // Type) is ticked - same rule as normalizeInvoiceColumns.
+  const ordered = INVOICE_COLUMNS.filter(c => columns.includes(c.key) && (!c.needs || columns.includes(c.needs))).map(c => c.key);
+  const showsBlindType = columns.includes('blindType');
+  const showsFabric = ordered.includes('fabric');
+  const setShowFabric = (yes) => {
+    setColumns(prev => (yes ? (prev.includes('fabric') ? prev : [...prev, 'fabric']) : prev.filter(k => k !== 'fabric')));
+  };
 
   // The Grand Total the invoice would print with the calculated prices
   // (same function the invoice uses, so this number always matches it).
@@ -203,7 +210,7 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
 
         <span style={labelStyle}>Columns in the table</span>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px' }}>
-          {INVOICE_COLUMNS.map(c => {
+          {INVOICE_COLUMNS.filter(c => !c.needs).map(c => {
             const on = columns.includes(c.key);
             return (
               <label
@@ -216,6 +223,32 @@ export default function InvoiceDialog({ quote, grandMin, onClose }) {
             );
           })}
         </div>
+
+        {showsBlindType && (
+          <div style={{ marginTop: '-8px', marginBottom: '16px' }}>
+            <span style={labelStyle}>Show the fabric number too?</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              {[
+                { yes: true, label: 'Yes, show it' },
+                { yes: false, label: 'No' }
+              ].map(opt => {
+                const on = showsFabric === opt.yes;
+                return (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => setShowFabric(opt.yes)}
+                    aria-pressed={on}
+                    style={{ padding: '12px 10px', borderRadius: '8px', border: `1px solid ${on ? '#0e7490' : '#444'}`, background: on ? '#0e749033' : '#1f1f1f', color: '#fff', fontSize: '14px', fontWeight: on ? 'bold' : 'normal', minHeight: '44px', cursor: 'pointer' }}
+                  >
+                    {on ? '● ' : '○ '}{opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {showsFabric && <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>Adds a "Fabric No" column next to Blind Type. Windows with no fabric picked yet stay blank.</div>}
+          </div>
+        )}
 
         <span style={labelStyle}>Final price</span>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>

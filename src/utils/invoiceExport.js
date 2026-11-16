@@ -81,6 +81,9 @@ export function buildInvoiceLineItems(quote) {
           // The exact type when a fabric is picked; otherwise every type
           // the room is still choosing between ("Roller / Zebra").
           blindType: fabricNumbers.length > 0 ? actualBlindType : (room.blindTypes || [actualBlindType]).join(' / '),
+          // The room's fabric number(s) as typed, upper-cased ("82086K");
+          // '' while no exact fabric is picked yet (an estimate).
+          fabric: fabricNumbers.map(f => f.toUpperCase()).join(', '),
           // ✅ FIX: `!!group.solar` coerced away which panel/wire was
           // actually selected, collapsing it back down to a plain boolean -
           // exactly the "field exists, one consumer forgets to read it
@@ -240,6 +243,10 @@ export const INVOICE_COLUMNS = [
   { key: 'width', label: 'Width (Inches)', align: 'center', weight: 1.1 },
   { key: 'height', label: 'Height (Inches)', align: 'center', weight: 1.1 },
   { key: 'blindType', label: 'Blind Type', align: 'center', weight: 1.3 },
+  // Not a checkbox of its own: when Blind Type is ticked, the invoice sheet
+  // asks "show the fabric number too?" and Yes adds this column right after
+  // it (owner's request, 2026-11-16). It never appears without Blind Type.
+  { key: 'fabric', label: 'Fabric No', align: 'center', weight: 1.1, needs: 'blindType' },
   { key: 'motorSmart', label: 'Manual/Smart', align: 'center', weight: 1.4 },
   { key: 'unitPrice', label: 'UNIT PRICE', align: 'right', weight: 1.4 }
 ];
@@ -257,7 +264,9 @@ export const DEFAULT_INVOICE_COLUMN_KEYS = ['itemNo', 'location', 'count', 'widt
  */
 export function normalizeInvoiceColumns(keys) {
   const wanted = new Set(Array.isArray(keys) ? keys : []);
-  const cleaned = INVOICE_COLUMNS.filter(c => wanted.has(c.key)).map(c => c.key);
+  const cleaned = INVOICE_COLUMNS
+    .filter(c => wanted.has(c.key) && (!c.needs || wanted.has(c.needs)))
+    .map(c => c.key);
   return cleaned.length >= 2 ? cleaned : [...DEFAULT_INVOICE_COLUMN_KEYS];
 }
 
@@ -271,6 +280,7 @@ function invoiceCellText(key, it, idx) {
     case 'width': return blankIfMissing(it.width);
     case 'height': return blankIfMissing(it.height);
     case 'blindType': return blankIfMissing(it.blindType);
+    case 'fabric': return blankIfMissing(it.fabric);
     case 'motorSmart': return it.solar ? `${it.motorSmart}+Solar` : it.motorSmart;
     case 'unitPrice': return `$${formatMoney(it.unitPrice)}`;
     default: return '';

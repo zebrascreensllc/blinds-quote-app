@@ -24,7 +24,8 @@ export const TERMS_AND_CONDITIONS = [
 
 export const WARRANTY_SUMMARY = [
   'Fabric: 1 Year Limited Warranty',
-  'Motor & Remote: 3 Years Limited Warranty'
+  'Motor: 3 Years Limited Warranty',
+  'Remote: 3 Months Limited Warranty'
 ];
 
 export const WARRANTY_SECTIONS = [
@@ -32,7 +33,7 @@ export const WARRANTY_SECTIONS = [
     title: '1. Manufacturing Defects (Covered)',
     bullets: [
       'Any fabric discoloration or malfunction in the blinds due to manufacturing defects will be covered under warranty within 1 year from the date of installation.',
-      'For motorized systems, any functional issues with the motor or remote will be covered under warranty for up to 3 years, subject to proper usage.'
+      'For motorized systems, any functional issues with the motor will be covered under warranty for up to 3 years, and with the remote for up to 3 months, subject to proper usage.'
     ]
   },
   {
