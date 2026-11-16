@@ -6,7 +6,8 @@ import { getQuoteNamePrefix, autoDetectBlindTypes } from './utils/pricing';
 import { getNextVersionNumber, findRestartedVersionChains } from './utils/quoteLineage';
 import { isRangeOverride } from './utils/formatters';
 import { pruneRooms, remapPriceKeysMulti, isBlankGroup } from './utils/quoteGroups';
-import { findSheetSourceQuote, buildRoomsFromSheet } from './utils/sheetToQuote';
+import { findSheetSourceQuote, buildRoomsFromSheet, findClientQuoteForSheet, linkRowsToQuote } from './utils/sheetToQuote';
+import { parseUnits } from './utils/formatters';
 
 // ✅ NEW (Phase 2): Supplier Measurements - fully isolated feature, own files,
 // own storage key. Only reads the `quotes` array (never writes it) to build
@@ -999,42 +1000,68 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       const detect = (fabricInput) => autoDetectBlindTypes(fabricInput, PRICING_DATA);
       const source = findSheetSourceQuote(sheet, quotes);
 
-      if (source.status === 'single') {
-        const quote = source.quote;
-        const { rooms, unmeasured, extraRows } = buildRoomsFromSheet(sheet, quote, detect);
+      // A sheet started blank (or whose quote was deleted) has no link to a
+      // quote - but the client may still have one (owner report 2026-11-16:
+      // Venkat - Flower mound already had v1/v2). Find it by name + address
+      // and line the windows up with its rooms, so it gets the same treatment.
+      let linked = null;
+      if (source.status === 'none' || source.status === 'missing') {
+        const clientQuote = findClientQuoteForSheet(sheet, quotes);
+        if (clientQuote) {
+          const { rows: linkedRows, matched } = linkRowsToQuote(sheet.rows || [], clientQuote, parseUnits);
+          linked = { quote: clientQuote, sheet: { ...sheet, rows: linkedRows }, matched };
+        }
+      }
+
+      if (source.status === 'single' || linked) {
+        const quote = linked ? linked.quote : source.quote;
+        const { rooms, unmeasured, extraRows } = buildRoomsFromSheet(linked ? linked.sheet : sheet, quote, detect);
         const label = quote.quoteName || `${quote.clientName} ${quote.version || ''}`.trim();
         const notes = [];
         if (quote.trashedAt) notes.push('Note: that quote is in Trash.');
         if (unmeasured > 0) notes.push(`${unmeasured} window${unmeasured === 1 ? ' has' : 's have'} no measurement yet and keep${unmeasured === 1 ? 's' : ''} the quote's size.`);
-        if (extraRows > 0) notes.push(`${extraRows} window${extraRows === 1 ? '' : 's'} added in this sheet will be added to the quote.`);
-        const message = `Make a new version of "${label}" using this sheet's measurements?\n\n` +
+        if (linked) {
+          // Blank sheet: the windows were matched to the quote by room name and size.
+          const total = (sheet.rows || []).length;
+          notes.push(`${linked.matched} of ${total} window${total === 1 ? '' : 's'} matched a window on that quote by room name and size${linked.matched < total ? ' - the rest are added as new rooms with no saved price' : ''}.`);
+        } else if (extraRows > 0) {
+          notes.push(`${extraRows} window${extraRows === 1 ? '' : 's'} added in this sheet will be added to the quote.`);
+        }
+        const message = (linked ? `This client already has a quote: "${label}".\n\n` : '') +
+          `Make a new version of "${label}" using this sheet's measurements?\n\n` +
           `Client name, phone, address, hub, other expenses and your saved prices are copied from that quote. ` +
           `Window sizes, fabric, motor and solar come from this sheet.` +
           (notes.length ? `\n\n${notes.join('\n')}` : '') +
           `\n\nYou can review everything before saving.`;
-        if (!window.confirm(message)) return;
-        if (rooms.length === 0) {
-          alert('This sheet has no windows to put on a quote.');
+        const useQuote = window.confirm(message);
+        // Blank sheet: Cancel still lets them make a separate new quote below.
+        if (!useQuote && !linked) return;
+        if (useQuote) {
+          if (rooms.length === 0) {
+            alert('This sheet has no windows to put on a quote.');
+            return;
+          }
+          setFormData({
+            clientName: quote.clientName || '',
+            clientPhone: quote.clientPhone || '',
+            // The quote's own location (not the sheet's address box) - keeps the
+            // quote's address; the new version number follows the quote's lineage.
+            location: quote.location || '',
+            date: quote.date || new Date().toISOString().split('T')[0],
+            hub: sanitizeHub(quote.hub),
+            otherExpensesAmount: typeof quote.editedPrices?.otherExpenses?.amount === 'number' ? quote.editedPrices.otherExpenses.amount : 0,
+            otherExpensesLabel: quote.editedPrices?.otherExpenses?.label || '',
+            rooms
+          });
+          setEditingQuote(quote);
+          setCurrentView('bulkQuote');
           return;
         }
-        setFormData({
-          clientName: quote.clientName || '',
-          clientPhone: quote.clientPhone || '',
-          // The quote's own location (not the sheet's address box) - keeps the
-          // quote's address; the new version number follows the quote's lineage.
-          location: quote.location || '',
-          date: quote.date || new Date().toISOString().split('T')[0],
-          hub: sanitizeHub(quote.hub),
-          otherExpensesAmount: typeof quote.editedPrices?.otherExpenses?.amount === 'number' ? quote.editedPrices.otherExpenses.amount : 0,
-          otherExpensesLabel: quote.editedPrices?.otherExpenses?.label || '',
-          rooms
-        });
-        setEditingQuote(quote);
-        setCurrentView('bulkQuote');
-        return;
       }
 
-      const why = source.status === 'multiple'
+      const why = linked
+        ? 'Make a separate NEW quote instead (not a new version)?\n\n'
+        : source.status === 'multiple'
         ? 'This sheet combines several quotes, so it can\'t be turned into one of them.\n\n'
         : source.status === 'missing'
           ? 'The quote this sheet came from no longer exists.\n\n'

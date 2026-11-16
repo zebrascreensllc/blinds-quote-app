@@ -189,3 +189,95 @@ export function buildRoomsFromSheet(sheet, sourceQuote, detectBlindTypes) {
 
   return { rooms, unmeasured, extraRows: extra.length };
 }
+
+// ---------------------------------------------------------------------------
+// "Start blank" sheets: the client may already have a quote.
+//
+// A sheet started blank (measurements taken first) has no link to any quote,
+// so the owner used to get "add the client's phone number and review pricing"
+// even when that client already had a quote (reported 2026-11-16: Venkat -
+// Flower mound, v1/v2 under Pull Quote). We now look the client up by name +
+// address and, when found, line the sheet's windows up with that quote's
+// window groups so they go through exactly the same path as a pulled sheet.
+// ---------------------------------------------------------------------------
+
+// Case, spaces and punctuation don't matter: "Flower mound" = "Flowermound".
+const squash = s => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+// Room family: "Bf nook 3" / "bf nook" / "BF-Nook" -> "bfnook".
+const roomFamily = s => squash(String(s ?? '').replace(/\s*\d+\s*$/, '')) || squash(s);
+const versionNum = q => parseInt(String(q?.version || '').replace(/\D/g, ''), 10) || 0;
+
+/**
+ * The client's existing quote for a sheet with no quote link, or null.
+ * Matches the sheet's client name and address (ignoring case/spaces/
+ * punctuation) against active quotes (not trashed or archived). If the sheet
+ * has no address, the name alone must point at a single client+address.
+ * Returns the newest version in the version chain of the most recently
+ * updated matching quote.
+ */
+export function findClientQuoteForSheet(sheet, quotes) {
+  const name = squash(sheet?.clientNames?.[0] || (sheet?.rows || []).find(r => str(r.clientName))?.clientName);
+  if (!name) return null;
+  const addr = squash(sheet?.address);
+  const active = (quotes || []).filter(q => q && !q.trashedAt && !q.archived && squash(q.clientName) === name);
+  let matches = addr ? active.filter(q => squash(q.location) === addr) : active;
+  if (!addr && new Set(matches.map(q => squash(q.location))).size > 1) return null;
+  if (matches.length === 0) return null;
+  // The job = the most recently updated match's version chain (lineageId -
+  // the name can differ between versions); use that chain's newest version.
+  const latest = [...matches].sort((a, b) => String(b.updatedDate || '').localeCompare(String(a.updatedDate || '')))[0];
+  const lineage = latest.lineageId || latest.id;
+  const chain = (quotes || []).filter(q => q && !q.trashedAt && !q.archived && (q.lineageId || q.id) === lineage);
+  return chain.sort((a, b) => versionNum(b) - versionNum(a))[0] || latest;
+}
+
+/**
+ * Gives each unlinked sheet row the sourceQuoteId/sourceRoomId/sourceGroupIdx
+ * of the quote window it most likely is, so buildRoomsFromSheet can treat the
+ * sheet as if it had been pulled from that quote.
+ *   room:  same room family name ("Bf nook 3" -> quote room "Bf nook")
+ *   group: within that room, the window group closest in size (each side
+ *          within MATCH_TOLERANCE inches), preferring the same Motor/Manual and
+ *          groups that still have windows left to claim. An unmeasured row
+ *          matches only when the room has a single group.
+ * Rows that match nothing are left unlinked (they become their own rooms).
+ * parse: the app's parseUnits. Returns { rows, matched }.
+ */
+export const MATCH_TOLERANCE = 3;
+export function linkRowsToQuote(rows, quote, parse) {
+  const rooms = quote?.rooms || [];
+  const left = new Map(); // `${roomId}_${idx}` -> windows not yet claimed
+  rooms.forEach(room => (room.windowGroups || []).forEach((g, i) => left.set(`${room.id}_${i}`, parseInt(g.quantity) || 1)));
+  let matched = 0;
+  const out = (rows || []).map(row => {
+    if (row.sourceQuoteId) return row;
+    const fam = roomFamily(row.locationBase);
+    const room = fam && rooms.find(r => roomFamily(r.name) === fam);
+    if (!room) return row;
+    const groups = room.windowGroups || [];
+    const w = parse(str(row.width)), h = parse(str(row.height));
+    let best = null;
+    if (!w || !h) {
+      if (groups.length === 1) best = 0;
+    } else {
+      const motor = isMotorRow(row);
+      groups.forEach((g, i) => {
+        const gw = parse(str(g.width)), gh = parse(str(g.height));
+        if (!gw || !gh) return;
+        const dw = Math.abs(gw - w), dh = Math.abs(gh - h);
+        if (dw > MATCH_TOLERANCE || dh > MATCH_TOLERANCE) return;
+        const score = dw + dh
+          + ((g.controlType === 'Motor') === motor ? 0 : 100)
+          + ((left.get(`${room.id}_${i}`) || 0) > 0 ? 0 : 1000);
+        if (best === null || score < best.score) best = { i, score };
+      });
+      best = best ? best.i : null;
+    }
+    if (best === null) return row;
+    const k = `${room.id}_${best}`;
+    left.set(k, (left.get(k) || 0) - 1);
+    matched += 1;
+    return { ...row, sourceQuoteId: quote.id, sourceRoomId: room.id, sourceGroupIdx: best };
+  });
+  return { rows: out, matched };
+}
