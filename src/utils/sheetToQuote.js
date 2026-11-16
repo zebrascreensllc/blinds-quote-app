@@ -220,15 +220,52 @@ export function findClientQuoteForSheet(sheet, quotes) {
   if (!name) return null;
   const addr = squash(sheet?.address);
   const active = (quotes || []).filter(q => q && !q.trashedAt && !q.archived && squash(q.clientName) === name);
-  let matches = addr ? active.filter(q => squash(q.location) === addr) : active;
-  if (!addr && new Set(matches.map(q => squash(q.location))).size > 1) return null;
+  const lineages = list => new Set(list.map(q => q.lineageId || q.id));
+  let matches = addr ? active.filter(q => squash(q.location) === addr) : [];
+  // Address typed differently on the sheet ("Flower Mound TX"), or left
+  // blank: fall back to the name alone, but only when it points at ONE job.
+  // The confirm names the quote, and Cancel still makes a separate one.
+  if (matches.length === 0 && lineages(active).size === 1) matches = active;
   if (matches.length === 0) return null;
   // The job = the most recently updated match's version chain (lineageId -
   // the name can differ between versions); use that chain's newest version.
   const latest = [...matches].sort((a, b) => String(b.updatedDate || '').localeCompare(String(a.updatedDate || '')))[0];
-  const lineage = latest.lineageId || latest.id;
+  return newestActiveVersion(latest, quotes) || latest;
+}
+
+// Newest version (not trashed/archived) in this quote's version chain, or null.
+export function newestActiveVersion(quote, quotes) {
+  if (!quote) return null;
+  const lineage = quote.lineageId || quote.id;
   const chain = (quotes || []).filter(q => q && !q.trashedAt && !q.archived && (q.lineageId || q.id) === lineage);
-  return chain.sort((a, b) => versionNum(b) - versionNum(a))[0] || latest;
+  return chain.sort((a, b) => versionNum(b) - versionNum(a))[0] || null;
+}
+
+// Same rooms (by id) with the same window groups (count, size, Motor/Manual)?
+// Then a row's sourceRoomId/sourceGroupIdx means the same window in both.
+export function sameWindowLayout(a, b) {
+  const ra = a?.rooms || [], rb = b?.rooms || [];
+  if (ra.length !== rb.length) return false;
+  return ra.every(room => {
+    const other = rb.find(r => r.id === room.id);
+    const ga = room.windowGroups || [], gb = other?.windowGroups || [];
+    return other && ga.length === gb.length && ga.every((g, i) =>
+      squash(g.width) === squash(gb[i].width) && squash(g.height) === squash(gb[i].height) && g.controlType === gb[i].controlType);
+  });
+}
+
+/**
+ * A sheet pulled from an OLD version (v6 while v7 exists, or a version since
+ * trashed) must build on the newest version - otherwise prices edited in v7
+ * would silently go back to v6's. Rows are moved onto `to`: kept as-is when
+ * the window layout is the same, otherwise re-matched by room name and size.
+ */
+export function moveRowsToVersion(rows, from, to, parse) {
+  if (sameWindowLayout(from, to)) {
+    return { rows: (rows || []).map(r => (r.sourceQuoteId === from.id ? { ...r, sourceQuoteId: to.id } : r)), relinked: false };
+  }
+  const unlinked = (rows || []).map(r => (r.sourceQuoteId === from.id ? { ...r, sourceQuoteId: null, sourceRoomId: null, sourceGroupIdx: null } : r));
+  return { rows: linkRowsToQuote(unlinked, to, parse).rows, relinked: true };
 }
 
 /**
@@ -251,33 +288,101 @@ export function linkRowsToQuote(rows, quote, parse) {
   let matched = 0;
   const out = (rows || []).map(row => {
     if (row.sourceQuoteId) return row;
+    // Exact window name first ("Bf nook 3" when the quote already has one room
+    // per window, e.g. a version made from an earlier sheet), else every room
+    // of the same family ("Bf nook 3" -> "Bf nook").
+    const exact = squash(getLocationLabel(row));
     const fam = roomFamily(row.locationBase);
-    const room = fam && rooms.find(r => roomFamily(r.name) === fam);
-    if (!room) return row;
-    const groups = room.windowGroups || [];
+    let candidates = rooms.filter(r => squash(r.name) === exact);
+    const byExactName = candidates.length > 0;
+    if (candidates.length === 0 && fam) candidates = rooms.filter(r => roomFamily(r.name) === fam);
+    if (candidates.length === 0) return row;
     const w = parse(str(row.width)), h = parse(str(row.height));
+    const options = [];
+    candidates.forEach(room => (room.windowGroups || []).forEach((g, i) => options.push({ room, g, i })));
     let best = null;
     if (!w || !h) {
-      if (groups.length === 1) best = 0;
+      if (options.length === 1) best = options[0];
     } else {
       const motor = isMotorRow(row);
-      groups.forEach((g, i) => {
-        const gw = parse(str(g.width)), gh = parse(str(g.height));
+      options.forEach(o => {
+        const gw = parse(str(o.g.width)), gh = parse(str(o.g.height));
         if (!gw || !gh) return;
         const dw = Math.abs(gw - w), dh = Math.abs(gh - h);
         if (dw > MATCH_TOLERANCE || dh > MATCH_TOLERANCE) return;
         const score = dw + dh
-          + ((g.controlType === 'Motor') === motor ? 0 : 100)
-          + ((left.get(`${room.id}_${i}`) || 0) > 0 ? 0 : 1000);
-        if (best === null || score < best.score) best = { i, score };
+          + ((o.g.controlType === 'Motor') === motor ? 0 : 100)
+          + ((left.get(`${o.room.id}_${o.i}`) || 0) > 0 ? 0 : 1000);
+        if (!best || score < best.score) best = { ...o, score };
       });
-      best = best ? best.i : null;
+      // Same window name and only one window there: it IS that window, even
+      // if it measured more than MATCH_TOLERANCE off the rough size.
+      if (!best && byExactName && options.length === 1) best = options[0];
     }
-    if (best === null) return row;
-    const k = `${room.id}_${best}`;
+    if (!best) return row;
+    const k = `${best.room.id}_${best.i}`;
     left.set(k, (left.get(k) || 0) - 1);
     matched += 1;
-    return { ...row, sourceQuoteId: quote.id, sourceRoomId: room.id, sourceGroupIdx: best };
+    return { ...row, sourceQuoteId: quote.id, sourceRoomId: best.room.id, sourceGroupIdx: best.i };
   });
   return { rows: out, matched };
+}
+
+/**
+ * ONE place that decides which existing quote a sheet becomes the next
+ * version of - every way a sheet can be made goes through here:
+ *   - pulled from one quote                 -> that quote's newest version
+ *   - pulled from an older/trashed version  -> the newest active version
+ *   - pulled from several versions of ONE job -> that job's newest version
+ *   - started blank / source deleted        -> the client's quote by name+address
+ *   - several different jobs (combined)     -> none (a fresh quote)
+ * Returns { quote, sheet, how, fromName, matched, reason }:
+ *   quote: the quote to build on (null = make a fresh quote)
+ *   sheet: the sheet with rows pointed at `quote` (use this to build rooms)
+ *   how: 'pulled' | 'newer' | 'client' | null
+ *   fromName: the version the sheet was made from, when 'newer'
+ *   matched: rows lined up by name+size ('client', or 'newer' with a changed layout)
+ *   reason: why no quote ('multiple' | 'missing' | 'none')
+ */
+export function resolveSheetQuote(sheet, quotes, parse) {
+  const rows = sheet?.rows || [];
+  const ids = [...new Set(rows.map(r => r.sourceQuoteId).filter(Boolean))];
+  const found = ids.map(id => (quotes || []).find(q => q.id === id)).filter(Boolean);
+  const jobs = new Set(found.map(q => q.lineageId || q.id));
+
+  if (found.length > 0 && found.length === ids.length && jobs.size === 1) {
+    // Prefer the newest active version; if every version is trashed, the
+    // newest of the ones the sheet came from.
+    const fallback = [...found].sort((a, b) => versionNum(b) - versionNum(a))[0];
+    const base = newestActiveVersion(fallback, quotes) || fallback;
+    let moved = rows;
+    let relinked = false;
+    found.forEach(src => {
+      if (src.id === base.id) return;
+      const r = moveRowsToVersion(moved, src, base, parse);
+      moved = r.rows; relinked = relinked || r.relinked;
+    });
+    const isNewer = found.some(q => q.id !== base.id);
+    const matched = relinked ? moved.filter(r => r.sourceQuoteId === base.id).length : undefined;
+    return {
+      quote: base,
+      sheet: { ...sheet, rows: moved },
+      how: isNewer ? 'newer' : 'pulled',
+      fromName: isNewer ? (fallback.quoteName || fallback.version || '') : '',
+      matched,
+      reason: null
+    };
+  }
+
+  if (ids.length > 0 && jobs.size > 1) return { quote: null, sheet, how: null, reason: 'multiple' };
+
+  // Blank sheet, or its quote was deleted: look the client up.
+  const clientQuote = findClientQuoteForSheet(sheet, quotes);
+  if (clientQuote) {
+    const unlinked = rows.map(r => (r.sourceQuoteId && r.sourceQuoteId !== clientQuote.id)
+      ? { ...r, sourceQuoteId: null, sourceRoomId: null, sourceGroupIdx: null } : r);
+    const { rows: linkedRows, matched } = linkRowsToQuote(unlinked, clientQuote, parse);
+    return { quote: clientQuote, sheet: { ...sheet, rows: linkedRows }, how: 'client', matched, reason: null };
+  }
+  return { quote: null, sheet, how: null, reason: ids.length > 0 ? 'missing' : 'none' };
 }

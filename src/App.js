@@ -6,7 +6,7 @@ import { getQuoteNamePrefix, autoDetectBlindTypes } from './utils/pricing';
 import { getNextVersionNumber, findRestartedVersionChains } from './utils/quoteLineage';
 import { isRangeOverride } from './utils/formatters';
 import { pruneRooms, remapPriceKeysMulti, isBlankGroup } from './utils/quoteGroups';
-import { findSheetSourceQuote, buildRoomsFromSheet, findClientQuoteForSheet, linkRowsToQuote } from './utils/sheetToQuote';
+import { buildRoomsFromSheet, resolveSheetQuote } from './utils/sheetToQuote';
 import { parseUnits } from './utils/formatters';
 
 // ✅ NEW (Phase 2): Supplier Measurements - fully isolated feature, own files,
@@ -998,36 +998,27 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   const generateQuoteFromSheet = (sheet) => {
     try {
       const detect = (fabricInput) => autoDetectBlindTypes(fabricInput, PRICING_DATA);
-      const source = findSheetSourceQuote(sheet, quotes);
+      // Which existing quote this sheet becomes the next version of - one
+      // function covers every way a sheet can be made (pulled, pulled from an
+      // old/trashed version, started blank, combined). See sheetToQuote.js.
+      const resolved = resolveSheetQuote(sheet, quotes, parseUnits);
 
-      // A sheet started blank (or whose quote was deleted) has no link to a
-      // quote - but the client may still have one (owner report 2026-11-16:
-      // Venkat - Flower mound already had v1/v2). Find it by name + address
-      // and line the windows up with its rooms, so it gets the same treatment.
-      let linked = null;
-      if (source.status === 'none' || source.status === 'missing') {
-        const clientQuote = findClientQuoteForSheet(sheet, quotes);
-        if (clientQuote) {
-          const { rows: linkedRows, matched } = linkRowsToQuote(sheet.rows || [], clientQuote, parseUnits);
-          linked = { quote: clientQuote, sheet: { ...sheet, rows: linkedRows }, matched };
-        }
-      }
-
-      if (source.status === 'single' || linked) {
-        const quote = linked ? linked.quote : source.quote;
-        const { rooms, unmeasured, extraRows } = buildRoomsFromSheet(linked ? linked.sheet : sheet, quote, detect);
+      if (resolved.quote) {
+        const quote = resolved.quote;
+        const { rooms, unmeasured, extraRows } = buildRoomsFromSheet(resolved.sheet, quote, detect);
         const label = quote.quoteName || `${quote.clientName} ${quote.version || ''}`.trim();
         const notes = [];
         if (quote.trashedAt) notes.push('Note: that quote is in Trash.');
         if (unmeasured > 0) notes.push(`${unmeasured} window${unmeasured === 1 ? ' has' : 's have'} no measurement yet and keep${unmeasured === 1 ? 's' : ''} the quote's size.`);
-        if (linked) {
-          // Blank sheet: the windows were matched to the quote by room name and size.
-          const total = (sheet.rows || []).length;
-          notes.push(`${linked.matched} of ${total} window${total === 1 ? '' : 's'} matched a window on that quote by room name and size${linked.matched < total ? ' - the rest are added as new rooms with no saved price' : ''}.`);
+        const total = (sheet.rows || []).length;
+        if (resolved.how === 'newer') notes.push(`This sheet was made from "${resolved.fromName}"; the newest version is used so later price changes are kept.`);
+        if (typeof resolved.matched === 'number') {
+          // Windows were lined up with the quote by room name and size.
+          notes.push(`${resolved.matched} of ${total} window${total === 1 ? '' : 's'} matched a window on that quote by room name and size${resolved.matched < total ? ' - the rest are added as new rooms with no saved price' : ''}.`);
         } else if (extraRows > 0) {
           notes.push(`${extraRows} window${extraRows === 1 ? '' : 's'} added in this sheet will be added to the quote.`);
         }
-        const message = (linked ? `This client already has a quote: "${label}".\n\n` : '') +
+        const message = (resolved.how === 'client' ? `This client already has a quote: "${label}".\n\n` : '') +
           `Make a new version of "${label}" using this sheet's measurements?\n\n` +
           `Client name, phone, address, hub, other expenses and your saved prices are copied from that quote. ` +
           `Window sizes, fabric, motor and solar come from this sheet.` +
@@ -1035,7 +1026,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
           `\n\nYou can review everything before saving.`;
         const useQuote = window.confirm(message);
         // Blank sheet: Cancel still lets them make a separate new quote below.
-        if (!useQuote && !linked) return;
+        if (!useQuote && resolved.how !== 'client') return;
         if (useQuote) {
           if (rooms.length === 0) {
             alert('This sheet has no windows to put on a quote.');
@@ -1059,11 +1050,11 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         }
       }
 
-      const why = linked
+      const why = resolved.how === 'client'
         ? 'Make a separate NEW quote instead (not a new version)?\n\n'
-        : source.status === 'multiple'
+        : resolved.reason === 'multiple'
         ? 'This sheet combines several quotes, so it can\'t be turned into one of them.\n\n'
-        : source.status === 'missing'
+        : resolved.reason === 'missing'
           ? 'The quote this sheet came from no longer exists.\n\n'
           : '';
       if (!window.confirm(`${why}Build a new quote from this sheet's windows (location, size, fabric, motor, solar)?\n\nYou'll still need to add the client's phone number and review pricing before generating the quote.`)) return;
