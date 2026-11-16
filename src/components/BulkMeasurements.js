@@ -13,6 +13,8 @@ import {
   sheetToCSV,
   DEFAULT_MOTOR_TYPE,
   isManualMotor,
+  isCustomMotor,
+  motorDisplay,
   DEFAULT_CASSETTE,
   DEFAULT_MOUNT,
   createBlankMeasurementRow,
@@ -503,7 +505,7 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
   const applyBulkMotor = () => {
     if (!activeSheet) return;
     if (motorSelectedRowIds.size === 0) { alert('Select at least one window first.'); return; }
-    if (bulkMotorValue === 'Custom' && !bulkMotorCustomText.trim()) { alert('Type the custom motor type first.'); return; }
+    if (isCustomMotor(bulkMotorValue) && !bulkMotorCustomText.trim()) { alert(bulkMotorValue === 'Custom' ? 'Type the custom motor type first.' : 'Type the manual detail first (e.g. chain 6ft).'); return; }
 
     const newRows = activeSheet.rows.map(r => {
       if (!motorSelectedRowIds.has(r.id)) return r;
@@ -513,7 +515,7 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
         patch.remoteGroup = null;
         patch.remoteChannel = null;
         patch.noRemote = false;
-        patch.motorCustomText = '';
+        patch.motorCustomText = isCustomMotor(bulkMotorValue) ? bulkMotorCustomText.trim() : '';
         // ✅ FIX: a stale motorSide: 'Left' from before the switch would
         // otherwise leak into the export as "Manual - Left side", which
         // makes no sense for a non-motorized window. Same bug exists in
@@ -531,7 +533,7 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
     updateActiveSheet(sheet => ({ ...sheet, rows: newRows, updatedDate: new Date().toISOString() }));
     const count = motorSelectedRowIds.size;
     setMotorSelectedRowIds(new Set());
-    alert(`Set ${count} window${count > 1 ? 's' : ''} to "${bulkMotorValue === 'Custom' ? bulkMotorCustomText.trim() : bulkMotorValue}".`);
+    alert(`Set ${count} window${count > 1 ? 's' : ''} to "${motorDisplay({ motor: bulkMotorValue, motorCustomText: bulkMotorCustomText.trim() })}".`);
   };
 
   // ---- Bulk solar tool - scoped to motorized windows only, same reasoning
