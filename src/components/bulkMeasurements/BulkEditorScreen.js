@@ -9,6 +9,8 @@ import {
   looksManualText,
   CASSETTE_OPTIONS,
   MOUNT_OPTIONS,
+  EXTENDED_BRACKETS_MOUNT,
+  mountDisplay,
   SOLAR_PANEL_OPTIONS,
   validateMeasurementFormat,
   toSixteenths,
@@ -166,6 +168,8 @@ export default function BulkEditorScreen({
   bulkMountValue,
   setBulkMountValue,
   bulkMountCustomText,
+  bulkBracketCount,
+  setBulkBracketCount,
   setBulkMountCustomText,
   mountSelectedRowIds,
   setMountSelectedRowIds,
@@ -665,6 +669,21 @@ export default function BulkEditorScreen({
               style={{ ...inputStyle, marginBottom: '10px' }}
             />
           )}
+          {bulkMountValue === EXTENDED_BRACKETS_MOUNT && (
+            <>
+              <label style={labelStyle}>How many extended brackets per window?</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                step="1"
+                placeholder="e.g. 2"
+                value={bulkBracketCount}
+                onChange={(e) => setBulkBracketCount(e.target.value)}
+                style={{ ...inputStyle, marginBottom: '10px' }}
+              />
+            </>
+          )}
           <RowChecklist
             rows={rows}
             selectedIds={mountSelectedRowIds}
@@ -672,7 +691,7 @@ export default function BulkEditorScreen({
             setSelectedIds={setMountSelectedRowIds}
             accentColor="#f0abfc"
             renderLabel={(row) => (
-              <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — currently {row.mount}</span></>
+              <>{getLocationLabel(row)}<span style={{ color: '#666' }}> — currently {mountDisplay(row)}</span></>
             )}
           />
           <button onClick={applyBulkMount} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#86198f', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>
