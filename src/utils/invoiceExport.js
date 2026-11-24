@@ -6,6 +6,7 @@ import { PRICING_DATA } from '../data/pricingData';
 import { SALES_TAX_RATE } from './constants';
 import { calculateGroupQuote, getBlindTypeFromFabric, getHubTotal, estimateBlindTypes } from './pricing';
 import { formatMoney } from './formatters';
+import { quoteCassetteLabel } from './cassette';
 import { INVOICE_BUSINESS, TERMS_AND_CONDITIONS, WARRANTY_SUMMARY, WARRANTY_SECTIONS } from './invoiceContent';
 import zebraLogoUrl from '../assets/zebra-logo.png';
 
@@ -97,6 +98,8 @@ export function buildInvoiceLineItems(quote, { motorLabels = null } = {}) {
           // properly" bug class. Keep the real value (a panel name string,
           // legacy `true`, or `false`) so callers can still tell which.
           solar: group.solar || false,
+          // "Standard (S1)" unless a cassette was chosen on the quote.
+          cassette: quoteCassetteLabel(group),
           unitPrice: perWindowPrice,
           unitPriceMax: perWindowPriceMax
         });
@@ -255,6 +258,8 @@ export const INVOICE_COLUMNS = [
   // it (owner's request, 2026-11-16). It never appears without Blind Type.
   { key: 'fabric', label: 'Fabric No', align: 'center', weight: 1.1, needs: 'blindType' },
   { key: 'motorSmart', label: 'Manual/Smart', align: 'center', weight: 1.4 },
+  // Optional (owner's request, 2026-11-24): the cassette chosen on the quote.
+  { key: 'cassette', label: 'Cassette', align: 'center', weight: 1.8 },
   { key: 'unitPrice', label: 'UNIT PRICE', align: 'right', weight: 1.4 }
 ];
 
@@ -292,6 +297,7 @@ function invoiceCellText(key, it, idx) {
       const base = it.motorLabel || it.motorSmart;
       return it.solar ? `${base}+Solar` : base;
     }
+    case 'cassette': return blankIfMissing(it.cassette);
     case 'unitPrice': return `$${formatMoney(it.unitPrice)}`;
     default: return '';
   }

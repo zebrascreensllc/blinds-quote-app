@@ -87,7 +87,9 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         controlType: 'Manual',
         solar: false,
         mount: 'Inside',
-        surchargeOverride: null
+        surchargeOverride: null,
+        cassette: '',
+        cassetteCustomText: ''
       }]
     }]
   });
@@ -780,9 +782,13 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       // Editing a quote saved before ESTIMATE_BY_BLIND_TYPE existed keeps its old
       // (all-fabrics) estimate in the new version, so a quote that may already
       // have been sent doesn't change price just because it was edited.
-      pricing: (editingQuote && editingQuote.pricing?.ESTIMATE_BY_BLIND_TYPE !== true)
-        ? { ...pricingSnapshot, ESTIMATE_BY_BLIND_TYPE: false }
-        : pricingSnapshot,
+      // Same idea for the tall-window S3 PLUS cassette charge: an older quote
+      // keeps not charging it (a cassette CHOSEN in the edit is still charged).
+      pricing: {
+        ...pricingSnapshot,
+        ...((editingQuote && editingQuote.pricing?.ESTIMATE_BY_BLIND_TYPE !== true) ? { ESTIMATE_BY_BLIND_TYPE: false } : {}),
+        ...((editingQuote && editingQuote.pricing?.CHARGE_AUTO_S3_CASSETTE !== true) ? { CHARGE_AUTO_S3_CASSETTE: false } : {})
+      },
       createdDate: editingQuote ? editingQuote.createdDate : new Date().toISOString(),
       updatedDate: new Date().toISOString(),
       status: 'quote',
@@ -867,7 +873,9 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
           controlType: 'Manual',
           solar: false,
           mount: 'Inside',
-          surchargeOverride: null
+          surchargeOverride: null,
+          cassette: '',
+          cassetteCustomText: ''
         }]
       }]
     });
@@ -898,7 +906,10 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         controlType: g.controlType || 'Manual',
         solar: g.solar || false,
         mount: g.mount || 'Inside',
-        surchargeOverride: g.surchargeOverride !== undefined ? g.surchargeOverride : null
+        surchargeOverride: g.surchargeOverride !== undefined ? g.surchargeOverride : null,
+        // Quotes saved before the cassette option have none: '' = Standard.
+        cassette: g.cassette || '',
+        cassetteCustomText: g.cassetteCustomText || ''
       }))
     }));
     return sanitized.length > 0 ? sanitized : [{
@@ -914,7 +925,9 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         controlType: 'Manual',
         solar: false,
         mount: 'Inside',
-        surchargeOverride: null
+        surchargeOverride: null,
+        cassette: '',
+        cassetteCustomText: ''
       }]
     }];
   };
@@ -1070,7 +1083,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         otherExpensesLabel: '',
         rooms: rooms.length > 0 ? rooms : [{
           id: 1, name: '', fabricInput: '', blindTypes: ['Roller'],
-          windowGroups: [{ id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null }]
+          windowGroups: [{ id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null, cassette: '', cassetteCustomText: '' }]
         }]
       });
       setEditingQuote(null);

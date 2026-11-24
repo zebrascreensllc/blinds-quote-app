@@ -23,8 +23,9 @@
 // even when one saved group (qty 6) becomes six rooms (keyTargets).
 
 import { getLocationLabel, isManualMotor } from './measurementUtils';
+import { quoteCassetteFromRow } from './cassette';
 
-const BLANK_GROUP = { id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null };
+const BLANK_GROUP = { id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null, cassette: '', cassetteCustomText: '' };
 
 const str = v => String(v ?? '').trim();
 const isMotorRow = row => !!(row.motor && !isManualMotor(row.motor));
@@ -65,7 +66,10 @@ function groupFromRow(row, src, sizeFallback) {
     width: str(row.width) || (sizeFallback ? str(sizeFallback.width) : ''),
     height: str(row.height) || (sizeFallback ? str(sizeFallback.height) : ''),
     controlType: motor ? 'Motor' : 'Manual',
-    solar: motor ? (row.solar || false) : false
+    solar: motor ? (row.solar || false) : false,
+    // The sheet's cassette comes back to the quote; a row still on the
+    // standard cassette for its height stays Standard ('').
+    ...quoteCassetteFromRow(row, src ? src.height : row.quotedHeight, src)
   };
 }
 
@@ -74,7 +78,7 @@ function groupFromRow(row, src, sizeFallback) {
 function mergeGroups(groups) {
   const out = [];
   groups.forEach(g => {
-    const same = out.find(o => !o._key && !g._key && o.width === g.width && o.height === g.height && o.controlType === g.controlType && o.solar === g.solar);
+    const same = out.find(o => !o._key && !g._key && o.width === g.width && o.height === g.height && o.controlType === g.controlType && o.solar === g.solar && (o.cassette || '') === (g.cassette || '') && (o.cassetteCustomText || '') === (g.cassetteCustomText || ''));
     if (same) same.quantity = String((parseInt(same.quantity) || 0) + 1);
     else out.push({ ...g });
   });

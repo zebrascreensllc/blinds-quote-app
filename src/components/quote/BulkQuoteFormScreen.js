@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Trash2 } from 'lucide-react';
 import { isBlankGroup } from '../../utils/quoteGroups';
+// The exact cassette names the supplier sheet uses, so a cassette picked here
+// lands on the sheet unchanged (one list, so the two can't drift apart).
+import { CASSETTE_OPTIONS, quoteCassetteLabel } from '../../utils/cassette';
 import { autoDetectBlindTypes, getHeightSurcharge, getWidthSurcharge, findDiscontinuedFabrics, isFabricValid, findClosestFabricMatch } from '../../utils/pricing';
 
 const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
@@ -81,6 +84,11 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
   const [fabricSelectedRoomIds, setFabricSelectedRoomIds] = useState(new Set());
   const [motorSelectedKeys, setMotorSelectedKeys] = useState(new Set());
   const [solarSelectedKeys, setSolarSelectedKeys] = useState(new Set());
+  const [cassetteSelectedKeys, setCassetteSelectedKeys] = useState(new Set());
+  // '' = Standard (S1, or S3 PLUS over 90in) - the default every window has.
+  const [bulkCassetteValue, setBulkCassetteValue] = useState('');
+  const [bulkCassetteCustomText, setBulkCassetteCustomText] = useState('');
+  const [showCassetteTool, setShowCassetteTool] = useState(false);
 
   const [bulkFabricInput, setBulkFabricInput] = useState('');
   // 'fabric' = exact fabric number, 'blindType' = client hasn't picked a
@@ -122,7 +130,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
       ...formData,
       rooms: [...formData.rooms, {
         id: newRoomId, name: '', fabricInput: '', blindTypes: ['Roller'],
-        windowGroups: [{ id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null }]
+        windowGroups: [{ id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null, cassette: '', cassetteCustomText: '' }]
       }]
     });
     // Same "newly added item auto-expands" convention Supplier Measurements
@@ -147,7 +155,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
     const newRooms = [...formData.rooms];
     const group = newRooms[roomIndex].windowGroups;
     const newId = Math.max(...group.map(w => w.id), 0) + 1;
-    group.push({ id: newId, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null });
+    group.push({ id: newId, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null, cassette: '', cassetteCustomText: '' });
     setFormData({ ...formData, rooms: newRooms });
   };
 
@@ -262,6 +270,24 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
     const count = solarSelectedKeys.size;
     setSolarSelectedKeys(new Set());
     alert(`Set Solar = ${bulkSolarValue || 'No'} for ${count} window group${count > 1 ? 's' : ''}.`);
+  };
+
+  // ---- Bulk assign cassette (window-group-level, like the supplier sheet) ----
+  const applyBulkCassette = () => {
+    if (cassetteSelectedKeys.size === 0) { alert('Select at least one window group first.'); return; }
+    const customText = bulkCassetteCustomText.trim();
+    if (bulkCassetteValue === 'Custom' && !customText) { alert('Describe the custom cassette first.'); return; }
+    const newRooms = formData.rooms.map(room => ({
+      ...room,
+      windowGroups: room.windowGroups.map((group, groupIndex) => {
+        if (!cassetteSelectedKeys.has(`${room.id}_${groupIndex}`)) return group;
+        return { ...group, cassette: bulkCassetteValue, cassetteCustomText: bulkCassetteValue === 'Custom' ? customText : '' };
+      })
+    }));
+    setFormData({ ...formData, rooms: newRooms });
+    const count = cassetteSelectedKeys.size;
+    setCassetteSelectedKeys(new Set());
+    alert(`Set cassette for ${count} window group${count > 1 ? 's' : ''}.`);
   };
 
   return (
@@ -539,6 +565,40 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
           </button>
         </BulkToolPanel>
 
+        {/* Cassette - same choices as Supplier Measurements. Standard = S1,
+            or S3 PLUS for windows over 90in tall (what the sheet always
+            defaulted to). A choice here carries onto the supplier sheet. */}
+        <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>Cassette</p>
+        <BulkToolPanel title="Bulk Assign Cassette" icon="🧱" bg="#1a2a2a" border="#4a8a7a" accentColor="#5eead4" isOpen={showCassetteTool} onToggle={() => setShowCassetteTool(!showCassetteTool)}>
+          <label style={labelStyle}>Set Cassette to</label>
+          <select value={bulkCassetteValue} onChange={(e) => setBulkCassetteValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
+            <option value="">Standard (S1, or S3 PLUS over 90in)</option>
+            {CASSETTE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+          {bulkCassetteValue === 'Custom' && (
+            <input
+              type="text"
+              placeholder="Describe cassette"
+              value={bulkCassetteCustomText}
+              onChange={(e) => setBulkCassetteCustomText(e.target.value)}
+              style={{ ...inputStyle, marginBottom: '10px' }}
+            />
+          )}
+          <RowChecklist
+            items={allGroupItems}
+            selectedIds={cassetteSelectedKeys}
+            toggleInSet={toggleInSet}
+            setSelectedIds={setCassetteSelectedKeys}
+            accentColor="#5eead4"
+            renderLabel={(item) => (
+              <>{item.room.name || 'Room'} ({item.group.width || '?'}x{item.group.height || '?'})<span style={{ color: '#666' }}> — currently {quoteCassetteLabel(item.group)}</span></>
+            )}
+          />
+          <button onClick={applyBulkCassette} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#0f766e', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>
+            Apply to {cassetteSelectedKeys.size} Selected
+          </button>
+        </BulkToolPanel>
+
         {/* ✅ NEW: Hub - a smart-home hub covers many motorized windows (not
             per-window like Motor/Solar), so this only shows once there's at
             least one motorized window, and is a single quote-level charge
@@ -646,6 +706,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
                 <th style={headerCellStyle}>Fabric</th>
                 <th style={headerCellStyle}>Type</th>
                 <th style={headerCellStyle}>Solar</th>
+                <th style={headerCellStyle}>Cassette</th>
               </tr>
             </thead>
             <tbody>
@@ -657,10 +718,11 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
                   <td style={cellStyle}>{item.room.fabricInput || `${(item.room.blindTypes || ['Roller']).join(', ')} (no fabric)`}</td>
                   <td style={cellStyle}>{item.group.controlType || 'Manual'}</td>
                   <td style={cellStyle}>{item.group.solar || 'No'}</td>
+                  <td style={cellStyle}>{quoteCassetteLabel(item.group)}</td>
                 </tr>
               ))}
               {allGroupItems.length === 0 && (
-                <tr><td style={cellStyle} colSpan={6}>No window groups yet - add a room above.</td></tr>
+                <tr><td style={cellStyle} colSpan={7}>No window groups yet - add a room above.</td></tr>
               )}
             </tbody>
           </table>

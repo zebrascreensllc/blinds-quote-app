@@ -1,4 +1,5 @@
 import { PRICING_DATA } from '../data/pricingData';
+import { cassetteUpgradePerSqm } from './cassette';
 import { parseUnits } from './formatters';
 
 // Width surcharge based on inches
@@ -187,7 +188,10 @@ export const calculateGroupCost = (group, fabricNumbers, blindTypeArg, pricing =
   const cordless = group.controlType === 'Cordless';
   
   const area = Math.max(1.5, (width * height) / 1550);
-  const fabricWrapTotal = area * fabricWrapCost;
+  // V3 / S3 PLUS cassettes cost the supplier extra per sq m (cassette.js).
+  // Folded in here so every cost formula below - and everything built on
+  // calculateGroupCost (totals, supplier cost, options, statistics) - gets it.
+  const fabricWrapTotal = area * fabricWrapCost + area * cassetteUpgradePerSqm(group, p);
   
   if (fabricNumbers.length === 0) {
     // ✅ FIX: with no exact fabric the estimate used to span EVERY fabric

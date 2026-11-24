@@ -3,6 +3,7 @@ import { Trash2 } from 'lucide-react';
 import { SALES_TAX_RATE } from '../../utils/constants';
 import { formatPrice, formatMoney, isRangeOverride, formatPriceOverride, filterNumericText } from '../../utils/formatters';
 import { motorStepperInfo } from '../../utils/quoteGroups';
+import { CASSETTE_OPTIONS, quoteCassetteLabel, hasChosenCassette, CASSETTE_UPGRADE_PER_SQM } from '../../utils/cassette';
 import { calculateGroupQuote, getBlindTypeFromFabric, estimateBlindTypes } from '../../utils/pricing';
 
 // ✅ NEW: Solar went from a plain yes/no to naming which panel/wire was
@@ -108,6 +109,9 @@ export default function CurrentPricingSection({
                   const qtyFieldKey = `qty-${priceKey}`;
                   const sizeFieldKey = `size-${priceKey}`;
                   const typeFieldKey = `type-${priceKey}`;
+                  const cassetteFieldKey = `cassette-${priceKey}`;
+                  const isEditingCassette = editingTableField === cassetteFieldKey;
+                  const isCassetteEdited = groupEditForRow.cassette !== undefined || groupEditForRow.cassetteCustomText !== undefined;
                   const isEditingQty = editingTableField === qtyFieldKey;
                   const isEditingSize = editingTableField === sizeFieldKey;
                   const isEditingType = editingTableField === typeFieldKey;
@@ -303,6 +307,64 @@ export default function CurrentPricingSection({
                               {motorType}{group.solar ? `+Solar${typeof group.solar === 'string' ? ` (${group.solar})` : ''}` : ''}
                               <button
                                 onClick={() => setEditingTableField(typeFieldKey)}
+                                style={{ padding: '1px 3px', borderRadius: '2px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '9px' }}
+                              >
+                                ✏️
+                              </button>
+                            </span>
+                          )}
+                          </div>
+                        </div>
+                        {/* Cassette - same choices as Supplier Measurements; carried
+                            onto the supplier sheet. Every change writes straight to the
+                            pending edits (no separate confirm), so Save never drops it. */}
+                        <div style={{ flexBasis: '100%' }}>
+                          <div style={{ fontSize: '10px', color: '#888', marginBottom: '3px', fontWeight: 'bold' }}>CASSETTE</div>
+                          <div style={{ color: isCassetteEdited ? '#ffcc00' : (hasChosenCassette(group) ? '#5eead4' : '#ccc') }}>
+                          {isEditingCassette ? (
+                            <span style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <select
+                                value={hasChosenCassette(group) || group.cassette === 'Custom' ? group.cassette : ''}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setTableEditValues({ ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [priceKey]: { ...groupEditForRow, cassette: value, cassetteCustomText: value === 'Custom' ? (group.cassetteCustomText || '') : '' } } });
+                                }}
+                                style={{ width: '100%', padding: '4px', borderRadius: '4px', fontSize: '11px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                              >
+                                <option value="">Standard (S1, or S3 PLUS over 90in)</option>
+                                {CASSETTE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                              </select>
+                              {group.cassette === 'Custom' && (
+                                <input
+                                  type="text"
+                                  placeholder="Describe cassette"
+                                  value={group.cassetteCustomText || ''}
+                                  onChange={(e) => {
+                                    setTableEditValues({ ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [priceKey]: { ...groupEditForRow, cassette: 'Custom', cassetteCustomText: e.target.value } } });
+                                  }}
+                                  style={{ width: '100%', padding: '4px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white', boxSizing: 'border-box' }}
+                                />
+                              )}
+                              <span style={{ fontSize: '10px', color: '#888' }}>
+                                V3 and S3 PLUS add ${typeof storedPricing?.CASSETTE_UPGRADE_PER_SQM === 'number' ? storedPricing.CASSETTE_UPGRADE_PER_SQM : CASSETTE_UPGRADE_PER_SQM} per sq m to this window's price. S1 and Custom add nothing.
+                              </span>
+                              {(hasSavedPrice || hasPendingPrice) && (
+                                <span style={{ fontSize: '10px', color: '#fbbf24' }}>
+                                  This window's price was set by hand, so it stays as it is. Change the price if the cassette should cost more.
+                                </span>
+                              )}
+                              <button
+                                onClick={() => setEditingTableField(null)}
+                                style={{ alignSelf: 'flex-start', padding: '2px 6px', borderRadius: '2px', background: '#10b981', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}
+                              >
+                                Done
+                              </button>
+                            </span>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              {quoteCassetteLabel(group)}
+                              <button
+                                onClick={() => setEditingTableField(cassetteFieldKey)}
                                 style={{ padding: '1px 3px', borderRadius: '2px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '9px' }}
                               >
                                 ✏️

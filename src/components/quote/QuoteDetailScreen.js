@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { PRICING_DATA } from '../../data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE, DEFAULT_HUB, getPricingSnapshot } from '../../utils/constants';
 import { formatMoney, formatPrice, isRangeOverride, parseUnits } from '../../utils/formatters';
+import { hasChosenCassette, quoteCassetteLabel, cassetteUpgradePerSqm } from '../../utils/cassette';
 import { isFabricValid, calculateGroupQuote, estimateBlindTypes, estimateOptionTotals, optionGrandTotals, isOptionRoom, computeQuoteFinancials, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics, findClosestFabricMatch } from '../../utils/pricing';
 import { pruneRooms, remapPriceKeys, buildEffectiveRooms, stepMotor } from '../../utils/quoteGroups';
 import { nextVersionInLineage } from '../../utils/quoteLineage';
@@ -525,7 +526,7 @@ export default function QuoteDetailScreen({
       }
       // Complete snapshot (never a bare {flag}): constants from this quote's own
       // snapshot win, defaults fill any gap in a very old quote.
-      const upgradedPricing = { ...getPricingSnapshot(), ...(selectedQuote.pricing || {}), ESTIMATE_BY_BLIND_TYPE: true };
+      const upgradedPricing = { ...getPricingSnapshot(), ...(selectedQuote.pricing || {}), ESTIMATE_BY_BLIND_TYPE: true, CHARGE_AUTO_S3_CASSETTE: selectedQuote.pricing?.CHARGE_AUTO_S3_CASSETTE === true };
       const before = computeQuoteFinancials(selectedQuote);
       const after = computeQuoteFinancials({ ...selectedQuote, pricing: upgradedPricing });
       const sameNow = Math.abs(before.revenueSubtotal - after.revenueSubtotal) < 0.005 && Math.abs(before.revenueSubtotalMax - after.revenueSubtotalMax) < 0.005;
@@ -619,7 +620,10 @@ export default function QuoteDetailScreen({
           totalWindows += qty;
           const controlLabel = (group.controlType || 'Manual') + (group.solar ? `+Solar${typeof group.solar === 'string' ? ` (${group.solar})` : ''}` : '');
           const size = `${group.width}x${group.height}`;
-          text += `${room.name} (${qty} window${qty === 1 ? '' : 's'}, ${size}) - ${controlLabel}\n`;
+          // Cassette when one was chosen, or when the standard one costs extra
+          // (S3 PLUS on a tall window) - a plain S1 isn't worth a line.
+          const cassetteNote = (hasChosenCassette(group) || cassetteUpgradePerSqm(group, storedPricing) > 0) ? `, Cassette: ${quoteCassetteLabel(group)}` : '';
+          text += `${room.name} (${qty} window${qty === 1 ? '' : 's'}, ${size}) - ${controlLabel}${cassetteNote}\n`;
         });
       });
 
