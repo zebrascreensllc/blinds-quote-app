@@ -4,8 +4,8 @@ import {
 } from 'docx';
 import { PRICING_DATA } from '../data/pricingData';
 import { SALES_TAX_RATE } from './constants';
-import { calculateGroupQuote, getBlindTypeFromFabric, getHubTotal, estimateBlindTypes } from './pricing';
-import { formatMoney } from './formatters';
+import { calculateGroupQuote, getBlindTypeFromFabric, getHubTotal, estimateBlindTypes, estimateOptionTotals, optionGrandTotals } from './pricing';
+import { formatMoney, formatPrice } from './formatters';
 import { quoteCassetteLabel } from './cassette';
 import { INVOICE_BUSINESS, TERMS_AND_CONDITIONS, WARRANTY_SUMMARY, WARRANTY_SECTIONS } from './invoiceContent';
 import zebraLogoUrl from '../assets/zebra-logo.png';
@@ -194,11 +194,21 @@ const bulletParagraph = (text) => new Paragraph({ bullet: { level: 0 }, spacing:
  * per-quote id from the creation date + the quote's own id rather than
  * needing new Firestore-backed state just for this.
  */
-function buildInvoiceNumber(quote) {
+function buildInvoiceNumber(quote, prefix = 'INV') {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const idTail = (quote.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-5).toUpperCase() || '00000';
-  return `INV-${datePart}-${idTail}`;
+  const idTail = String(quote.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-5).toUpperCase() || '00000';
+  return `${prefix}-${datePart}-${idTail}`;
 }
+
+// A price that may still be a range ("$140-$150", whole dollars, like the
+// quote screen); an exact price keeps cents. Same rule as the Price
+// Breakdown Excel. Used by the client QUOTE document only - the invoice is
+// always a single number.
+export const fmtMaybeRange = (min, max) => (
+  typeof max === 'number' && Math.abs(max - min) >= 0.005
+    ? formatPrice(min, max)
+    : `$${formatMoney(min)}`
+);
 
 /**
  * Cost math shared by the invoice and the price breakdown Excel - keeping
@@ -284,7 +294,7 @@ export function normalizeInvoiceColumns(keys) {
 
 const blankIfMissing = (v) => (v === null || v === undefined ? '' : String(v).trim());
 
-function invoiceCellText(key, it, idx) {
+function invoiceCellText(key, it, idx, isQuote = false) {
   switch (key) {
     case 'itemNo': return String(idx + 1);
     case 'location': return it.locationLabel;
@@ -298,7 +308,9 @@ function invoiceCellText(key, it, idx) {
       return it.solar ? `${base}+Solar` : base;
     }
     case 'cassette': return blankIfMissing(it.cassette);
-    case 'unitPrice': return `$${formatMoney(it.unitPrice)}`;
+    // The quote shows a still-estimated window as its range; the invoice
+    // always prints the low end (it warns about that before creating).
+    case 'unitPrice': return isQuote ? fmtMaybeRange(it.unitPrice, it.unitPriceMax) : `$${formatMoney(it.unitPrice)}`;
     default: return '';
   }
 }
@@ -319,7 +331,8 @@ function invoiceCellText(key, it, idx) {
  * "Discount" (or "Price adjustment" if the agreed price is higher) line
  * makes it add up exactly to finalPrice.
  */
-export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0, columns, finalPrice = null, motorLabels = null } = {}) {
+export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0, columns, finalPrice = null, motorLabels = null, docType = 'invoice' } = {}) {
+  if (docType === 'quote') return buildQuoteDocModel(quote, { discountAmount, columns, motorLabels });
   const useFinalPrice = typeof finalPrice === 'number' && Number.isFinite(finalPrice) && finalPrice >= 0;
   if (useFinalPrice) discountAmount = 0;
   const { items } = buildInvoiceLineItems(quote, { motorLabels });
@@ -378,9 +391,77 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
   return finishModel(quote, cols, rows, highlights, summary, grandTotal, finalGrand, finalRemaining);
 }
 
-function finishModel(quote, cols, rows, highlights, summary, calculatedGrandTotal, grandTotal, remainingBalance) {
+/**
+ * The client QUOTE document (owner's request, 2026-11-24): the invoice's
+ * look - letterhead, chosen columns, highlights, terms/warranty - but it is
+ * an offer, not a bill: "Quote #" / "Prepared For", no Advance Payment or
+ * Remaining Balance, and a window still without an exact fabric shows its
+ * price RANGE (like the quote screen and the Price Breakdown Excel) instead
+ * of quietly using the low end. Rooms still choosing between blind types
+ * also get "If all Roller / If all Zebra" totals. All money comes from
+ * buildInvoiceLineItems/computeInvoiceTotals/estimateOptionTotals, so it
+ * matches the quote screen and the Price Breakdown Excel exactly.
+ */
+function buildQuoteDocModel(quote, { discountAmount = 0, columns, motorLabels = null }) {
+  const discount = typeof discountAmount === 'number' && Number.isFinite(discountAmount) && discountAmount > 0 ? discountAmount : 0;
+  const { items, hasRangePricing } = buildInvoiceLineItems(quote, { motorLabels });
+  const totals = computeInvoiceTotals(quote, items, { discountAmount: discount });
+  const columnKeys = normalizeInvoiceColumns(columns || DEFAULT_INVOICE_COLUMN_KEYS);
+  const cols = columnKeys.map(k => INVOICE_COLUMNS.find(c => c.key === k));
+  const rows = items.map((it, idx) => cols.map(c => invoiceCellText(c.key, it, idx, true)));
+  const kinds = items.map(rowHighlightKind);
+  const highlights = {
+    rowFills: kinds.map(k => (k ? ROW_HIGHLIGHTS[k].fill : null)),
+    highlightKey: ['smart', 'solar'].filter(k => kinds.includes(k)).map(k => ROW_HIGHLIGHTS[k])
+  };
+
+  const summary = [];
+  if (columnKeys.includes('unitPrice')) {
+    if (totals.motorCount > 0) summary.push({ label: `Motor windows ${totals.motorCount}*$${formatMoney(totals.effectiveMotorCost)}`, value: `$${formatMoney(totals.motorGrandTotal)}` });
+    if (totals.solarCount > 0) summary.push({ label: `Solar windows ${totals.solarCount}*$${formatMoney(totals.effectiveSolarCost)}`, value: `$${formatMoney(totals.solarGrandTotal)}` });
+    if (quote.hub?.included) {
+      const hubLabel = quote.hub.quantity > 1 ? `Hub ${quote.hub.quantity}*$${formatMoney(quote.hub.price)}` : 'Hub';
+      summary.push({ label: hubLabel, value: totals.hubTotal === 0 ? 'Complimentary' : `$${formatMoney(totals.hubTotal)}` });
+    }
+    summary.push({ label: 'Total', value: fmtMaybeRange(totals.total, totals.totalMax), bold: true });
+    summary.push({ label: `Sales Tax ${formatMoney(totals.taxRate * 100)}%`, value: fmtMaybeRange(totals.salesTax, totals.salesTaxMax) });
+    if (discount > 0) summary.push({ label: 'Discount', value: `-$${formatMoney(discount)}`, color: 'CC0000' });
+    if (totals.otherExpensesAmount > 0) summary.push({ label: totals.otherExpensesLabel, value: `$${formatMoney(totals.otherExpensesAmount)}` });
+  }
+  summary.push({ label: 'Grand Total', value: fmtMaybeRange(totals.grandTotal, totals.grandTotalMax), bold: true, color: '0e7490' });
+
+  // Undecided blind types: what the client pays for each choice.
+  const savedPrices = quote.editedPrices?.perWindowPrices || {};
+  const options = estimateOptionTotals(quote.rooms, key => {
+    const v = savedPrices[key];
+    return (typeof v === 'number' || (v && typeof v === 'object')) ? v : null;
+  }, quote.pricing || null);
+  let optionGrand = null;
+  if (options) {
+    optionGrand = optionGrandTotals(options, {
+      motorGrandTotal: totals.motorGrandTotal, solarGrandTotal: totals.solarGrandTotal,
+      hubTotal: totals.hubTotal, taxRate: totals.taxRate, otherExpenses: totals.otherExpensesAmount
+    });
+    options.types.forEach(t => summary.push({ label: `If all ${t}`, value: fmtMaybeRange(optionGrand[t].grandMin - discount, optionGrand[t].grandMax - discount) }));
+  }
+
+  const notes = [];
+  if (hasRangePricing) notes.push('Prices shown as a range are estimates until the exact fabric is chosen.');
+  if (options) notes.push(`Some rooms are still choosing between ${options.types.join(' and ')}. The "If all" lines show the Grand Total for each choice.`);
+
+  const model = finishModel(quote, cols, rows, highlights, summary, totals.grandTotal, totals.grandTotal, totals.grandTotal, 'quote');
+  return { ...model, grandTotalMax: totals.grandTotalMax, optionGrand, notes };
+}
+
+function finishModel(quote, cols, rows, highlights, summary, calculatedGrandTotal, grandTotal, remainingBalance, docType = 'invoice') {
+  const isQuote = docType === 'quote';
   return {
-    invoiceNumber: buildInvoiceNumber(quote),
+    docType,
+    // What the header and the client block are called on this document.
+    numberLabel: isQuote ? 'Quote #' : 'Invoice #',
+    billToHeading: isQuote ? 'Prepared For:' : 'Bill To:',
+    notes: [],
+    invoiceNumber: buildInvoiceNumber(quote, isQuote ? 'QT' : 'INV'),
     dateText: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
     // "Client: / Phone: / Address:" in that order, as the owner asked.
     // A blank one is left out so nothing prints an empty label.
@@ -401,10 +482,10 @@ function finishModel(quote, cols, rows, highlights, summary, calculatedGrandTota
 /** Safe download file name for an invoice of this quote. */
 // "<client name>-invoice-zebrascreensllc.pdf" (owner's request). Only
 // characters a file name can't hold are dropped; spaces are kept.
-export function invoiceFileName(quote, ext) {
+export function invoiceFileName(quote, ext, docType = 'invoice') {
   const raw = String((quote && (quote.clientName || quote.quoteName)) || '');
   const name = raw.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/^\.+/, '') || 'Client';
-  return `${name}-invoice-zebrascreensllc.${ext}`;
+  return `${name}-${docType === 'quote' ? 'quote' : 'invoice'}-zebrascreensllc.${ext}`;
 }
 
 // Fetched once and reused: the invoice dialog preloads it so that, by the
@@ -459,7 +540,7 @@ export function buildInvoiceDocument(quote, options = {}, logoBytes) {
             width: { size: 40, type: WidthType.PERCENTAGE },
             borders: NO_BORDERS,
             children: [
-              new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `Invoice #: ${model.invoiceNumber}`, bold: true, size: 20 })] }),
+              new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `${model.numberLabel}: ${model.invoiceNumber}`, bold: true, size: 20 })] }),
               new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 60 }, children: [new TextRun({ text: `Date: ${model.dateText}`, bold: true, size: 20 })] })
             ]
           })
@@ -470,7 +551,7 @@ export function buildInvoiceDocument(quote, options = {}, logoBytes) {
           new TableCell({
             borders: NO_BORDERS,
             children: [
-              new Paragraph({ spacing: { before: 200 }, children: [new TextRun({ text: 'Bill To:', bold: true, size: 20 })] }),
+              new Paragraph({ spacing: { before: 200 }, children: [new TextRun({ text: model.billToHeading, bold: true, size: 20 })] }),
               ...model.billTo.map(line => new Paragraph({ children: [
                 new TextRun({ text: `${line.label}: `, bold: true, size: 20 }),
                 new TextRun({ text: line.value, size: 20 })
@@ -526,6 +607,7 @@ export function buildInvoiceDocument(quote, options = {}, logoBytes) {
             new TextRun({ text: ` ${k.label}`, italics: true, size: 18 })
           ])
         ] })] : []),
+        ...model.notes.map(n => new Paragraph({ spacing: { before: 120 }, children: [new TextRun({ text: n, italics: true, size: 18 })] })),
         ...termsParagraphs
       ]
     }]

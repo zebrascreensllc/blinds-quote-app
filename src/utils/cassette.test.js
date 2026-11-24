@@ -152,6 +152,9 @@ test('invoice and price breakdown show the cassette', async () => {
   assert.deepStrictEqual(items.map(i => i.cassette), ['Fabric Wrapped (V3) - White', 'Standard (S1)']);
   const m = buildInvoiceModel(quote, { columns: ['itemNo', 'location', 'cassette', 'unitPrice'] });
   assert.ok(JSON.stringify(m).includes('Fabric Wrapped (V3) - White'));
+  // the client Quote document (PDF/Word) shares the same columns
+  const qd = buildInvoiceModel(quote, { columns: ['itemNo', 'location', 'cassette', 'unitPrice'], docType: 'quote' });
+  assert.ok(JSON.stringify(qd.rows).includes('Fabric Wrapped (V3) - White'));
   // default columns unchanged (no cassette column unless ticked)
   const d = buildInvoiceModel(quote, {});
   assert.ok(!JSON.stringify(d).includes('Fabric Wrapped (V3)'));

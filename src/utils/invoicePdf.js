@@ -42,7 +42,7 @@ export function buildInvoicePdf(quote, options = {}, logoBytes) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   doc.setTextColor(0, 0, 0);
-  doc.text(`Invoice #: ${model.invoiceNumber}`, pageWidth - PAGE_MARGIN, y + 10, { align: 'right' });
+  doc.text(`${model.numberLabel}: ${model.invoiceNumber}`, pageWidth - PAGE_MARGIN, y + 10, { align: 'right' });
   doc.text(`Date: ${model.dateText}`, pageWidth - PAGE_MARGIN, y + 26, { align: 'right' });
 
   y += LOGO_HEIGHT + 16;
@@ -60,7 +60,7 @@ export function buildInvoicePdf(quote, options = {}, logoBytes) {
   doc.setTextColor(0, 0, 0);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.text('Bill To:', PAGE_MARGIN, y);
+  doc.text(model.billToHeading, PAGE_MARGIN, y);
   // "Client: / Phone: / Address:" - labels bold, values lined up after the
   // widest label; a long address wraps under its value, not the label.
   const labelWidth = Math.max(...model.billTo.map(l => doc.getTextWidth(`${l.label}:`)), 0) + 6;
@@ -154,6 +154,21 @@ export function buildInvoicePdf(quote, options = {}, logoBytes) {
       doc.rect(x, noteY - 8, 16, 10, 'FD');
       doc.text(k.label, x + 22, noteY);
       x += 22 + doc.getTextWidth(k.label) + 16;
+    });
+  }
+
+  // Quote only: a short italic note per line (estimate ranges, options).
+  if (model.notes.length) {
+    let noteY = doc.lastAutoTable.finalY + (model.highlightKey.length ? 32 : 16);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
+    model.notes.forEach(n => {
+      doc.splitTextToSize(n, contentWidth).forEach(line => {
+        if (noteY > pageHeight - PAGE_MARGIN) { doc.addPage(); noteY = PAGE_MARGIN + 10; }
+        doc.text(line, PAGE_MARGIN, noteY);
+        noteY += 12;
+      });
     });
   }
 
