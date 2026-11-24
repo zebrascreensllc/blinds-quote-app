@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { formatMoney } from '../../utils/formatters';
+import { formatMoney, formatPrice } from '../../utils/formatters';
 import { INVOICE_COLUMNS, DEFAULT_INVOICE_COLUMN_KEYS, normalizeInvoiceColumns, generateInvoiceDocx, invoiceFileName, buildInvoiceModel, loadLogoBytes } from '../../utils/invoiceExport';
 import { generateInvoicePdf } from '../../utils/invoicePdf';
 import { invoiceMotorLabels } from '../../utils/invoiceMotorTypes';
@@ -11,23 +11,28 @@ import { subscribeToBulkSheets } from '../../services/bulkMeasurementSync';
 // sheet with just the file, no link). Both buttons build the
 // same invoice (same columns, rows and totals) - only the file type differs.
 
+// kind="quote" (Download Quote, 2026-11-24) reuses this same sheet for the
+// client QUOTE document: same columns and PDF/Word buttons, plus an optional
+// discount, but no final price / advance payment (a quote isn't a bill).
+// Its column choice is remembered separately from the invoice's.
 const COLUMNS_STORAGE_KEY = 'invoiceColumns';
+const QUOTE_COLUMNS_STORAGE_KEY = 'quoteDocColumns';
 
 // The last column choice is remembered on this phone only, as a
 // convenience. Storage can be blocked (private browsing) - then we just
 // start from the default columns.
-function loadSavedColumns() {
+function loadSavedColumns(storageKey = COLUMNS_STORAGE_KEY) {
   try {
-    const raw = window.localStorage.getItem(COLUMNS_STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey);
     return raw ? normalizeInvoiceColumns(JSON.parse(raw)) : [...DEFAULT_INVOICE_COLUMN_KEYS];
   } catch (e) {
     return [...DEFAULT_INVOICE_COLUMN_KEYS];
   }
 }
 
-function saveColumns(keys) {
+function saveColumns(keys, storageKey = COLUMNS_STORAGE_KEY) {
   try {
-    window.localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(keys));
+    window.localStorage.setItem(storageKey, JSON.stringify(keys));
   } catch (e) {
     // Not saving the preference is harmless.
   }
@@ -82,7 +87,9 @@ function quoteWindowCount(quote) {
   return (quote.rooms || []).reduce((n, r) => n + (r.windowGroups || []).reduce((m, g) => m + (parseInt(g.quantity) || 1), 0), 0);
 }
 
-export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose }) {
+export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose, kind = 'invoice' }) {
+  const isQuoteDoc = kind === 'quote';
+  const columnsKey = isQuoteDoc ? QUOTE_COLUMNS_STORAGE_KEY : COLUMNS_STORAGE_KEY;
   // Measurement sheets (read only), for the motor/chain type of each window:
   // undefined while loading, [] if none or they couldn't be read.
   const [sheets, setSheets] = useState(undefined);
@@ -105,7 +112,7 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose })
       return null;
     }
   }, [quote, sheets, quotes]);
-  const [columns, setColumns] = useState(loadSavedColumns);
+  const [columns, setColumns] = useState(() => loadSavedColumns(columnsKey));
   const [advanceText, setAdvanceText] = useState(formatMoney(grandMin / 2));
   // Once the owner types an advance, it's theirs - changing the final price
   // no longer re-fills it with "half".
@@ -123,7 +130,7 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose })
 
   const advanceAmount = parseMoneyInput(advanceText);
   const discountAmount = parseMoneyInput(discountText);
-  const changingPrice = priceMode === 'change';
+  const changingPrice = !isQuoteDoc && priceMode === 'change';
   const finalPrice = changingPrice ? parseMoneyInput(finalText) : null;
   // A dependent column (Fabric No) only counts while its parent (Blind
   // Type) is ticked - same rule as normalizeInvoiceColumns.
@@ -143,6 +150,17 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose })
       return grandMin;
     }
   }, [quote, discountAmount, grandMin]);
+  // The quote document's Grand Total, as a range while any window is still
+  // an estimate - shown on the sheet so the owner sees what will print.
+  const quoteGrandText = useMemo(() => {
+    if (!isQuoteDoc) return '';
+    try {
+      const m = buildInvoiceModel(quote, { docType: 'quote', discountAmount: discountAmount || 0 });
+      return Math.abs(m.grandTotalMax - m.grandTotal) >= 0.005 ? formatPrice(m.grandTotal, m.grandTotalMax) : `$${formatMoney(m.grandTotal)}`;
+    } catch (e) {
+      return '';
+    }
+  }, [isQuoteDoc, quote, discountAmount]);
 
   const onFinalTextChange = (text) => {
     setFinalText(text);
@@ -159,6 +177,9 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose })
   let problem = '';
   if (ordered.length < 2) problem = 'Pick at least 2 columns.';
   else if (changingPrice && (finalPrice === null || finalPrice <= 0)) problem = 'Enter the final price, e.g. 5500.';
+  else if (isQuoteDoc) {
+    if (discountAmount === null) problem = 'Discount must be a number, e.g. 0 or 150.';
+  }
   else if (advanceAmount === null) problem = 'Advance Payment must be a number, e.g. 1800.';
   else if (!changingPrice && discountAmount === null) problem = 'Discount must be a number, e.g. 0 or 150.';
   else if (advanceAmount > (changingPrice ? finalPrice : calculatedGrandTotal) + 0.005) problem = 'Advance Payment is more than the Grand Total.';
@@ -189,14 +210,16 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose })
   const create = async (format) => {
     if (problem || busy) return;
     setBusy(format);
-    saveColumns(ordered);
+    saveColumns(ordered, columnsKey);
     const motorLabels = motorInfo ? motorInfo.labels : null;
-    const options = changingPrice
+    const options = isQuoteDoc
+      ? { docType: 'quote', discountAmount, columns: ordered, motorLabels }
+      : changingPrice
       ? { advanceAmount, discountAmount: 0, finalPrice, columns: ordered, motorLabels }
       : { advanceAmount, discountAmount, columns: ordered, motorLabels };
     try {
       const blob = format === 'pdf' ? await generateInvoicePdf(quote, options) : await generateInvoiceDocx(quote, options);
-      const fileName = invoiceFileName(quote, format);
+      const fileName = invoiceFileName(quote, format, kind);
       const file = invoiceFile(blob, fileName, format);
       if (canShareFile(file)) {
         // Phone: open the share sheet with just the file (no link).
@@ -208,8 +231,8 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose })
       // re-entering the advance/discount; × closes it.
       setDownloaded(prev => ({ ...prev, [format]: true }));
     } catch (err) {
-      console.error('Invoice generation failed:', err);
-      alert('❌ Could not create the invoice. Please try again.');
+      console.error(`${isQuoteDoc ? 'Quote' : 'Invoice'} generation failed:`, err);
+      alert(`❌ Could not create the ${isQuoteDoc ? 'quote' : 'invoice'}. Please try again.`);
     } finally {
       setBusy(null);
     }
@@ -224,7 +247,7 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose })
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Create invoice"
+      aria-label={isQuoteDoc ? 'Download quote' : 'Create invoice'}
       onClick={() => { if (!busy) onClose(); }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
     >
@@ -233,7 +256,7 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose })
         style={{ background: '#2a2a2a', width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '16px 16px 0 0', padding: '20px 16px 28px', boxSizing: 'border-box', color: '#fff' }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-          <h3 style={{ margin: 0, fontSize: '18px' }}>🧾 Create Invoice</h3>
+          <h3 style={{ margin: 0, fontSize: '18px' }}>{isQuoteDoc ? '📄 Download Quote' : '🧾 Create Invoice'}</h3>
           <button onClick={onClose} disabled={!!busy} aria-label="Close" style={{ background: 'none', border: 'none', color: '#aaa', fontSize: '24px', cursor: 'pointer', padding: '4px 8px' }}>×</button>
         </div>
 
@@ -289,6 +312,16 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose })
           </div>
         )}
 
+        {isQuoteDoc ? (
+          <>
+            <div style={{ fontSize: '12px', color: '#888', marginBottom: '14px' }}>
+              {quoteGrandText ? `Grand Total on the quote: ${quoteGrandText} (including tax).` : 'Grand Total from the quote, including tax.'}
+              {ordered.includes('unitPrice') ? ' Windows with no fabric picked yet show their price range.' : ' Unit Price is not ticked, so the quote shows only the Grand Total.'}
+            </div>
+            <label style={labelStyle} htmlFor="quote-discount">Discount ($)</label>
+            <input id="quote-discount" type="text" inputMode="decimal" value={discountText} onChange={(e) => setDiscountText(e.target.value)} style={{ ...inputStyle, marginBottom: '16px' }} />
+          </>
+        ) : (<>
         <span style={labelStyle}>Final price</span>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
           {[
@@ -327,6 +360,7 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose })
         <label style={labelStyle} htmlFor="invoice-advance">Advance Payment ($)</label>
         <input id="invoice-advance" type="text" inputMode="decimal" value={advanceText} onChange={(e) => { setAdvanceTouched(true); setAdvanceText(e.target.value); }} style={{ ...inputStyle, marginBottom: '4px' }} />
         <div style={{ fontSize: '12px', color: '#888', marginBottom: '16px' }}>Starts at half of the Grand Total - change it if different.</div>
+        </>)}
 
         {problem && <div style={{ color: '#f87171', fontSize: '13px', marginBottom: '12px' }}>{problem}</div>}
 
