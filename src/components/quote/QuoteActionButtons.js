@@ -30,10 +30,16 @@ export default function QuoteActionButtons({
   uid
 }) {
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
+  // Client QUOTE as PDF/Word (owner's request, 2026-11-24): the same sheet
+  // as Create Invoice in kind="quote" mode.
+  const [showQuoteDocDialog, setShowQuoteDocDialog] = useState(false);
   return (
     <>
       {showInvoiceDialog && (
         <InvoiceDialog quote={selectedQuote} quotes={quotes} uid={uid} grandMin={grandMin} onClose={() => setShowInvoiceDialog(false)} />
+      )}
+      {showQuoteDocDialog && (
+        <InvoiceDialog kind="quote" quote={selectedQuote} quotes={quotes} uid={uid} grandMin={grandMin} onClose={() => setShowQuoteDocDialog(false)} />
       )}
       {/* The client said yes: counts as an order in Statistics. */}
       <button
@@ -137,6 +143,15 @@ export default function QuoteActionButtons({
         style={{ width: '100%', padding: '12px', marginBottom: '12px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#7c3aed', color: '#fff', border: 'none', cursor: 'pointer' }}
       >
         📈 Download Price Breakdown (Excel)
+      </button>
+
+      {/* The quote as a client-ready PDF or Word file, styled like the
+          invoice (no payment lines; ranges and Roller/Zebra options shown). */}
+      <button
+        onClick={() => setShowQuoteDocDialog(true)}
+        style={{ width: '100%', padding: '12px', marginBottom: '12px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#9a3412', color: '#fff', border: 'none', cursor: 'pointer' }}
+      >
+        📄 Download Quote (PDF or Word)
       </button>
 
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
