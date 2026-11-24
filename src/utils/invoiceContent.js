@@ -34,6 +34,9 @@ export const WARRANTY_SECTIONS = [
     bullets: [
       'Any fabric discoloration or malfunction in the blinds due to manufacturing defects will be covered under warranty within 1 year from the date of installation.',
       'For motorized systems, any functional issues with the motor will be covered under warranty for up to 3 years, and with the remote for up to 3 months, subject to proper usage.'
+    ],
+    notes: [
+      'Note: If the motor battery is not charged and drains completely, the motor may reset and lose its connection with the remote. Re-pairing the motor with the remote in this case is the client’s responsibility. We will provide instructions on how to re-pair it, but a service visit for this is not included under warranty.'
     ]
   },
   {
@@ -44,7 +47,10 @@ export const WARRANTY_SECTIONS = [
       'Factory reset, limit setting changes, or app adjustments performed without our guidance',
       'Improper handling or installation by anyone other than our team'
     ],
-    note: 'In such cases, repair or replacement costs, including shipping, will be the responsibility of the client.'
+    notes: [
+      'In such cases, repair or replacement costs, including shipping, will be the responsibility of the client.',
+      'If a supplier discontinues a fabric, motor, or remote after the warranty period has ended, Zebra Screens & Rollers is not responsible for providing a replacement. If the same item is still available from the supplier, we will be happy to help arrange a replacement. However, the cost of the replacement part and all shipping charges will be the responsibility of the client.'
+    ]
   },
   {
     title: '3. Battery & Motor Care (Client Responsibility)',

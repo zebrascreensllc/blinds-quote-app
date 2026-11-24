@@ -501,7 +501,7 @@ export function buildInvoiceDocument(quote, options = {}, logoBytes) {
     ...WARRANTY_SECTIONS.flatMap(section => [
       new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: section.title, bold: true, size: 22 })] }),
       ...section.bullets.map(bulletParagraph),
-      ...(section.note ? [new Paragraph({ spacing: { before: 80 }, children: [new TextRun({ text: section.note, italics: true, size: 20 })] })] : [])
+      ...(section.notes || []).map(n => new Paragraph({ spacing: { before: 80 }, children: [new TextRun({ text: n, italics: true, size: 20 })] }))
     ])
   ];
 

@@ -84,3 +84,36 @@ test('remote warranty is 3 months, motor still 3 years, fabric 1 year', () => {
   assert.ok(!/remote[^.\n]*3 years/i.test(all), 'no line gives the remote 3 years');
   assert.ok(/remote for up to 3 months/.test(all));
 });
+
+// Owner's request 2026-11-24: discontinued-parts sentence after section 2's
+// "In such cases..." note, in BOTH the PDF and the Word invoice, every column set.
+test('warranty notes (section 1 battery Note, section 2 discontinued parts) in PDF and Word, in order', async () => {
+  const s2 = WARRANTY_SECTIONS.find(s => s.title.startsWith('2.'));
+  assert.equal(s2.notes.length, 2);
+  assert.ok(s2.notes[0].startsWith('In such cases, repair or replacement costs, including shipping'));
+  assert.ok(/discontinues a fabric, motor, or remote after the warranty period/.test(s2.notes[1]));
+  assert.ok(WARRANTY_SECTIONS[0].title.startsWith('1.') && WARRANTY_SECTIONS[0].notes[0].startsWith('Note: If the motor battery'));
+  assert.ok(WARRANTY_SECTIONS.every(s => s.note === undefined), 'no section still uses the old single note field');
+
+  const { Packer } = require('docx');
+  const flat = t => t.replace(/\s+/g, ' ');
+  for (const columns of [DEFAULT_INVOICE_COLUMN_KEYS, ['location', 'blindType', 'fabric'], []]) {
+    // jsPDF keeps each page's (uncompressed) drawing commands in internal.pages;
+    // wrapped lines are separate text runs, so check phrases from line starts
+    const pdfText = flat(buildInvoicePdf(quote(), { columns }, null).internal.pages.flat().filter(Boolean).join(' '));
+    assert.ok(pdfText.includes('If a supplier discontinues a fabric'), 'PDF has the new sentence');
+    assert.ok(pdfText.includes('In such cases, repair or replacement'), 'PDF keeps the old sentence');
+    const docx = buildInvoiceDocument(quote(), { columns });
+    const buf = await Packer.toBuffer(docx);
+    const x = (await (await new (require('jszip'))().loadAsync(buf)).file('word/document.xml').async('string'))
+      .replace(/&amp;/g, '&').replace(/&apos;/g, "'").replace(/&quot;/g, '"');
+    assert.ok(x.includes(s2.notes[0]) && x.includes(s2.notes[1]), 'Word has both sentences');
+    assert.ok(x.indexOf(s2.notes[0]) < x.indexOf(s2.notes[1]), 'new sentence comes after the old one');
+    // section 1: battery/re-pairing Note, after the motor/remote bullet and before section 2
+    const n1 = WARRANTY_SECTIONS[0].notes[0];
+    assert.ok(x.includes(n1.replace(/’/g, '’')), 'Word has the section 1 note');
+    assert.ok(x.indexOf('subject to proper usage') < x.indexOf(n1) && x.indexOf(n1) < x.indexOf('2. The warranty does not cover'), 'Word: note sits under section 1');
+    assert.ok(pdfText.includes('Note: If the motor battery is not charged'), 'PDF has the section 1 note');
+    assert.ok(pdfText.indexOf('Note: If the motor battery') < pdfText.indexOf('2. The warranty does not cover'), 'PDF: note sits under section 1');
+  }
+});
