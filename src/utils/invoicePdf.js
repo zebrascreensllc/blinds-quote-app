@@ -197,7 +197,7 @@ export function buildInvoicePdf(quote, options = {}, logoBytes) {
     y += 8;
     heading(section.title, 11);
     section.bullets.forEach(b => paragraph(b, { bullet: true }));
-    if (section.note) paragraph(section.note, { italic: true });
+    (section.notes || []).forEach(n => paragraph(n, { italic: true }));
   });
 
   // ---- watermark: a faded Zebra logo in the middle of every page, like
