@@ -9,6 +9,7 @@ const HEADERS = [
   { header: 'Width (Inches)', key: 'width', width: 14 },
   { header: 'Height (Inches)', key: 'height', width: 14 },
   { header: 'Type', key: 'type', width: 16 },
+  { header: 'Cassette', key: 'cassette', width: 26 },
   { header: 'Price', key: 'price', width: 12 }
 ];
 
@@ -51,6 +52,7 @@ export async function generatePriceBreakdownExcel(quote) {
       width: it.width,
       height: it.height,
       type,
+      cassette: it.cassette || '',
       price: fmtPrice(it.unitPrice, it.unitPriceMax)
     });
   });
@@ -64,7 +66,7 @@ export async function generatePriceBreakdownExcel(quote) {
   // needed on any screen size.
   const summaryRow = (label, value, bold = false) => {
     const row = ws.addRow([]);
-    ws.mergeCells(`A${row.number}:F${row.number}`);
+    ws.mergeCells(`A${row.number}:G${row.number}`); // A..G = every column, Price is last
     const cell = row.getCell(1);
     cell.value = value === '' ? label : `${label}: ${value}`;
     if (bold) cell.font = { bold: true };

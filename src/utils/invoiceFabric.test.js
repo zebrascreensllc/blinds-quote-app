@@ -70,8 +70,8 @@ test('every column combination, fabric yes/no: same totals, no crash, PDF + Word
       }
     }
   }
-  assert.equal(n, 1024);
-  // all 9 columns on the PDF: table still fits the page width
+  assert.equal(n, 2048); // 9 base columns (Cassette added 2026-11-24) x fabric x final price
+  // all 10 columns on the PDF: table still fits the page width
   const doc = buildInvoicePdf(q, { columns: [...base, 'fabric'] }, null);
   assert.ok(doc.lastAutoTable.finalY > 0);
 });

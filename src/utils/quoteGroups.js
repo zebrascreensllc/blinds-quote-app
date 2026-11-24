@@ -154,7 +154,9 @@ const isMotor = g => g.controlType === 'Motor';
 const sameSizeFamily = (a, b) =>
   norm(a.width) === norm(b.width) && norm(a.height) === norm(b.height)
   && norm(a.mount || 'Inside') === norm(b.mount || 'Inside')
-  && (a.surchargeOverride ?? null) === (b.surchargeOverride ?? null);
+  && (a.surchargeOverride ?? null) === (b.surchargeOverride ?? null)
+  // Different cassettes are different windows: never merge them.
+  && norm(a.cassette) === norm(b.cassette) && norm(a.cassetteCustomText) === norm(b.cassetteCustomText);
 
 // Groups of the same room with the same size/mount (they differ only in Motor/Manual/Solar).
 export const sizeFamily = (room, group) => room.windowGroups.filter(g => sameSizeFamily(g, group));

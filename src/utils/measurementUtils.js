@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { parseUnits } from './formatters';
+import { DEFAULT_CASSETTE, cassetteFromQuoteGroup } from './cassette';
 
 // ---- Dropdown option constants -------------------------------------------
 
@@ -55,25 +56,13 @@ export const DEFAULT_MOTOR_TYPE = 'motor-Zigbee';
 // breaking change to any existing check).
 export const SOLAR_PANEL_OPTIONS = ['AOK', 'G3 - Regular wire', 'G3 - 1meter wire'];
 
-const CASSETTE_S1 = 'Fabric inserted top (S1) and Type C Fabric wrapped';
-const CASSETTE_S3 = 'Fabric inserted top (S3 PLUS) and Type C Fabric wrapped';
-export const CASSETTE_OPTIONS = [
-  'Fabric Wrapped (V3) and Type C Fabric wrapped',
-  'Fabric Wrapped (V3) - White and Type C Fabric wrapped',
-  'Fabric Wrapped (V3) - Grey and Type C Fabric wrapped',
-  'Fabric Wrapped (V3) - Black and Type C Fabric wrapped',
-  '(V3) - White and Type C Fabric wrapped',
-  '(V3) - Grey and Type C Fabric wrapped',
-  '(V3) - Black and Type C Fabric wrapped',
-  CASSETTE_S1,
-  CASSETTE_S3,
-  'Custom'
-];
-export const DEFAULT_CASSETTE = CASSETTE_S1;
-// Height threshold (inches) above which a window needs the bigger S3 PLUS
-// cassette by default instead of the standard S1.
-export const CASSETTE_S3_HEIGHT_THRESHOLD = 90;
-
+// Cassette options and the quote-side cassette helpers live in cassette.js
+// (no imports at all) so the quote, the invoice and this file share ONE list.
+export {
+  CASSETTE_OPTIONS, DEFAULT_CASSETTE, CASSETTE_S3_HEIGHT_THRESHOLD,
+  autoCassetteForHeight, hasChosenCassette, cassetteFromQuoteGroup,
+  quoteCassetteFromRow, cassetteShortName, quoteCassetteLabel
+} from './cassette';
 // Picking this mount asks how many extended brackets each window needs
 // (row.extendedBrackets). The count is shown next to the mount everywhere
 // (screen + CSV/Excel via mountDisplay) and the export is blocked until it's set.
@@ -425,8 +414,8 @@ export function expandQuoteIntoRows(quote, options = {}) {
       // cassette instead of S1 - based on the quote's own rough height, since
       // this row's own height field starts blank (see note above) and won't
       // have a precise measurement yet at creation time.
-      const heightNum = parseFloat(group.height) || 0;
-      const cassetteDefault = heightNum > CASSETTE_S3_HEIGHT_THRESHOLD ? CASSETTE_S3 : CASSETTE_S1;
+      // A cassette chosen on the quote wins; otherwise Standard by height.
+      const groupCassette = cassetteFromQuoteGroup(group);
       for (let i = 0; i < qty; i++) {
         windowCounter += 1;
         rows.push({
@@ -448,8 +437,8 @@ export function expandQuoteIntoRows(quote, options = {}) {
           remoteGroup: null,
           noRemote: false,
           remoteChannel: null, // explicit channel number, assigned at the moment a group is set (see getNextRemoteChannel) - NOT derived from table position
-          cassette: cassetteDefault,
-          cassetteCustomText: '',
+          cassette: groupCassette.cassette,
+          cassetteCustomText: groupCassette.cassetteCustomText,
           mount: DEFAULT_MOUNT,
           fabricNumber: singleFabric,
           comment: '', // free-text note per window (e.g. "Side-by-side") - exported to its own CSV/Excel column

@@ -26,6 +26,11 @@ export const getPricingSnapshot = () => ({
   // snapshots without this flag (every quote saved before it existed) keep the
   // old all-fabrics range so their numbers never change. See calculateGroupCost.
   ESTIMATE_BY_BLIND_TYPE: true,
+  // Cassette (2026-11-24): V3 / S3 PLUS add this per sq m to a window's cost.
+  // Tall windows' standard S3 PLUS is only charged on quotes saved with
+  // CHARGE_AUTO_S3_CASSETTE (so older quotes never change price).
+  CASSETTE_UPGRADE_PER_SQM: 6,
+  CHARGE_AUTO_S3_CASSETTE: true,
   CREATED_DATE: new Date().toISOString()
 });
 
