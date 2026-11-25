@@ -1,4 +1,4 @@
-import { collection, doc, setDoc, deleteDoc, onSnapshot, query } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 
 /**
@@ -38,6 +38,30 @@ export function subscribeToCollection(uid, collectionName, onUpdate, onError) {
       if (onError) onError(error);
     }
   );
+}
+
+/**
+ * Same as subscribeToCollection, but only the documents whose `field`
+ * equals `value` (e.g. the photos of ONE measurement sheet), so a device
+ * never downloads every photo ever taken just to show one sheet.
+ */
+export function subscribeToCollectionWhere(uid, collectionName, field, value, onUpdate, onError) {
+  const q = query(collection(db, 'users', uid, collectionName), where(field, '==', value));
+  return onSnapshot(
+    q,
+    { includeMetadataChanges: true },
+    (snapshot) => onUpdate(snapshot.docs.map(d => d.data())),
+    (error) => {
+      console.error(`Sync error on ${collectionName}:`, error);
+      if (onError) onError(error);
+    }
+  );
+}
+
+/** Ids of the documents whose `field` equals `value` (works offline from the cache). */
+export async function listDocumentIdsWhere(uid, collectionName, field, value) {
+  const snap = await getDocs(query(collection(db, 'users', uid, collectionName), where(field, '==', value)));
+  return snap.docs.map(d => d.id);
 }
 
 /**

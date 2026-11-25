@@ -54,6 +54,11 @@ export function buildInvoicePdf(quote, options = {}, logoBytes) {
   doc.setTextColor(0, 0, 0);
   doc.text(`${model.numberLabel}: ${model.invoiceNumber}`, pageWidth - PAGE_MARGIN, y + 10, { align: 'right' });
   doc.text(`Date: ${model.dateText}`, pageWidth - PAGE_MARGIN, y + 26, { align: 'right' });
+  if (model.validUntilText) {
+    doc.setTextColor(154, 52, 18);
+    doc.text(`Valid until: ${model.validUntilText}`, pageWidth - PAGE_MARGIN, y + 42, { align: 'right' });
+    doc.setTextColor(0, 0, 0);
+  }
 
   y += LOGO_HEIGHT + 16;
   doc.setFont('helvetica', 'italic');

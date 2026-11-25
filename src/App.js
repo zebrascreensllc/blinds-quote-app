@@ -1202,7 +1202,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   return (
     <div>
       {currentView === 'menu' && (
-        <MenuScreen onLogout={onLogout} quotes={quotes} resetForm={resetForm} setCurrentView={setCurrentView} setEditingQuote={setEditingQuote} />
+        <MenuScreen onLogout={onLogout} quotes={quotes} resetForm={resetForm} setCurrentView={setCurrentView} setEditingQuote={setEditingQuote} uid={uid} />
       )}
       {currentView === 'bulkQuote' && (
         <BulkQuoteFormScreen

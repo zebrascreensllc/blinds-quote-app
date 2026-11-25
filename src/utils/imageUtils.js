@@ -9,7 +9,8 @@
 const MAX_DIMENSION = 1400;
 const MAX_DATA_URL_LENGTH = 700 * 1024;
 
-export function compressImageFile(file) {
+// Options (window photos on a sheet use smaller limits): maxDimension, maxLength.
+export function compressImageFile(file, { maxDimension = MAX_DIMENSION, maxLength = MAX_DATA_URL_LENGTH } = {}) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('Could not read the selected photo.'));
@@ -18,7 +19,7 @@ export function compressImageFile(file) {
       img.onerror = () => reject(new Error('Could not read the selected photo.'));
       img.onload = () => {
         try {
-          const scale = Math.min(1, MAX_DIMENSION / Math.max(img.width, img.height));
+          const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
           const canvas = document.createElement('canvas');
           canvas.width = Math.round(img.width * scale);
           canvas.height = Math.round(img.height * scale);
@@ -30,12 +31,12 @@ export function compressImageFile(file) {
           // than a plain one at the same quality setting.
           let quality = 0.7;
           let dataUrl = canvas.toDataURL('image/jpeg', quality);
-          while (dataUrl.length > MAX_DATA_URL_LENGTH && quality > 0.2) {
+          while (dataUrl.length > maxLength && quality > 0.2) {
             quality -= 0.1;
             dataUrl = canvas.toDataURL('image/jpeg', quality);
           }
 
-          if (dataUrl.length > MAX_DATA_URL_LENGTH) {
+          if (dataUrl.length > maxLength) {
             reject(new Error('This photo is too large even after compression. Try a tighter, less detailed shot of just the cost lines.'));
             return;
           }

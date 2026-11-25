@@ -1,10 +1,11 @@
 import React from 'react';
 import { Search, BarChart3, ClipboardList, Layers, ListPlus } from 'lucide-react';
+import SyncCheckPanel from '../SyncCheckPanel';
 
 // Top-level menu - relocated from App.js's renderMenu with no logic changes,
 // same as the SupplierMeasurements screen split: same variable names, now
 // received as props instead of closed over directly.
-export default function MenuScreen({ onLogout, quotes, resetForm, setCurrentView, setEditingQuote }) {
+export default function MenuScreen({ onLogout, quotes, resetForm, setCurrentView, setEditingQuote, uid }) {
   return (
     <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', minHeight: '100vh', padding: '32px 16px' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
@@ -94,6 +95,7 @@ export default function MenuScreen({ onLogout, quotes, resetForm, setCurrentView
 
         <div style={{ marginTop: '48px', textAlign: 'center' }}>
           <p style={{ color: '#666', fontSize: '12px' }}>Saved to your account and on this phone - works without signal</p>
+          {uid && <SyncCheckPanel uid={uid} quotes={quotes} />}
         </div>
       </div>
     </div>

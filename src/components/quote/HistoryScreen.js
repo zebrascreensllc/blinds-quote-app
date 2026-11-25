@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { quoteMatchesSearch } from '../../utils/historySearch';
+import { lineageJob, jobStageLabel } from '../../utils/jobProgress';
 import { ArrowLeft, Search, Edit2, ChevronDown, ChevronUp, RotateCcw, Trash2 } from 'lucide-react';
 import { historyGroupKeys } from '../../utils/quoteLineage';
 
@@ -97,9 +99,10 @@ export default function HistoryScreen({
     // Matches the group's name OR any older name a version had (a client
     // whose name was corrected is still found by the old spelling).
     .filter(client => {
-      const qText = searchQuery.toLowerCase();
-      return client.toLowerCase().includes(qText)
-        || groupedByClient[client].some(q => `${q.clientName} - ${q.location}`.toLowerCase().includes(qText));
+      // Name, address or phone of ANY version (a corrected name, a changed
+      // number) - see utils/historySearch.js.
+      return groupedByClient[client].some(q => quoteMatchesSearch(q, searchQuery))
+        || quoteMatchesSearch({ clientName: client }, searchQuery);
     })
     .sort((a, b) => {
       const latestA = latestValidTime(groupedByClient[a]);
@@ -109,11 +112,11 @@ export default function HistoryScreen({
     });
 
   const filteredTrashed = trashedQuotes
-    .filter(q => `${q.clientName} - ${q.location}`.toLowerCase().includes(searchQuery.toLowerCase()))
+    .filter(q => quoteMatchesSearch(q, searchQuery))
     .sort((a, b) => new Date(b.trashedAt) - new Date(a.trashedAt));
 
   const filteredArchived = archivedQuotes
-    .filter(q => `${q.clientName} - ${q.location}`.toLowerCase().includes(searchQuery.toLowerCase()))
+    .filter(q => quoteMatchesSearch(q, searchQuery))
     .sort((a, b) => new Date(b.updatedDate) - new Date(a.updatedDate));
 
   const tabStyle = (active) => ({
@@ -156,7 +159,7 @@ export default function HistoryScreen({
           <Search style={{ position: 'absolute', left: '12px', top: '12px', color: '#666' }} size={20} />
           <input
             type="text"
-            placeholder="Search by client name..."
+            placeholder="Search name, address or phone..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ width: '100%', paddingLeft: '40px', paddingRight: '16px', paddingTop: '12px', paddingBottom: '12px', borderRadius: '8px', background: '#2a2a2a', border: '1px solid #d4af37', color: 'white', fontSize: '16px' }}
@@ -244,7 +247,12 @@ export default function HistoryScreen({
                       <p style={{ fontWeight: 'bold', color: '#fff', fontSize: '18px', marginBottom: '4px' }}>{clientName}</p>
                       <p style={{ color: '#888', fontSize: '14px' }}>
                         {groupedByClient[clientName].length} version(s)
-                        {groupedByClient[clientName].some(q => q.orderedAt) && <span style={{ color: '#4ade80', fontWeight: 'bold' }}> • ✅ Ordered</span>}
+                        {(() => {
+                          // Furthest job stage reached (Ordered / With supplier / Installed / Paid).
+                          const group = groupedByClient[clientName];
+                          const label = jobStageLabel(lineageJob(group, null));
+                          return label ? <span style={{ color: '#4ade80', fontWeight: 'bold' }}> • {label}</span> : null;
+                        })()}
                       </p>
                     </div>
                     {expandedClients[clientName] ? <ChevronUp size={24} color="#d4af37" /> : <ChevronDown size={24} color="#d4af37" />}

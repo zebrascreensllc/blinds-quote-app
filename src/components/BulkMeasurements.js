@@ -28,6 +28,9 @@ import QuoteSelectScreen from './measurements/QuoteSelectScreen';
 import ManualEntryScreen from './bulkMeasurements/ManualEntryScreen';
 import BulkEditorScreen from './bulkMeasurements/BulkEditorScreen';
 import { subscribeToBulkSheets, saveBulkSheetRemote, deleteBulkSheetRemote } from '../services/bulkMeasurementSync';
+import { subscribeToSheetPhotos, saveSheetPhoto, deleteSheetPhoto, deleteAllSheetPhotos } from '../services/sheetPhotoSync';
+import { compressImageFile } from '../utils/imageUtils';
+import { MAX_PHOTOS_PER_WINDOW, groupPhotosByRow } from '../utils/sheetPhotos';
 import { sheetToExcelBuffer, combinedSheetsToExcelBuffer } from '../utils/xlsxExport';
 // ✅ NEW: fabric-existence check, reused from the quote side (same
 // isFabricValid already used by the "Invalid Fabrics" warning there). This
@@ -150,6 +153,56 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
   }, [uid]);
 
   const activeSheet = sheets.find(s => s.id === activeSheetId) || null;
+
+  // ---- Photos per window (owner's request, 2026-11-25) ----
+  // Only the open sheet's photos are loaded. Each photo is its own small
+  // document (see services/sheetPhotoSync.js). Photos are for the owner's
+  // own reference on site: they are NOT added to the supplier CSV/Excel.
+  const [sheetPhotos, setSheetPhotos] = useState([]);
+  const [photoBusyRowId, setPhotoBusyRowId] = useState(null);
+  useEffect(() => {
+    if (!uid || !activeSheetId) { setSheetPhotos([]); return undefined; }
+    let unsubscribe = () => {};
+    try {
+      unsubscribe = subscribeToSheetPhotos(uid, activeSheetId, list => setSheetPhotos(Array.isArray(list) ? list : []), () => setSheetPhotos([]));
+    } catch (e) {
+      setSheetPhotos([]);
+    }
+    return () => { try { unsubscribe(); } catch (e) { /* already closed */ } };
+  }, [uid, activeSheetId]);
+  const photosByRow = groupPhotosByRow(sheetPhotos);
+
+  const addRowPhoto = async (rowId, file) => {
+    if (!activeSheet || !file || photoBusyRowId) return;
+    if ((photosByRow[rowId] || []).length >= MAX_PHOTOS_PER_WINDOW) {
+      alert(`Up to ${MAX_PHOTOS_PER_WINDOW} photos per window. Remove one first.`);
+      return;
+    }
+    setPhotoBusyRowId(rowId);
+    try {
+      const dataUrl = await compressImageFile(file, { maxDimension: 1000, maxLength: 350 * 1024 });
+      const photo = { id: `photo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, sheetId: activeSheet.id, rowId, dataUrl, createdAt: new Date().toISOString() };
+      // Offline: saved on this phone and uploaded when back online, like every other write.
+      await saveSheetPhoto(uid, photo);
+    } catch (err) {
+      console.error('Photo save failed:', err);
+      alert(`❌ Could not add the photo: ${err?.message || err}`);
+    } finally {
+      setPhotoBusyRowId(null);
+    }
+  };
+
+  const deleteRowPhoto = async (photo) => {
+    if (!photo || !window.confirm('Delete this photo?')) return false;
+    try {
+      await deleteSheetPhoto(uid, photo.id);
+      return true;
+    } catch (err) {
+      console.error('Photo delete failed:', err);
+      alert(`❌ Could not delete the photo: ${err?.message || err}`);
+      return false;
+    }
+  };
 
   // Same diffing write-through pattern as SupplierMeasurements.js/App.js.
   const updateSheets = (newSheetsOrUpdater) => {
@@ -375,7 +428,9 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
     }
     const row = activeSheet.rows.find(r => r.id === rowId);
     const label = (row?.locationBase || '').trim() || 'this window';
-    if (!window.confirm(`Delete "${label}" from this sheet?`)) return;
+    const rowPhotos = photosByRow[rowId] || [];
+    if (!window.confirm(`Delete "${label}" from this sheet?${rowPhotos.length ? `\n\nIts ${rowPhotos.length} photo${rowPhotos.length > 1 ? 's' : ''} will be deleted too.` : ''}`)) return;
+    rowPhotos.forEach(ph => deleteSheetPhoto(uid, ph.id).catch(err => console.error('Photo delete failed:', err)));
     updateActiveSheet(sheet => ({
       ...sheet,
       rows: recomputeLocationIndices(sheet.rows.filter(r => r.id !== rowId)),
@@ -425,6 +480,8 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
     updateSheets(prev => prev.filter(s => s.id !== id)).then(result => {
       if (!result.success) alert(`⚠️ Saved on this device, but the delete failed to reach the cloud: ${result.errors[0] || 'sync failed'}.\n\nIt will keep retrying in the background.`);
     });
+    // Its window photos live in their own documents - remove them too.
+    deleteAllSheetPhotos(uid, id).catch(err => console.error('Could not delete the sheet photos:', err));
     if (activeSheetId === id) {
       setActiveSheetId(null);
       setScreen('list');
@@ -884,6 +941,10 @@ export default function BulkMeasurements({ quotes, onBack, uid, generateQuoteFro
       addWindowRow={addWindowRow}
       deleteWindowRow={deleteWindowRow}
       moveWindowRow={moveWindowRow}
+      photosByRow={photosByRow}
+      addRowPhoto={addRowPhoto}
+      deleteRowPhoto={deleteRowPhoto}
+      photoBusyRowId={photoBusyRowId}
       remoteLabels={remoteLabels}
       widthOutlierIds={widthOutlierIds}
       heightOutlierIds={heightOutlierIds}

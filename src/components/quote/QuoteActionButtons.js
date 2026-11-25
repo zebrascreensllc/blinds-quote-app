@@ -30,7 +30,9 @@ export default function QuoteActionButtons({
   hasUnsavedChanges = false,
   // Asks before an action that leaves this screen and would drop unsaved
   // changes; returns true to go ahead.
-  confirmLeave = () => true
+  confirmLeave = () => true,
+  // Job progress + payments card (shown once ordered), right under Mark as Ordered.
+  jobCard = null
 }) {
   // Every file made here is built from the SAVED quote. Changes made on the
   // quote screen (prices, cassette, motor count, sizes...) only exist on
@@ -63,6 +65,7 @@ export default function QuoteActionButtons({
           ? `✅ Ordered on ${new Date(selectedQuote.orderedAt).toLocaleDateString()} (tap to undo)`
           : '✅ Mark as Ordered (client said yes)'}
       </button>
+      {jobCard}
 
       <button
         onClick={async () => {
