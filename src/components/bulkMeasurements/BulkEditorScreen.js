@@ -339,6 +339,7 @@ export default function BulkEditorScreen({
                           type="text"
                           value={row.width}
                           onChange={(e) => updateRow(row.id, { width: toSixteenths(e.target.value) })}
+                          onBlur={() => { const done = toSixteenths(row.width, { final: true }); if (done !== row.width) updateRow(row.id, { width: done }); }}
                           placeholder="e.g. 34 5/16"
                           style={{ ...inputStyle, border: !widthCheck.valid ? '1px solid #ef4444' : (showWidthWarning ? '1px solid #f59e0b' : inputStyle.border) }}
                         />
@@ -360,6 +361,7 @@ export default function BulkEditorScreen({
                           type="text"
                           value={row.height}
                           onChange={(e) => updateRow(row.id, { height: toSixteenths(e.target.value) })}
+                          onBlur={() => { const done = toSixteenths(row.height, { final: true }); if (done !== row.height) updateRow(row.id, { height: done }); }}
                           placeholder="e.g. 75 13/16"
                           style={{ ...inputStyle, border: !heightCheck.valid ? '1px solid #ef4444' : (showHeightWarning ? '1px solid #f59e0b' : inputStyle.border) }}
                         />

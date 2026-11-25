@@ -117,8 +117,9 @@ export const SIZE_OUTLIER_THRESHOLD_INCHES = 0.5;
  *   "34 5/16"  -> whole + sixteenths (the normal case)
  *   "5/16"     -> fraction only, no whole part
  * The denominator must be EXACTLY 16 - this business always measures to the
- * nearest sixteenth, so anything else (5/15, 5/17, or even 1/2, 1/8) is
- * treated as a typo and flagged, not silently accepted.
+ * nearest sixteenth, so anything else (5/15, 5/17) is treated as a typo and
+ * flagged, not silently accepted. (1/2, 1/4, 1/8, ½, 35-1/2 and exact
+ * decimals are converted to sixteenths by toSixteenths as they're typed.)
  *
  * Returns { valid, decimal, message }. Empty string is treated as "not yet
  * entered" - valid, but decimal is null.
@@ -175,8 +176,31 @@ export function validateMeasurementFormat(text) {
  * Safe to run on every keystroke: 2, 4 and 8 can never be the start of
  * "16", so a value is only rewritten once its denominator is complete.
  */
-export function toSixteenths(text) {
+const SHEET_UNICODE_FRACTIONS = { '½': '1/2', '¼': '1/4', '¾': '3/4', '⅛': '1/8', '⅜': '3/8', '⅝': '5/8', '⅞': '7/8' };
+
+// ✅ 2026-11-25: also "35-1/2" / "35-5/16" (dash between inches and the
+// fraction) and "35½" / "35 ¾" (one-character fractions from the iPhone
+// keyboard), which used to be rejected. With { final: true } (when the box
+// is left) an exact decimal is converted too: "35.5" -> "35 8/16",
+// "35.25" -> "35 4/16". Decimals are never converted while typing, because
+// "35.5" may still be on its way to "35.56".
+export function toSixteenths(text, { final = false } = {}) {
   if (typeof text !== 'string') return text;
+  let input = text;
+  if (/[½¼¾⅛⅜⅝⅞]/.test(input)) input = input.replace(/\s*([½¼¾⅛⅜⅝⅞])/g, (_, ch) => ` ${SHEET_UNICODE_FRACTIONS[ch]}`).trim();
+  input = input.replace(/^(\s*\d+)\s*-\s*(\d+\s*\/)/, '$1 $2');
+  if (final) {
+    const dec = input.match(/^\s*(\d+)\.(\d+)\s*(?:"|”|in|inch|inches)?\s*$/i);
+    if (dec) {
+      const sixteenths = parseFloat(`0.${dec[2]}`) * 16;
+      if (Math.abs(sixteenths - Math.round(sixteenths)) < 1e-9) {
+        const n = Math.round(sixteenths);
+        return n === 0 ? dec[1] : `${dec[1]} ${n}/16`;
+      }
+    }
+  }
+  // Dash or ½-style input was rewritten to "35 1/2": finish it the normal way.
+  if (input !== text) return toSixteenths(input);
   const m = text.match(/^\s*(\d+\s+)?(\d+)\s*\/\s*(2|4|8)\s*(?:"|”|in|inch|inches)?\s*$/i);
   if (m) {
     const numerator = parseInt(m[2], 10);
@@ -397,18 +421,30 @@ export function countInRemoteGroup(rows, groupNumber) {
  * "send to supplier for quote confirmation" export, where the point IS to
  * share the quote's current rough numbers, not a precise measurement.
  */
+// How many windows a quote group stands for - the same count its price uses
+// (blank, 0 or unreadable = 1). Older quotes could save qty 0 or blank: the
+// client was charged for 1 window but the sheet used to leave it out, so the
+// supplier never got it (2026-11-25). Kept here (not imported from
+// quoteGroups) so this file stays independent of the quote code.
+const sheetGroupQty = (group) => {
+  const n = parseInt(group && group.quantity, 10);
+  // An empty leftover group (no qty, no size) on an old quote is not a window.
+  if (!Number.isFinite(n) && !String(group?.width ?? '').trim() && !String(group?.height ?? '').trim()) return 0;
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+};
+
 export function expandQuoteIntoRows(quote, options = {}) {
   const prefillMeasurements = !!options.prefillMeasurements;
   const rows = [];
   (quote.rooms || []).forEach(room => {
-    const totalWindows = (room.windowGroups || []).reduce((sum, g) => sum + (parseInt(g.quantity) || 0), 0);
+    const totalWindows = (room.windowGroups || []).reduce((sum, g) => sum + sheetGroupQty(g), 0);
     const fabricParts = (room.fabricInput || '').split(',').map(f => f.trim()).filter(f => f);
     const singleFabric = fabricParts.length === 1 ? fabricParts[0] : '';
     const blindType = (room.blindTypes && room.blindTypes[0]) || 'Roller';
 
     let windowCounter = 0;
     (room.windowGroups || []).forEach((group, groupIdx) => {
-      const qty = parseInt(group.quantity) || 0;
+      const qty = sheetGroupQty(group);
       const isMotor = group.controlType === 'Motor';
       // ✅ NEW: windows over the S3 threshold default to the bigger S3 PLUS
       // cassette instead of S1 - based on the quote's own rough height, since

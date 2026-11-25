@@ -210,3 +210,69 @@ export function stepMotor(room, group, direction, pending, getOverride, newKeySu
   }
   return { groupEdits, addedGroups, deletedGroupKeys, perWindowPrices };
 }
+
+// ---- Checking a quote before it is saved (2026-11-25) ----------------------
+// The quote form accepted quantity 0 or -2 and a window with no height: qty 0
+// and blank were charged as 1 window, -2 subtracted money, a missing height
+// was priced as a guess, and the supplier sheet left those windows out.
+
+/** Quantity typed on a window group: blank = 1; else a whole number of 1 or more. */
+export function parseGroupQty(value) {
+  const s = String(value ?? '').trim();
+  if (s === '') return { ok: true, qty: 1 };
+  if (!/^\d+$/.test(s)) return { ok: false, qty: null };
+  const n = parseInt(s, 10);
+  return n >= 1 ? { ok: true, qty: n } : { ok: false, qty: null };
+}
+
+/** How many windows an already-saved group counts as, the same way its price does (blank/0/unreadable = 1). */
+export const savedGroupQty = (group) => {
+  const n = parseInt(group && group.quantity, 10);
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+};
+
+/** true when a saved group's quantity isn't a whole number of 1 or more (old data). */
+export const hasBadQty = (group) => !parseGroupQty(group && group.quantity).ok || String(group?.quantity ?? '').trim() === '';
+
+/**
+ * Problems that must be fixed before saving, one line each, e.g.
+ * "Living Room, window 2: quantity must be 1 or more". Blank groups are not
+ * checked (they are dropped by pruneRooms before this runs).
+ */
+export function quoteRoomProblems(rooms, sizeProblem) {
+  const out = [];
+  (rooms || []).forEach((room, ri) => {
+    const roomName = String(room.name || '').trim() || `Room ${ri + 1}`;
+    const groups = room.windowGroups || [];
+    groups.forEach((g, gi) => {
+      const where = groups.length > 1 ? `${roomName}, size ${gi + 1}` : roomName;
+      if (!parseGroupQty(g.quantity).ok) out.push(`${where}: quantity "${g.quantity}" - use a whole number, 1 or more`);
+      const wp = sizeProblem(g.width);
+      const hp = sizeProblem(g.height);
+      if (wp) out.push(`${where}: width ${wp === 'missing' ? 'is missing' : `"${g.width}" ${wp}`}`);
+      if (hp) out.push(`${where}: height ${hp === 'missing' ? 'is missing' : `"${g.height}" ${hp}`}`);
+    });
+  });
+  return out;
+}
+
+/** The rooms as they are saved: sizes tidied (35-1/2 -> 35 1/2), blank quantity -> "1". */
+// keepSavedText(room, group, field) -> the text saved on the quote being
+// edited, if this group came from it: an unchanged size keeps its exact text,
+// so editing an older quote never re-reads (and re-prices) a size nobody touched.
+export function normalizeQuoteRooms(rooms, normalizeSize, keepSavedText = () => undefined) {
+  const tidy = (room, g, field) => {
+    const saved = keepSavedText(room, g, field);
+    if (saved !== undefined && String(saved) === String(g[field] ?? '')) return g[field];
+    return normalizeSize(g[field]);
+  };
+  return (rooms || []).map(room => ({
+    ...room,
+    windowGroups: (room.windowGroups || []).map(g => ({
+      ...g,
+      quantity: parseGroupQty(g.quantity).ok ? String(parseGroupQty(g.quantity).qty) : g.quantity,
+      width: tidy(room, g, 'width'),
+      height: tidy(room, g, 'height')
+    }))
+  }));
+}

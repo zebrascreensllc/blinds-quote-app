@@ -4,8 +4,8 @@ import { PRICING_DATA } from './data/pricingData';
 import { getPricingSnapshot, DEFAULT_HUB } from './utils/constants';
 import { getQuoteNamePrefix, autoDetectBlindTypes } from './utils/pricing';
 import { getNextVersionNumber, findRestartedVersionChains } from './utils/quoteLineage';
-import { isRangeOverride } from './utils/formatters';
-import { pruneRooms, remapPriceKeysMulti, isBlankGroup } from './utils/quoteGroups';
+import { isRangeOverride, normalizeSizeText, sizeTextProblem } from './utils/formatters';
+import { pruneRooms, remapPriceKeysMulti, isBlankGroup, quoteRoomProblems, normalizeQuoteRooms } from './utils/quoteGroups';
 import { buildRoomsFromSheet, resolveSheetQuote } from './utils/sheetToQuote';
 import { parseUnits } from './utils/formatters';
 
@@ -20,6 +20,8 @@ import StatisticsScreen from './components/quote/StatisticsScreen';
 import BulkQuoteFormScreen from './components/quote/BulkQuoteFormScreen';
 import QuoteDetailScreen from './components/quote/QuoteDetailScreen';
 import { subscribeToQuotes, saveQuoteRemote, deleteQuoteRemote } from './services/quoteSync';
+import { makeUndoSnapshot, applyUndo } from './utils/undo';
+import { hasPendingTableEdits } from './utils/pendingEdits';
 
 export default function BlindsQuoteApp({ uid, onLogout }) {
   const [currentView, setCurrentView] = useState('menu');
@@ -105,6 +107,15 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   // Firestore, so it can never create a phantom quote) so it can be
   // offered back the next time the app opens.
   const draftKey = `blindsQuoteDraft_${uid}`;
+  // ✅ FIX (2026-11-25): opening Edit (or Duplicate) and leaving without
+  // changing anything used to save a "draft", so the next app open asked
+  // "Found an unsaved quote draft... Resume it?" for nothing. The form as it
+  // was loaded is kept here; a draft is only kept once it differs.
+  const draftBaselineRef = useRef(null);
+  const loadIntoForm = (data) => {
+    draftBaselineRef.current = JSON.stringify(data);
+    setFormData(data);
+  };
 
   const hasDraftContent = (data) => {
     if (!data) return false;
@@ -128,7 +139,12 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         return;
       }
       const name = draft.formData.clientName?.trim() || 'an unnamed client';
-      if (window.confirm(`Found an unsaved quote draft for ${name} from ${new Date(draft.savedAt).toLocaleString()} - looks like the app closed before it was generated.\n\nResume it?`)) {
+      const when = new Date(draft.savedAt).toLocaleString();
+      const prompt = draft.editingQuoteId
+        ? `Found unsaved changes to ${name}'s quote from ${when} - the app closed before they were saved.\n\nResume editing?`
+        : `Found an unsaved quote draft for ${name} from ${when} - looks like the app closed before it was generated.\n\nResume it?`;
+      if (window.confirm(prompt)) {
+        draftBaselineRef.current = null;
         setFormData(draft.formData);
         if (draft.editingQuoteId) {
           // The quote list may not have loaded yet - re-resolved once it
@@ -161,7 +177,8 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   useEffect(() => {
     if (!uid) return;
     const timeout = setTimeout(() => {
-      if (hasDraftContent(formData)) {
+      const unchanged = draftBaselineRef.current !== null && JSON.stringify(formData) === draftBaselineRef.current;
+      if (hasDraftContent(formData) && !unchanged) {
         try {
           localStorage.setItem(draftKey, JSON.stringify({ formData, editingQuoteId: editingQuote?.id || null, savedAt: new Date().toISOString() }));
         } catch (e) {
@@ -380,8 +397,10 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     : '');
 
   // ✅ SAFETY: snapshot current state so the last delete can be undone
-  const snapshotForUndo = (label) => {
-    setUndoBuffer({ quotes: JSON.parse(JSON.stringify(quotes)), label, at: new Date().toISOString() });
+  // Holds only the quotes the action touched (see utils/undo.js), so Undo can
+  // never wipe out quotes created or changed after the delete/import.
+  const snapshotForUndo = (label, affectedIds) => {
+    setUndoBuffer(makeUndoSnapshot(quotes, affectedIds, label));
   };
 
   // ✅ SAFETY: one funnel for ALL deletions. Warns clearly, names what will be
@@ -428,7 +447,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
       if (!window.confirm(warning)) return false;
     }
 
-    snapshotForUndo(description || `Deleted ${doomed.length} quote(s)`);
+    snapshotForUndo(description || `Deleted ${doomed.length} quote(s)`, doomed.map(q => q.id));
     const trashedAt = new Date().toISOString();
     // .then() here (not await) deliberately keeps this function's return
     // value synchronous, since the buttons calling this rely on getting
@@ -532,8 +551,9 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   // ✅ SAFETY: restore the pre-delete snapshot
   const undoLastDelete = () => {
     if (!undoBuffer) return;
-    updateQuotes(undoBuffer.quotes).then(result => {
-      alert(result.success ? '✅ Restored. Your quotes are back.' : syncFailureMessage(result.errors));
+    const label = undoBuffer.label || 'last delete';
+    updateQuotes(applyUndo(quotes, undoBuffer)).then(result => {
+      alert(result.success ? `✅ Undone: ${label}. Nothing else was changed.` : syncFailureMessage(result.errors));
     });
     setUndoBuffer(null);
   };
@@ -634,7 +654,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
           return;
         }
         if (!window.confirm(`Restore ${newOnes.length} quote(s) from this backup?\n\nExisting quotes will be kept — this only adds what is missing.`)) return;
-        snapshotForUndo('Imported backup');
+        snapshotForUndo('Imported backup', newOnes.map(q => q.id));
         const result = await updateQuotes([...quotes, ...newOnes]);
         alert(result.success ? `✅ Restored ${newOnes.length} quote(s).` : syncFailureMessage(result.errors));
       } catch (err) {
@@ -644,6 +664,16 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     };
     reader.readAsText(file);
   };
+
+  // Closing or reloading the page with unsaved quote-screen changes: let the
+  // browser ask first (the in-app buttons ask with their own message).
+  const quoteScreenUnsaved = !!selectedQuote && (hasPendingTableEdits(tableEditValues) || (!!editingTableField && activeEditText !== ''));
+  useEffect(() => {
+    if (!quoteScreenUnsaved) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; return ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [quoteScreenUnsaved]);
 
   // ✅ CRITICAL FIX: Reset editing state when viewing a different quote
   useEffect(() => {
@@ -704,7 +734,40 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
     // pruneRooms also re-keys saved per-window prices, because they are filed
     // by position and dropping an earlier group would otherwise slide a price
     // onto the wrong window.
-    const pruned = pruneRooms(formData.rooms, (room, group) => isBlankGroup(group));
+    // Check every window before saving: quantity a whole number of 1 or more
+    // (blank = 1), width and height both present and readable. Sizes are
+    // tidied (35-1/2 / 35½ -> 35 1/2); on Edit an untouched size keeps its
+    // saved text so the older quote's price never shifts on its own.
+    const savedRoomsById = new Map(((editingQuote && editingQuote.rooms) || []).map(r => [r.id, r]));
+    const keepSavedText = (room, group, field) => {
+      if (!editingQuote || typeof group._origIdx !== 'number') return undefined;
+      const savedGroup = savedRoomsById.get(room.id)?.windowGroups?.[group._origIdx];
+      return savedGroup ? savedGroup[field] : undefined;
+    };
+    const checkSize = (room, group, field) => {
+      const saved = keepSavedText(room, group, field);
+      if (saved !== undefined && String(saved) === String(group[field] ?? '') && String(saved).trim()) return null;
+      return sizeTextProblem(group[field]);
+    };
+    const roomsToCheck = formData.rooms.map(r => ({ ...r, windowGroups: (r.windowGroups || []).filter(g => !isBlankGroup(g)) }));
+    const problems = [];
+    roomsToCheck.forEach(r => {
+      const found = quoteRoomProblems([r], () => null);
+      problems.push(...found);
+      const roomName = String(r.name || '').trim() || 'A room';
+      r.windowGroups.forEach((g, gi) => {
+        const where = r.windowGroups.length > 1 ? `${roomName}, size ${gi + 1}` : roomName;
+        ['width', 'height'].forEach(field => {
+          const pr = checkSize(r, g, field);
+          if (pr) problems.push(`${where}: ${field} ${pr === 'missing' ? 'is missing' : `"${g[field]}" ${pr}`}`);
+        });
+      });
+    });
+    if (problems.length > 0) {
+      alert(`Please fix these before saving:\n\n${problems.slice(0, 8).map(p => `• ${p}`).join('\n')}${problems.length > 8 ? `\n...and ${problems.length - 8} more` : ''}\n\nSizes are in inches, e.g. 35, 35 1/2, 35.5 or 2'11".`);
+      return;
+    }
+    const pruned = pruneRooms(normalizeQuoteRooms(formData.rooms, normalizeSizeText, keepSavedText), (room, group) => isBlankGroup(group));
     if (pruned.rooms.length === 0) {
       alert('Please enter at least one window with a width and height.');
       return;
@@ -852,6 +915,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   };
 
   const resetForm = () => {
+    draftBaselineRef.current = null;
     setFormData({
       clientName: '',
       clientPhone: '',
@@ -941,7 +1005,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
 
   const loadQuoteForEdit = (quote) => {
     try {
-      setFormData({
+      loadIntoForm({
         clientName: quote.clientName || '',
         clientPhone: quote.clientPhone || '',
         location: quote.location || '',
@@ -975,7 +1039,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   // resets to today rather than carrying over the original's date.
   const duplicateQuote = (quote) => {
     try {
-      setFormData({
+      loadIntoForm({
         clientName: quote.clientName || '',
         clientPhone: quote.clientPhone || '',
         location: quote.location || '',

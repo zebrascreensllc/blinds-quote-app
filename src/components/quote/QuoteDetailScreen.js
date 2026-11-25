@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { PRICING_DATA } from '../../data/pricingData';
 import { BUSINESS_NAME, SALES_TAX_RATE, DEFAULT_HUB, getPricingSnapshot } from '../../utils/constants';
-import { formatMoney, formatPrice, isRangeOverride, parseUnits } from '../../utils/formatters';
+import { formatMoney, formatPrice, isRangeOverride, parseUnits, normalizeSizeText, sizeTextProblem } from '../../utils/formatters';
 import { hasChosenCassette, quoteCassetteLabel, cassetteUpgradePerSqm } from '../../utils/cassette';
 import { isFabricValid, calculateGroupQuote, estimateBlindTypes, estimateOptionTotals, optionGrandTotals, isOptionRoom, computeQuoteFinancials, getBlindTypeFromFabric, autoDetectBlindTypes, getHubTotal, findDiscontinuedFabrics, findClosestFabricMatch } from '../../utils/pricing';
 import { pruneRooms, remapPriceKeys, buildEffectiveRooms, stepMotor } from '../../utils/quoteGroups';
 import { nextVersionInLineage } from '../../utils/quoteLineage';
+import { hasPendingTableEdits, UNSAVED_LEAVE_MESSAGE } from '../../utils/pendingEdits';
 import CurrentPricingSection from './CurrentPricingSection';
 import PricingDetailsSection from './PricingDetailsSection';
 import QuoteActionButtons from './QuoteActionButtons';
@@ -513,11 +514,12 @@ export default function QuoteDetailScreen({
     // Only offered when it can matter: some room has no exact fabric yet.
     const hasNoFabricRoom = (selectedQuote.rooms || []).some(r => !(r.fabricInput || '').split(',').some(f => f.trim()));
     const canUpgradeEstimate = storedPricing?.ESTIMATE_BY_BLIND_TYPE !== true && hasNoFabricRoom;
-    const hasPendingEdits = Object.keys(tableEditValues.perWindowPrices).length > 0
-      || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null
-      || tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null
-      || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0 || (tableEditValues.deletedGroupKeys || new Set()).size > 0
-      || Object.keys(tableEditValues.fabricEdits || {}).length > 0 || Object.keys(tableEditValues.addedGroups || {}).length > 0 || !!tableEditValues.hubEdits;
+    const hasPendingEdits = hasPendingTableEdits(tableEditValues);
+    // Also counts a price still being typed (not yet confirmed with Done).
+    const hasUnsavedChanges = hasPendingEdits || (!!editingTableField && activeEditText !== '');
+    // Leaving the screen (✕, Edit, Duplicate, Archive, Delete) used to drop
+    // unsaved changes silently (2026-11-25 health check). Ask first.
+    const confirmLeave = (action) => !hasUnsavedChanges || window.confirm(UNSAVED_LEAVE_MESSAGE(action));
     const upgradeEstimate = async () => {
       if (isSavingVersion) return;
       if (hasPendingEdits) {
@@ -692,7 +694,7 @@ export default function QuoteDetailScreen({
                 </p>
               )}
             </div>
-            <button onClick={() => setSelectedQuote(null)} style={{ fontSize: '24px', color: '#aaa', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+            <button onClick={() => { if (confirmLeave('close this quote')) setSelectedQuote(null); }} style={{ fontSize: '24px', color: '#aaa', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
           </div>
 
           {/* ✅ NEW: live "a newer version exists elsewhere" banner - shows the
@@ -900,7 +902,7 @@ export default function QuoteDetailScreen({
           </div>
 
           {/* ✅ FIXED: Save All Changes Button - Show if ANY values differ from "not edited" defaults, OR you're actively typing a not-yet-committed edit */}
-          {(Object.keys(tableEditValues.perWindowPrices).length > 0 || tableEditValues.motorCost !== null || tableEditValues.solarCost !== null || tableEditValues.taxRate !== null || tableEditValues.otherExpenses !== null || tableEditValues.otherExpensesLabel !== null || Object.keys(tableEditValues.groupEdits || {}).length > 0 || (tableEditValues.deletedRoomIds || new Set()).size > 0 || (tableEditValues.deletedGroupKeys || new Set()).size > 0 || Object.keys(tableEditValues.fabricEdits || {}).length > 0 || Object.keys(tableEditValues.addedGroups || {}).length > 0 || !!tableEditValues.hubEdits || (editingTableField && activeEditText !== '')) && (
+          {hasUnsavedChanges && (
             <>
               {/* Visual indicator of pending changes */}
               <div style={{ padding: '12px', marginBottom: '12px', background: '#2a3a1a', border: '2px solid #4ade80', borderRadius: '6px', textAlign: 'center' }}>
@@ -942,7 +944,13 @@ export default function QuoteDetailScreen({
                 } else if (editingTableField && editingTableField.startsWith('size-') && activeEditText.trim() !== '' && activeEditTextMax.trim() !== '') {
                   const key = editingTableField.replace('size-', '');
                   const existing = (tableEditValues.groupEdits || {})[key] || {};
-                  effectiveTableEditValues = { ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [key]: { ...existing, width: activeEditText.trim(), height: activeEditTextMax.trim() } } };
+                  const w = normalizeSizeText(activeEditText);
+                  const h = normalizeSizeText(activeEditTextMax);
+                  if (sizeTextProblem(w) || sizeTextProblem(h)) {
+                    alert(`The size you're typing (${activeEditText} x ${activeEditTextMax}) can't be read. Fix it or tap its ✓ first, then Save. Use inches, e.g. 35, 35 1/2 or 35.5.`);
+                    return;
+                  }
+                  effectiveTableEditValues = { ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [key]: { ...existing, width: w, height: h } } };
                 // ✅ FIX: this whole block exists BECAUSE Motor/Solar/Tax edits
                 // once got silently dropped this exact way - "Other Expenses"
                 // (added after this safety net was written) was missed and had
@@ -1099,7 +1107,8 @@ export default function QuoteDetailScreen({
             toggleOrdered={toggleOrdered}
             quotes={quotes}
             uid={uid}
-            hasUnsavedChanges={hasPendingEdits || (!!editingTableField && activeEditText !== '')}
+            hasUnsavedChanges={hasUnsavedChanges}
+            confirmLeave={confirmLeave}
           />
         </div>
       </div>

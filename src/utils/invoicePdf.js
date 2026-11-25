@@ -18,6 +18,16 @@ const TABLE_STYLES = { font: 'helvetica', fontSize: 9, cellPadding: 4, lineColor
 // label that wraps to two lines still fits.
 const SUMMARY_ROW_HEIGHT = 20;
 
+// The header text for a column: unchanged if it fits on one line in this
+// width (bold, table font size, minus cell padding), else broken after "/".
+export function headerLabelFor(doc, label, width) {
+  if (!label.includes('/')) return label;
+  doc.setFont(TABLE_STYLES.font, 'bold');
+  doc.setFontSize(TABLE_STYLES.fontSize);
+  const fits = doc.getTextWidth(label) <= width - 2 * TABLE_STYLES.cellPadding;
+  return fits ? label : label.replace('/', '/\n');
+}
+
 const hexToRgb = (hex) => {
   const clean = String(hex || '000000').replace('#', '');
   return [0, 2, 4].map(i => parseInt(clean.slice(i, i + 2), 16) || 0);
@@ -105,7 +115,10 @@ export function buildInvoicePdf(quote, options = {}, logoBytes) {
   autoTable(doc, {
     startY: y + 20,
     margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-    head: [model.columns.map(c => ({ content: c.label, styles: { halign: c.align } }))],
+    // A header like "Manual/Smart" has no space, so a narrow column broke it
+    // mid-word ("Manual/Sma" + "rt"). Break after the "/" instead when the
+    // whole label doesn't fit on one line.
+    head: [model.columns.map((c, i) => ({ content: headerLabelFor(doc, c.label, widths[i]), styles: { halign: c.align } }))],
     body: model.rows,
     columnStyles,
     theme: 'grid',
