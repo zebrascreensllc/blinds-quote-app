@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { formatMoney, formatPrice } from '../../utils/formatters';
-import { INVOICE_COLUMNS, DEFAULT_INVOICE_COLUMN_KEYS, normalizeInvoiceColumns, generateInvoiceDocx, invoiceFileName, buildInvoiceModel, loadLogoBytes } from '../../utils/invoiceExport';
+import { INVOICE_COLUMNS, DEFAULT_INVOICE_COLUMN_KEYS, normalizeInvoiceColumns, generateInvoiceDocx, invoiceFileName, buildInvoiceModel, loadLogoBytes, DEFAULT_QUOTE_VALID_DAYS, quoteValidUntilText } from '../../utils/invoiceExport';
 import { generateInvoicePdf } from '../../utils/invoicePdf';
 import { invoiceMotorLabels } from '../../utils/invoiceMotorTypes';
 import { subscribeToBulkSheets } from '../../services/bulkMeasurementSync';
@@ -28,6 +28,20 @@ function loadSavedColumns(storageKey = COLUMNS_STORAGE_KEY) {
   } catch (e) {
     return [...DEFAULT_INVOICE_COLUMN_KEYS];
   }
+}
+
+// "Valid for N days" on the quote file, remembered on this phone.
+const VALID_DAYS_STORAGE_KEY = 'quoteDocValidDays';
+function loadValidDays() {
+  try {
+    const raw = window.localStorage.getItem(VALID_DAYS_STORAGE_KEY);
+    return raw !== null ? raw : String(DEFAULT_QUOTE_VALID_DAYS);
+  } catch (e) {
+    return String(DEFAULT_QUOTE_VALID_DAYS);
+  }
+}
+function saveValidDays(text) {
+  try { window.localStorage.setItem(VALID_DAYS_STORAGE_KEY, text); } catch (e) { /* harmless */ }
 }
 
 function saveColumns(keys, storageKey = COLUMNS_STORAGE_KEY) {
@@ -118,6 +132,8 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose, k
   // no longer re-fills it with "half".
   const [advanceTouched, setAdvanceTouched] = useState(false);
   const [discountText, setDiscountText] = useState('0');
+  const [validDaysText, setValidDaysText] = useState(() => loadValidDays());
+  const validUntilPreview = isQuoteDoc ? quoteValidUntilText(validDaysText) : '';
   // 'keep' = the calculated Grand Total; 'change' = a final price agreed
   // with the client (then only Grand Total / Advance / Remaining show).
   const [priceMode, setPriceMode] = useState('keep');
@@ -225,9 +241,10 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose, k
     if (problem || busy) return;
     setBusy(format);
     saveColumns(ordered, columnsKey);
+    if (isQuoteDoc) saveValidDays(validDaysText);
     const motorLabels = motorInfo ? motorInfo.labels : null;
     const options = isQuoteDoc
-      ? { docType: 'quote', discountAmount, columns: ordered, motorLabels }
+      ? { docType: 'quote', discountAmount, columns: ordered, motorLabels, validDays: validDaysText }
       : changingPrice
       ? { advanceAmount, discountAmount: 0, finalPrice, columns: ordered, motorLabels }
       : { advanceAmount, discountAmount, columns: ordered, motorLabels };
@@ -334,6 +351,11 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose, k
             </div>
             <label style={labelStyle} htmlFor="quote-discount">Discount ($)</label>
             <input id="quote-discount" type="text" inputMode="decimal" value={discountText} onChange={(e) => setDiscountText(e.target.value)} style={{ ...inputStyle, marginBottom: '16px' }} />
+            <label style={labelStyle} htmlFor="quote-valid-days">Prices valid for (days)</label>
+            <input id="quote-valid-days" type="text" inputMode="numeric" value={validDaysText} onChange={(e) => setValidDaysText(e.target.value.replace(/[^0-9]/g, '').slice(0, 3))} style={{ ...inputStyle, marginBottom: '4px' }} />
+            <p style={{ fontSize: '12px', color: '#aaa', margin: '0 0 16px 0' }}>
+              {validUntilPreview ? `The quote will say "Valid until ${validUntilPreview}".` : 'Leave blank (or 0) to leave the date off.'}
+            </p>
           </>
         ) : (<>
         <span style={labelStyle}>Final price</span>

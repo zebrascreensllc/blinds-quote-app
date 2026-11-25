@@ -331,8 +331,8 @@ function invoiceCellText(key, it, idx, isQuote = false) {
  * "Discount" (or "Price adjustment" if the agreed price is higher) line
  * makes it add up exactly to finalPrice.
  */
-export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0, columns, finalPrice = null, motorLabels = null, docType = 'invoice' } = {}) {
-  if (docType === 'quote') return buildQuoteDocModel(quote, { discountAmount, columns, motorLabels });
+export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0, columns, finalPrice = null, motorLabels = null, docType = 'invoice', validDays = null, today = null } = {}) {
+  if (docType === 'quote') return buildQuoteDocModel(quote, { discountAmount, columns, motorLabels, validDays, today });
   const useFinalPrice = typeof finalPrice === 'number' && Number.isFinite(finalPrice) && finalPrice >= 0;
   if (useFinalPrice) discountAmount = 0;
   const { items } = buildInvoiceLineItems(quote, { motorLabels });
@@ -402,7 +402,17 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
  * buildInvoiceLineItems/computeInvoiceTotals/estimateOptionTotals, so it
  * matches the quote screen and the Price Breakdown Excel exactly.
  */
-function buildQuoteDocModel(quote, { discountAmount = 0, columns, motorLabels = null }) {
+// "Valid until" on the quote file (owner's request, 2026-11-25): the date
+// the quoted prices hold until, N days from today. 0/blank/invalid = no line.
+export const DEFAULT_QUOTE_VALID_DAYS = 30;
+export function quoteValidUntilText(validDays, today = new Date()) {
+  const n = parseInt(validDays, 10);
+  if (!Number.isFinite(n) || n <= 0 || n > 365) return '';
+  const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + n);
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function buildQuoteDocModel(quote, { discountAmount = 0, columns, motorLabels = null, validDays = null, today = null }) {
   const discount = typeof discountAmount === 'number' && Number.isFinite(discountAmount) && discountAmount > 0 ? discountAmount : 0;
   const { items, hasRangePricing } = buildInvoiceLineItems(quote, { motorLabels });
   const totals = computeInvoiceTotals(quote, items, { discountAmount: discount });
@@ -449,8 +459,11 @@ function buildQuoteDocModel(quote, { discountAmount = 0, columns, motorLabels = 
   if (hasRangePricing) notes.push('Prices shown as a range are estimates until the exact fabric is chosen.');
   if (options) notes.push(`Some rooms are still choosing between ${options.types.join(' and ')}. The "If all" lines show the Grand Total for each choice.`);
 
+  const validUntilText = quoteValidUntilText(validDays, today || new Date());
+  if (validUntilText) notes.push(`Prices on this quote are valid until ${validUntilText}.`);
+
   const model = finishModel(quote, cols, rows, highlights, summary, totals.grandTotal, totals.grandTotal, totals.grandTotal, 'quote');
-  return { ...model, grandTotalMax: totals.grandTotalMax, optionGrand, notes };
+  return { ...model, grandTotalMax: totals.grandTotalMax, optionGrand, notes, validUntilText };
 }
 
 function finishModel(quote, cols, rows, highlights, summary, calculatedGrandTotal, grandTotal, remainingBalance, docType = 'invoice') {
@@ -541,7 +554,8 @@ export function buildInvoiceDocument(quote, options = {}, logoBytes) {
             borders: NO_BORDERS,
             children: [
               new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `${model.numberLabel}: ${model.invoiceNumber}`, bold: true, size: 20 })] }),
-              new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 60 }, children: [new TextRun({ text: `Date: ${model.dateText}`, bold: true, size: 20 })] })
+              new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 60 }, children: [new TextRun({ text: `Date: ${model.dateText}`, bold: true, size: 20 })] }),
+              ...(model.validUntilText ? [new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 60 }, children: [new TextRun({ text: `Valid until: ${model.validUntilText}`, bold: true, size: 20, color: '9A3412' })] })] : [])
             ]
           })
         ]

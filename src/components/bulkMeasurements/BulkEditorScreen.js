@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Trash2 } from 'lucide-react';
+import { MAX_PHOTOS_PER_WINDOW } from '../../utils/sheetPhotos';
 import {
   MOTOR_OPTIONS,
   isManualMotor,
@@ -80,6 +81,40 @@ function BulkToolPanel({ title, icon, bg, border, accentColor, isOpen, onToggle,
 // for every window, (2)-(9) one bulk-assign tool per remaining field in the
 // order requested, (10) a read-only review table showing everything together,
 // (11) the same Copy/CSV/Excel export as the original feature.
+// Photos of one window: thumbnails, "Add photo" (camera or library), and a
+// full-screen view with Delete. On-screen only - not in the supplier export.
+function WindowPhotos({ photos, busy, onAdd, onDelete, labelStyle }) {
+  const [viewing, setViewing] = useState(null);
+  return (
+    <div style={{ marginBottom: '12px' }}>
+      <label style={labelStyle}>Photos {photos.length > 0 && <span style={{ color: '#888', fontWeight: 'normal' }}>({photos.length})</span>}</label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+        {photos.map(ph => (
+          <button key={ph.id} type="button" onClick={() => setViewing(ph)} aria-label="View photo" style={{ padding: 0, border: '1px solid #555', borderRadius: '6px', background: 'none', cursor: 'pointer', width: '64px', height: '64px', overflow: 'hidden' }}>
+            <img src={ph.dataUrl} alt="Window" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          </button>
+        ))}
+        {photos.length < MAX_PHOTOS_PER_WINDOW && (
+          <label style={{ width: '64px', height: '64px', border: '1px dashed #888', borderRadius: '6px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#aaa', fontSize: '11px', cursor: busy ? 'default' : 'pointer', textAlign: 'center' }}>
+            <span style={{ fontSize: '20px' }}>{busy ? '⏳' : '📷'}</span>{busy ? 'Saving' : 'Add'}
+            <input type="file" accept="image/*" disabled={busy} style={{ display: 'none' }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) onAdd(f); }} />
+          </label>
+        )}
+      </div>
+      {viewing && (
+        <div role="dialog" aria-label="Photo" onClick={() => setViewing(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <img src={viewing.dataUrl} alt="Window" style={{ maxWidth: '100%', maxHeight: '75vh', borderRadius: '6px' }} />
+          <p style={{ color: '#aaa', fontSize: '12px', margin: '10px 0' }}>{new Date(viewing.createdAt).toLocaleString()}</p>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button type="button" onClick={async (e) => { e.stopPropagation(); if (onDelete && await onDelete(viewing)) setViewing(null); }} style={{ padding: '10px 18px', borderRadius: '6px', background: '#b91c1c', color: '#fff', border: 'none', fontWeight: 'bold' }}>Delete photo</button>
+            <button type="button" onClick={() => setViewing(null)} style={{ padding: '10px 18px', borderRadius: '6px', background: '#444', color: '#fff', border: 'none' }}>Close</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BulkEditorScreen({
   activeSheet,
   onBack,
@@ -91,6 +126,10 @@ export default function BulkEditorScreen({
   addWindowRow,
   deleteWindowRow,
   moveWindowRow,
+  photosByRow = {},
+  addRowPhoto,
+  deleteRowPhoto,
+  photoBusyRowId = null,
   remoteLabels,
   widthOutlierIds,
   heightOutlierIds,
@@ -388,6 +427,13 @@ export default function BulkEditorScreen({
                         style={inputStyle}
                       />
                     </div>
+                    <WindowPhotos
+                      photos={photosByRow[row.id] || []}
+                      busy={photoBusyRowId === row.id}
+                      onAdd={(file) => addRowPhoto && addRowPhoto(row.id, file)}
+                      onDelete={deleteRowPhoto}
+                      labelStyle={labelStyle}
+                    />
 
                     {!isLastRow ? (
                       <button

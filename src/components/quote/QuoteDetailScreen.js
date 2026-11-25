@@ -10,6 +10,7 @@ import { hasPendingTableEdits, UNSAVED_LEAVE_MESSAGE } from '../../utils/pending
 import CurrentPricingSection from './CurrentPricingSection';
 import PricingDetailsSection from './PricingDetailsSection';
 import QuoteActionButtons from './QuoteActionButtons';
+import JobProgressCard from './JobProgressCard';
 
 const BLIND_TYPES = ['Roller', 'Zebra', 'Roman', 'Bamboo (Roller)', 'Bamboo (Roman)'];
 
@@ -566,7 +567,10 @@ export default function QuoteDetailScreen({
       if (isSavingVersion) return; // shares the save guard with Save All Changes
       const undo = !!selectedQuote.orderedAt;
       if (undo && !window.confirm('Mark this quote as NOT ordered?')) return;
-      const updated = { ...selectedQuote, orderedAt: undo ? null : new Date().toISOString() };
+      // Start from the latest saved copy, not the one this screen opened with:
+      // payments/job stages may have been recorded on it since (JobProgressCard).
+      const current = quotes.find(q => q.id === selectedQuote.id) || selectedQuote;
+      const updated = { ...current, orderedAt: undo ? null : new Date().toISOString() };
       setIsSavingVersion(true);
       try {
         const result = await updateQuotes(quotes.map(q => (q.id === selectedQuote.id ? updated : q)));
@@ -1109,6 +1113,17 @@ export default function QuoteDetailScreen({
             uid={uid}
             hasUnsavedChanges={hasUnsavedChanges}
             confirmLeave={confirmLeave}
+            jobCard={(
+              <JobProgressCard
+                quote={selectedQuote}
+                quotes={quotes}
+                updateQuotes={updateQuotes}
+                grandTotal={grandMin}
+                syncFailureMessage={syncFailureMessage}
+                busy={isSavingVersion}
+                setBusy={setIsSavingVersion}
+              />
+            )}
           />
         </div>
       </div>
