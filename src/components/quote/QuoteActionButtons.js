@@ -27,7 +27,10 @@ export default function QuoteActionButtons({
   toggleOrdered,
   quotes,
   uid,
-  hasUnsavedChanges = false
+  hasUnsavedChanges = false,
+  // Asks before an action that leaves this screen and would drop unsaved
+  // changes; returns true to go ahead.
+  confirmLeave = () => true
 }) {
   // Every file made here is built from the SAVED quote. Changes made on the
   // quote screen (prices, cassette, motor count, sizes...) only exist on
@@ -164,10 +167,18 @@ export default function QuoteActionButtons({
           </button>
         ) : (
           <button
-            onClick={() => {
-              navigator.clipboard.writeText(copyText);
-              setCopiedId(selectedQuote.id);
-              setTimeout(() => setCopiedId(null), 2000);
+            onClick={async () => {
+              // Only say "Copied!" once the copy really worked; a blocked
+              // clipboard used to fail with no message at all.
+              try {
+                if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') throw new Error('Clipboard not available');
+                await navigator.clipboard.writeText(copyText);
+                setCopiedId(selectedQuote.id);
+                setTimeout(() => setCopiedId(null), 2000);
+              } catch (err) {
+                console.error('Copy failed:', err);
+                window.prompt('Could not copy automatically. Select all of the text below and copy it:', copyText);
+              }
             }}
             style={{ flex: '1 1 90px', paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#d4af37', color: '#000', border: 'none', cursor: 'pointer' }}
           >
@@ -177,7 +188,7 @@ export default function QuoteActionButtons({
         )}
 
         <button
-          onClick={() => loadQuoteForEdit(selectedQuote)}
+          onClick={() => { if (confirmLeave('open Edit')) loadQuoteForEdit(selectedQuote); }}
           style={{ flex: '1 1 90px', paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#4f46e5', color: '#fff', border: 'none', cursor: 'pointer' }}
         >
           <Edit2 size={16} />
@@ -188,7 +199,7 @@ export default function QuoteActionButtons({
             Quote Create draft - a new quote, not a new version of this
             one. Handy for a repeat client or a similar job. */}
         <button
-          onClick={() => duplicateQuote(selectedQuote)}
+          onClick={() => { if (confirmLeave('duplicate this quote')) duplicateQuote(selectedQuote); }}
           title="Start a brand new, separate quote using this one's rooms as a starting point"
           style={{ flex: '1 1 90px', paddingTop: '12px', paddingBottom: '12px', paddingLeft: '16px', paddingRight: '16px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer' }}
         >
@@ -201,7 +212,7 @@ export default function QuoteActionButtons({
             (moves to Trash, 7-day expiry), Archive keeps it forever
             until you unarchive it from History > Archived. */}
         <button
-          onClick={() => archiveQuoteLineage(selectedQuote)}
+          onClick={() => { if (confirmLeave('archive this quote')) archiveQuoteLineage(selectedQuote); }}
           title="Archive this quote"
           style={{ padding: '12px', borderRadius: '8px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
         >
@@ -212,6 +223,7 @@ export default function QuoteActionButtons({
           onClick={() => {
             // ✅ BUGFIX: this previously deleted instantly with NO confirmation.
             // Now it warns, names the quote, and stores an undo snapshot.
+            if (!confirmLeave('delete this quote')) return;
             const done = safeDeleteQuotes([selectedQuote.id], `Deleted ${selectedQuote.quoteName || 'quote'}`);
             if (done) setSelectedQuote(null);
           }}

@@ -174,14 +174,28 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose, k
     if (mode === 'keep' && !advanceTouched) setAdvanceText(formatMoney(calculatedGrandTotal / 2));
   };
 
+  // Grand Total before any discount (the low end, for a range). A discount
+  // bigger than this printed a negative Grand Total (2026-11-25 check).
+  const grandBeforeDiscount = useMemo(() => {
+    try {
+      return buildInvoiceModel(quote, { docType: isQuoteDoc ? 'quote' : 'invoice', discountAmount: 0 }).grandTotal;
+    } catch (e) {
+      return grandMin;
+    }
+  }, [quote, isQuoteDoc, grandMin]);
+  const discountTooBig = !changingPrice && typeof discountAmount === 'number' && discountAmount > grandBeforeDiscount + 0.005;
+  const discountTooBigText = `Discount is more than the Grand Total ($${formatMoney(grandBeforeDiscount)}). Check the amount.`;
+
   let problem = '';
   if (ordered.length < 2) problem = 'Pick at least 2 columns.';
   else if (changingPrice && (finalPrice === null || finalPrice <= 0)) problem = 'Enter the final price, e.g. 5500.';
   else if (isQuoteDoc) {
     if (discountAmount === null) problem = 'Discount must be a number, e.g. 0 or 150.';
+    else if (discountTooBig) problem = discountTooBigText;
   }
   else if (advanceAmount === null) problem = 'Advance Payment must be a number, e.g. 1800.';
   else if (!changingPrice && discountAmount === null) problem = 'Discount must be a number, e.g. 0 or 150.';
+  else if (discountTooBig) problem = discountTooBigText;
   else if (advanceAmount > (changingPrice ? finalPrice : calculatedGrandTotal) + 0.005) problem = 'Advance Payment is more than the Grand Total.';
 
   const [downloaded, setDownloaded] = useState({});

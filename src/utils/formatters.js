@@ -137,3 +137,41 @@ export const generateId = () => Math.random().toString(36).substr(2, 9);
 
 // Create deep copy of object
 export const deepCopy = (obj) => JSON.parse(JSON.stringify(obj));
+
+// ---- Sizes typed on the QUOTE (2026-11-25) ---------------------------------
+// parseUnits silently read "35-1/2", "35½" and "35 ¼" as 35, and "-5" as 5.
+// parseUnits itself is NOT changed (saved quotes must keep their price), so
+// new text is tidied before it is saved instead: normalizeSizeText turns the
+// common ways of writing a size into the form parseUnits already reads, and
+// sizeTextProblem says when the text still can't be read.
+const UNICODE_FRACTIONS = { '½': '1/2', '¼': '1/4', '¾': '3/4', '⅛': '1/8', '⅜': '3/8', '⅝': '5/8', '⅞': '7/8', '⅓': '1/3', '⅔': '2/3' };
+
+export function normalizeSizeText(text) {
+  let s = String(text ?? '').trim();
+  if (!s) return '';
+  // Unicode fractions -> " 1/2" (35½ -> 35 1/2, ½ -> 1/2)
+  s = s.replace(/[½¼¾⅛⅜⅝⅞⅓⅔]/g, ch => ` ${UNICODE_FRACTIONS[ch]}`);
+  // Fraction slash / curly quotes from iPhone keyboards
+  s = s.replace(/⁄/g, '/').replace(/[’′]/g, "'").replace(/[“”″]/g, '"');
+  // 35-1/2 -> 35 1/2 (a dash between the inches and the fraction)
+  s = s.replace(/(\d)\s*-\s*(\d+\s*\/\s*\d+)/g, '$1 $2');
+  // tidy "1 / 2" -> "1/2" and repeated spaces
+  s = s.replace(/(\d)\s*\/\s*(\d)/g, '$1/$2').replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+// null when the (normalized) size can be read, else a short reason.
+export function sizeTextProblem(text) {
+  const s = normalizeSizeText(text);
+  if (!s) return 'missing';
+  if (/cm|mm|\bm\b/i.test(s)) return '- use inches';
+  if (s.startsWith('-')) return "can't be negative";
+  const inches = String.raw`\d+(?:\.\d+)?(?: \d+/\d+)?`;
+  const ok = new RegExp(String.raw`^(?:${inches}|\d+/\d+)\s*(?:"|in|inch|inches)?$`, 'i').test(s)
+    || new RegExp(String.raw`^\d+\s*(?:'|ft)\s*(?:${inches})?\s*(?:"|in)?$`, 'i').test(s);
+  if (!ok) return "can't be read";
+  const fr = s.match(/(\d+)\/(\d+)/);
+  if (fr && (parseInt(fr[2], 10) === 0 || parseInt(fr[1], 10) >= parseInt(fr[2], 10))) return "the fraction isn't right";
+  if (!(parseUnits(s) > 0)) return 'must be more than 0';
+  return null;
+}

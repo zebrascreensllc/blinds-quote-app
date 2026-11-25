@@ -1,8 +1,8 @@
 import React from 'react';
 import { Trash2 } from 'lucide-react';
 import { SALES_TAX_RATE } from '../../utils/constants';
-import { formatPrice, formatMoney, isRangeOverride, formatPriceOverride, filterNumericText } from '../../utils/formatters';
-import { motorStepperInfo } from '../../utils/quoteGroups';
+import { formatPrice, formatMoney, isRangeOverride, formatPriceOverride, filterNumericText, normalizeSizeText, sizeTextProblem } from '../../utils/formatters';
+import { motorStepperInfo, savedGroupQty, hasBadQty } from '../../utils/quoteGroups';
 import { CASSETTE_OPTIONS, quoteCassetteLabel, hasChosenCassette, CASSETTE_UPGRADE_PER_SQM } from '../../utils/cassette';
 import { calculateGroupQuote, getBlindTypeFromFabric, estimateBlindTypes } from '../../utils/pricing';
 
@@ -201,6 +201,8 @@ export default function CurrentPricingSection({
                           ) : (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                               {group.quantity}
+                              {/* Older quotes could save qty 0, blank or negative (counted as 1 window). */}
+                              {hasBadQty(group) && <span title="Quantity isn't a whole number of 1 or more - counted as 1. Tap the pencil to fix." style={{ color: '#f87171', fontWeight: 'bold' }}>⚠️ fix</span>}
                               <button
                                 onClick={() => { setEditingTableField(qtyFieldKey); setActiveEditText(String(group.quantity || '')); }}
                                 style={{ padding: '1px 3px', borderRadius: '2px', background: '#444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '9px' }}
@@ -234,8 +236,15 @@ export default function CurrentPricingSection({
                               />
                               <button
                                 onClick={() => {
-                                  const w = activeEditText.trim();
-                                  const h = activeEditTextMax.trim();
+                                  const w = normalizeSizeText(activeEditText);
+                                  const h = normalizeSizeText(activeEditTextMax);
+                                  // Same check as the quote form: both sizes readable, in inches.
+                                  const wp = sizeTextProblem(w);
+                                  const hp = sizeTextProblem(h);
+                                  if ((w || h) && (wp || hp)) {
+                                    alert(`Please check the size:\n\n${wp ? `• Width ${wp === 'missing' ? 'is missing' : `"${activeEditText}" ${wp}`}\n` : ''}${hp ? `• Height ${hp === 'missing' ? 'is missing' : `"${activeEditTextMax}" ${hp}`}\n` : ''}\nUse inches, e.g. 35, 35 1/2 or 35.5.`);
+                                    return;
+                                  }
                                   if (w && h) {
                                     setTableEditValues({ ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [priceKey]: { ...groupEditForRow, width: w, height: h } } });
                                   }
@@ -559,7 +568,7 @@ export default function CurrentPricingSection({
                   let totalWins = 0;
                   effectiveRooms.forEach(room => {
                     room.windowGroups.forEach(group => {
-                      totalWins += parseInt(group.quantity) || 0;
+                      totalWins += savedGroupQty(group); // same count the price uses
                     });
                   });
                   return totalWins;

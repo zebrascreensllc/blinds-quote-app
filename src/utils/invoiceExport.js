@@ -574,7 +574,7 @@ export function buildInvoiceDocument(quote, options = {}, logoBytes) {
     width: { size: TABLE_WIDTH_DXA, type: WidthType.DXA },
     columnWidths: widthsDxa,
     rows: [
-      new TableRow({ tableHeader: true, children: model.columns.map((c, i) => headerCell(c.label, widthsDxa[i])) }),
+      new TableRow({ tableHeader: true, children: model.columns.map((c, i) => headerCell(c.label.replace('/', '/\u200B'), widthsDxa[i])) }),
       ...itemRows,
       ...summaryRows
     ]
