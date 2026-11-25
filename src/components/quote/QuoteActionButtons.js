@@ -5,7 +5,6 @@ import InvoiceDialog from './InvoiceDialog';
 import { isOptionRoom } from '../../utils/pricing';
 import { expandQuoteIntoRows } from '../../utils/measurementUtils';
 import { sheetToExcelBuffer } from '../../utils/xlsxExport';
-import { generatePriceBreakdownExcel } from '../../utils/priceBreakdownExport';
 
 // Extracted from QuoteDetailScreen.js (part of the same size-driven split
 // that pulled out CurrentPricingSection.js/PricingDetailsSection.js) - close
@@ -27,8 +26,19 @@ export default function QuoteActionButtons({
   setSelectedQuote,
   toggleOrdered,
   quotes,
-  uid
+  uid,
+  hasUnsavedChanges = false
 }) {
+  // Every file made here is built from the SAVED quote. Changes made on the
+  // quote screen (prices, cassette, motor count, sizes...) only exist on
+  // screen until "Save All Changes", so a file made before saving silently
+  // used the old prices (owner's report, 2026-11-25: screen $180, quote PDF
+  // $217.35). Stop and say so instead - same rule as "Update estimate".
+  const stopIfUnsaved = (fileName) => {
+    if (!hasUnsavedChanges) return false;
+    alert(`You have unsaved changes on this quote. Tap "Save All Changes" first, then make the ${fileName}, so it shows the same prices as the screen.`);
+    return true;
+  };
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
   // Client QUOTE as PDF/Word (owner's request, 2026-11-24): the same sheet
   // as Create Invoice in kind="quote" mode.
@@ -58,6 +68,7 @@ export default function QuoteActionButtons({
           // picks, Motor/Solar/Hub as their own summary lines, then Total/
           // Tax/Discount/Grand Total/Advance/Remaining Balance, then the
           // fixed Terms & Conditions / Warranty Coverage pages.
+          if (stopIfUnsaved('invoice')) return;
           const { hasRangePricing } = buildInvoiceLineItems(selectedQuote);
           if (hasRangePricing) {
             // Rooms still choosing between blind types (e.g. Roller vs Zebra) are
@@ -86,6 +97,7 @@ export default function QuoteActionButtons({
           // over the quote's own rough width/height as-is
           // (prefillMeasurements: true), since this is a fast
           // confirmation pass, not precise measurements.
+          if (stopIfUnsaved('supplier Excel')) return;
           try {
             // A room still choosing between blind types used to go out as
             // just its first type ("Roller"), so the supplier priced only
@@ -118,37 +130,10 @@ export default function QuoteActionButtons({
         📊 Download Excel for Supplier (with highlighting)
       </button>
 
-      {/* ✅ NEW: client-facing detail breakdown - same per-window prices
-          Copy/Share already communicate as text, but as a proper
-          spreadsheet with dimensions and one row per window, for the
-          occasional client who wants the math spelled out. */}
-      <button
-        onClick={async () => {
-          try {
-            const buffer = await generatePriceBreakdownExcel(selectedQuote);
-            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${(selectedQuote.quoteName || 'quote').replace(/[^a-z0-9]/gi, '_')}_price_breakdown.xlsx`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-          } catch (err) {
-            console.error('Price breakdown export failed:', err);
-            alert('❌ Could not create the Excel file. Please try again.');
-          }
-        }}
-        style={{ width: '100%', padding: '12px', marginBottom: '12px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#7c3aed', color: '#fff', border: 'none', cursor: 'pointer' }}
-      >
-        📈 Download Price Breakdown (Excel)
-      </button>
-
       {/* The quote as a client-ready PDF or Word file, styled like the
           invoice (no payment lines; ranges and Roller/Zebra options shown). */}
       <button
-        onClick={() => setShowQuoteDocDialog(true)}
+        onClick={() => { if (!stopIfUnsaved('quote file')) setShowQuoteDocDialog(true); }}
         style={{ width: '100%', padding: '12px', marginBottom: '12px', borderRadius: '8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', background: '#9a3412', color: '#fff', border: 'none', cursor: 'pointer' }}
       >
         📄 Download Quote (PDF or Word)

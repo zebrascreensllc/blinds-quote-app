@@ -1099,6 +1099,7 @@ export default function QuoteDetailScreen({
             toggleOrdered={toggleOrdered}
             quotes={quotes}
             uid={uid}
+            hasUnsavedChanges={hasPendingEdits || (!!editingTableField && activeEditText !== '')}
           />
         </div>
       </div>
