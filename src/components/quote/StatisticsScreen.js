@@ -4,6 +4,7 @@ import { PRICING_DATA } from '../../data/pricingData';
 import { calculateGroupQuote, getBlindTypeFromFabric, getHubTotal, estimateBlindTypes } from '../../utils/pricing';
 import { isRangeOverride } from '../../utils/formatters';
 import { subscribeToAnalysisEntries } from '../../services/analysisSync';
+import { isSmallMotor, smallMotorClientCost } from '../../utils/smallMotor';
 
 // Pure, only used by this screen - relocated as-is from App.js.
 const getLatestQuoteVersions = (quotesToProcess) => {
@@ -81,6 +82,8 @@ export default function StatisticsScreen({ quotes, setCurrentView, uid }) {
     const dashSavedMotorCost = quote.editedPrices?.motorCost;
     const dashEffectiveMotorCost = typeof dashSavedMotorCost === 'number' ? dashSavedMotorCost : dashDefaultMotorCost;
     const dashMotorCostDelta = dashEffectiveMotorCost - dashDefaultMotorCost;
+    // Small motor: q.profit already has its default margin; add only an edited price's difference.
+    const dashSmallMotorCostDelta = smallMotorClientCost(quote.pricing, quote.editedPrices) - smallMotorClientCost(quote.pricing, null);
     // Same fix as motor, mirrored for solar - a saved solar cost edit
     // previously never reached profit stats either.
     const dashDefaultSolarCost = quote.pricing?.SOLAR_COST_CLIENT || 40;
@@ -119,7 +122,9 @@ export default function StatisticsScreen({ quotes, setCurrentView, uid }) {
           quoteProfit += (overrideTotal - avgCost);
         } else {
           const quantity = parseInt(group.quantity) || 1;
-          const motorAdjustment = (group.controlType === 'Motor' && dashMotorCostDelta !== 0) ? dashMotorCostDelta * quantity : 0;
+          const motorAdjustment = isSmallMotor(group)
+            ? dashSmallMotorCostDelta * quantity
+            : ((group.controlType === 'Motor' && dashMotorCostDelta !== 0) ? dashMotorCostDelta * quantity : 0);
           const solarAdjustment = (group.solar && dashSolarCostDelta !== 0) ? dashSolarCostDelta * quantity : 0;
           quoteProfit += q.profit + motorAdjustment + solarAdjustment;
         }

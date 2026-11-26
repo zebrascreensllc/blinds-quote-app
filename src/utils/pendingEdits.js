@@ -8,7 +8,7 @@ export function hasPendingTableEdits(t) {
   if (!t) return false;
   const size = (s) => (s && typeof s.size === 'number' ? s.size : 0);
   return Object.keys(t.perWindowPrices || {}).length > 0
-    || t.motorCost != null || t.solarCost != null || t.taxRate != null
+    || t.motorCost != null || t.smallMotorCost != null || t.solarCost != null || t.taxRate != null
     || t.otherExpenses != null || t.otherExpensesLabel != null
     || Object.keys(t.groupEdits || {}).length > 0
     || size(t.deletedRoomIds) > 0 || size(t.deletedGroupKeys) > 0

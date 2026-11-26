@@ -1,3 +1,5 @@
+import { isSmallMotor, SMALL_MOTOR } from './smallMotor';
+
 // Pure helpers for removing window groups / rooms from a quote without
 // mis-attaching saved prices.
 //
@@ -132,8 +134,8 @@ export function buildEffectiveRooms(rooms, pending) {
           const edit = groupEdits[g._key];
           if (!edit) return g;
           const merged = { ...g, ...edit };
-          // Solar only makes sense for a motorized window.
-          if (merged.controlType !== 'Motor') merged.solar = false;
+          // Solar (and Small motor) only make sense for a motorized window.
+          if (merged.controlType !== 'Motor') { merged.solar = false; merged.motorSize = ''; }
           return merged;
         })
         .filter(g => !deletedGroupKeys.has(g._key));
@@ -180,7 +182,11 @@ export function stepMotor(room, group, direction, pending, getOverride, newKeySu
   const src = pool.find(g => g._key === group._key)
     || (toMotor ? pool[0] : (pool.find(g => !g.solar) || pool[0])); // keep solar units motorized if possible
   const dstPool = fam.filter(g => isMotor(g) === toMotor && g._key !== src._key);
-  const dst = toMotor ? dstPool[0] : dstPool[0];
+  // A window the stepper motorizes gets the motor of the card that was tapped:
+  // + on a Small motor card adds a Small motor, + anywhere else a regular one.
+  // It only joins a part with that same motor, so no price changes by accident.
+  const addSize = toMotor && isSmallMotor(group) ? SMALL_MOTOR : '';
+  const dst = toMotor ? dstPool.find(g => (isSmallMotor(g) ? SMALL_MOTOR : '') === addSize) : dstPool[0];
   const toType = toMotor ? 'Motor' : 'Manual';
 
   const groupEdits = { ...(pending.groupEdits || {}) };
@@ -198,12 +204,12 @@ export function stepMotor(room, group, direction, pending, getOverride, newKeySu
     setQty(dst._key, qtyOf(dst) + 1);
     if (n - 1 > 0) setQty(src._key, n - 1); else removePiece(src._key);
   } else if (n === 1) {
-    groupEdits[src._key] = { ...(groupEdits[src._key] || {}), controlType: toType, ...(toMotor ? {} : { solar: false }) };
+    groupEdits[src._key] = { ...(groupEdits[src._key] || {}), controlType: toType, motorSize: addSize, ...(toMotor ? {} : { solar: false }) };
   } else {
     const newKey = `${room.id}_n${newKeySuffix}`;
     const { _key, _afterKey, _origIdx, ...base } = src; // eslint-disable-line no-unused-vars
     const maxId = Math.max(0, ...room.windowGroups.map(g => Number(g.id) || 0));
-    addedGroups[newKey] = { roomId: room.id, afterKey: src._key, group: { ...base, id: maxId + 1, quantity: '1', controlType: toType, solar: false } };
+    addedGroups[newKey] = { roomId: room.id, afterKey: src._key, group: { ...base, id: maxId + 1, quantity: '1', controlType: toType, motorSize: addSize, solar: false } };
     setQty(src._key, n - 1);
     const ov = getOverride ? getOverride(src._key) : null;   // the new part keeps the same manual price
     if (ov !== null && ov !== undefined) perWindowPrices[newKey] = ov;

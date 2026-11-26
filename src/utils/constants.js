@@ -7,6 +7,9 @@ export const getPricingSnapshot = () => ({
   PROFIT_PER_WINDOW: 60,
   MOTOR_COST_CLIENT: 80,
   MOTOR_COST_SUPPLIER: 50,
+  // Small motor (2026-11-26): its own price line, see utils/smallMotor.js.
+  SMALL_MOTOR_COST_CLIENT: 65,
+  SMALL_MOTOR_COST_SUPPLIER: 50,
   SOLAR_COST_CLIENT: 40,
   SOLAR_COST_SUPPLIER: 22,
   HUB_COST: 65,

@@ -1,5 +1,6 @@
 import React from 'react';
 import { formatMoney } from '../../utils/formatters';
+import { smallMotorClientCost } from '../../utils/smallMotor';
 
 // Extracted from QuoteDetailScreen.js (part of the same size-driven split
 // that pulled out CurrentPricingSection.js earlier) - close relocation, not
@@ -56,6 +57,10 @@ export default function PricingDetailsSection({
                 <div>
                   <p style={{ color: '#888', marginBottom: '4px' }}>Motor Cost (Client):</p>
                   <p style={{ color: '#fff', fontWeight: 'bold' }}>${storedPricing.MOTOR_COST_CLIENT ?? 80}</p>
+                </div>
+                <div>
+                  <p style={{ color: '#888', marginBottom: '4px' }}>Small Motor Cost (Client):</p>
+                  <p style={{ color: '#fff', fontWeight: 'bold' }}>${smallMotorClientCost(storedPricing, null)}</p>
                 </div>
                 <div>
                   <p style={{ color: '#888', marginBottom: '4px' }}>Solar Cost (Client):</p>

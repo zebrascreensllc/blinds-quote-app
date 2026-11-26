@@ -1,4 +1,5 @@
 import React from 'react';
+import { CONTROL_CHOICES, controlChoice, controlPatch } from '../../utils/smallMotor';
 import { Trash2 } from 'lucide-react';
 import { SALES_TAX_RATE } from '../../utils/constants';
 import { formatPrice, formatMoney, isRangeOverride, formatPriceOverride, filterNumericText, normalizeSizeText, sizeTextProblem } from '../../utils/formatters';
@@ -40,6 +41,9 @@ export default function CurrentPricingSection({
   groupEdits,
   motorCount,
   motorGrandTotal,
+  smallMotorCount,
+  smallMotorGrandTotal,
+  effectiveSmallMotorCost,
   hubTotal,
   effectiveHub,
   onHubChange,
@@ -90,7 +94,7 @@ export default function CurrentPricingSection({
 
                 return room.windowGroups.map((group, groupIdx) => {
                   const q = calculateGroupQuote(group, fabricNumbers, estimateBlindTypes(room, fabricNumbers, actualBlindType), room.windowGroups.filter(w => w.controlType === 'Motor').length, storedPricing);
-                  const motorType = group.controlType || 'Manual';
+                  const motorType = controlChoice(group);
                   const quantity = parseInt(group.quantity) || 1;
                   const perWindowMin = q.baseMinQuote / quantity;
 
@@ -105,7 +109,7 @@ export default function CurrentPricingSection({
                   const groupEditForRow = groupEdits[priceKey] || {};
                   const isQtyEdited = groupEditForRow.quantity !== undefined;
                   const isSizeEdited = groupEditForRow.width !== undefined || groupEditForRow.height !== undefined;
-                  const isTypeEdited = groupEditForRow.controlType !== undefined || groupEditForRow.solar !== undefined;
+                  const isTypeEdited = groupEditForRow.controlType !== undefined || groupEditForRow.motorSize !== undefined || groupEditForRow.solar !== undefined;
                   const qtyFieldKey = `qty-${priceKey}`;
                   const sizeFieldKey = `size-${priceKey}`;
                   const typeFieldKey = `type-${priceKey}`;
@@ -276,18 +280,15 @@ export default function CurrentPricingSection({
                           {isEditingType ? (
                             <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
                               <select
-                                value={group.controlType || 'Manual'}
+                                value={controlChoice(group)}
                                 onChange={(e) => {
-                                  const value = e.target.value;
-                                  const patch = { controlType: value };
-                                  if (value !== 'Motor') patch.solar = false;
+                                  // Small motor = Motor + motorSize 'Small' (utils/smallMotor.js).
+                                  const patch = controlPatch(e.target.value);
                                   setTableEditValues({ ...tableEditValues, groupEdits: { ...(tableEditValues.groupEdits || {}), [priceKey]: { ...groupEditForRow, ...patch } } });
                                 }}
                                 style={{ padding: '2px 4px', borderRadius: '4px', fontSize: '11px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
                               >
-                                <option value="Manual">Manual</option>
-                                <option value="Cordless">Cordless</option>
-                                <option value="Motor">Motor</option>
+                                {CONTROL_CHOICES.map(c => <option key={c} value={c}>{c}</option>)}
                               </select>
                               {group.controlType === 'Motor' && (
                                 <select
@@ -620,6 +621,52 @@ export default function CurrentPricingSection({
                 );
               })()}
 
+              {smallMotorCount > 0 && (() => {
+                const isEditingSmall = editingTableField === 'smallMotorCost';
+                const isSmallEdited = typeof tableEditValues.smallMotorCost === 'number' || typeof selectedQuote.editedPrices?.smallMotorCost === 'number';
+                return (
+                  <div style={{ background: '#3a2a2a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                    <span style={{ color: '#aaa' }}>
+                        Small motor <span style={{ color: '#ffaa00', fontWeight: 'bold' }}>{smallMotorCount}</span> cost total:
+                        <span style={{ display: 'block', fontSize: '10px', color: '#777' }}>${formatMoney(effectiveSmallMotorCost)} each. Set a window to Small motor with its TYPE ✏️.</span>
+                    </span>
+                        <button
+                          onClick={() => {
+                            if (isEditingSmall) {
+                              const parsed = parseFloat(activeEditText);
+                              if (activeEditText !== '' && !isNaN(parsed)) {
+                                setTableEditValues({...tableEditValues, smallMotorCost: parsed});
+                              }
+                              setEditingTableField(null);
+                              setActiveEditText('');
+                              setActiveEditTextMax('');
+                              setPriceEditMode('fixed');
+                            } else {
+                              setEditingTableField('smallMotorCost');
+                              setActiveEditText(formatMoney(effectiveSmallMotorCost));
+                            }
+                          }}
+                          style={{ padding: '2px 6px', borderRadius: '3px', background: isEditingSmall ? '#10b981' : '#666', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                        >
+                          {isEditingSmall ? 'Done' : '✏️'}
+                        </button>
+                    {isEditingSmall ? (
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        aria-label="Small motor price each"
+                        value={activeEditText}
+                        onChange={(e) => setActiveEditText(filterNumericText(e.target.value))}
+                        style={{ width: '55px', padding: '2px', borderRadius: '4px', fontSize: '12px', background: '#1a1a1a', border: '1px solid #d4af37', color: 'white' }}
+                        autoFocus
+                      />
+                    ) : (
+                      <span style={{ color: isSmallEdited ? '#ffcc00' : '#fff', fontWeight: 'bold' }}>${formatMoney(smallMotorGrandTotal)}</span>
+                    )}
+                  </div>
+                );
+              })()}
+
               {solarCount > 0 && (() => {
                 const isEditingSolar = editingTableField === 'solarCost';
                 const isSolarEdited = typeof tableEditValues.solarCost === 'number' || typeof selectedQuote.editedPrices?.solarCost === 'number';
@@ -716,7 +763,7 @@ export default function CurrentPricingSection({
                 </button>
               )}
 
-              {(motorCount > 0 || solarCount > 0 || effectiveHub?.included) && (
+              {(motorCount > 0 || smallMotorCount > 0 || solarCount > 0 || effectiveHub?.included) && (
                 <div style={{ background: '#2a2a3a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
                   <span style={{ color: '#ccc' }}>Subtotal (before tax):</span>
                   <span style={{ color: '#ccc' }}>{formatPrice(subtotalMin, subtotalMax)}</span>

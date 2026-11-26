@@ -30,7 +30,7 @@ const pulledRows = q => [
   R(q, 2, 0, 'Bed', 2, '30', '60', 'motor-wire-zigbee', { solar: 'AOK' })
 ];
 const sheet = (rows, o = {}) => ({ id: 's1', clientNames: ['Ann Smith'], address: 'Argyle', updatedDate: '2026-11-16', rows, ...o });
-const EXPECT = ['Smart - Wired', 'Smart - Rechargeable', 'Smart - Somfy hardwired', 'Manual - Chain wand - White', 'Smart - Zigbee+Solar', 'Smart - Wired+Solar'];
+const EXPECT = ['Smart - Wired', 'Smart - Rechargeable', 'Smart - Somfy hardwired', 'Manual - Chain wand - White', 'Smart motor+Solar', 'Smart - Wired+Solar'];
 const cells = (quote, info) => buildInvoiceModel(quote, { columns: ['location', 'motorSmart', 'unitPrice'], motorLabels: info ? info.labels : null }).rows.map(r => r[1]);
 
 test('labels for every motor option', () => {
@@ -51,7 +51,7 @@ test('sheet pulled from this quote', () => {
   assert.deepEqual(cells(v1, info), EXPECT);
   // no sheet at all -> unchanged invoice
   assert.equal(invoiceMotorLabels(v1, [], [v1]), null);
-  assert.deepEqual(cells(v1, null), ['Smart', 'Smart', 'Smart', 'Manual', 'Smart+Solar', 'Smart+Solar']);
+  assert.deepEqual(cells(v1, null), ['Smart motor', 'Smart motor', 'Smart motor', 'Manual', 'Smart motor+Solar', 'Smart motor+Solar']);
   // money never changes
   assert.equal(buildInvoiceModel(v1, { motorLabels: info.labels }).grandTotal, buildInvoiceModel(v1, {}).grandTotal);
 });
@@ -84,13 +84,13 @@ test('never another client, never a combined multi-job sheet, never contradictin
   // sheet switched window 1 to a chain wand, but the quote still prices it as Motor
   const rows = pulledRows('v1'); rows[0] = { ...rows[0], motor: 'Manual - Chain wand - Grey' };
   const c = cells(v1, invoiceMotorLabels(v1, [sheet(rows)], [v1]));
-  assert.deepEqual(c, ['Smart - Rechargeable', 'Smart - Somfy hardwired', 'Smart', 'Manual - Chain wand - White', 'Smart - Zigbee+Solar', 'Smart - Wired+Solar']);
+  assert.deepEqual(c, ['Smart - Rechargeable', 'Smart - Somfy hardwired', 'Smart motor', 'Manual - Chain wand - White', 'Smart motor+Solar', 'Smart - Wired+Solar']);
 });
 
 test('fewer sheet rows than windows, rows with no motor, two sheets (newest wins), odd data', () => {
   const v1 = Q('v1', 1);
   const few = pulledRows('v1').filter((_, i) => i !== 1 && i !== 5).map((r, i) => (i === 3 ? { ...r, motor: undefined } : r));
-  assert.deepEqual(cells(v1, invoiceMotorLabels(v1, [sheet(few)], [v1])), ['Smart - Wired', 'Smart - Somfy hardwired', 'Smart', 'Manual - Chain wand - White', 'Smart+Solar', 'Smart+Solar']);
+  assert.deepEqual(cells(v1, invoiceMotorLabels(v1, [sheet(few)], [v1])), ['Smart - Wired', 'Smart - Somfy hardwired', 'Smart motor', 'Manual - Chain wand - White', 'Smart motor+Solar', 'Smart motor+Solar']);
   const older = sheet(pulledRows('v1').map(r => ({ ...r, motor: r.motor.startsWith('Manual') ? 'Manual' : 'motor-recharge' })), { id: 's0', updatedDate: '2026-11-01' });
   assert.deepEqual(cells(v1, invoiceMotorLabels(v1, [older, sheet(pulledRows('v1'))], [v1])), EXPECT);
   assert.equal(invoiceMotorLabels(v1, [null, { id: 'x' }, { id: 'y', rows: [] }], [v1]), null);

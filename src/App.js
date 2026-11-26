@@ -56,7 +56,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   const [editingTableField, setEditingTableField] = useState(null);
   // ✅ FIX: Use null as sentinel for "not edited this session" (distinct from 0 or any real value)
   // activeEditText = the RAW TEXT currently in whichever input is open (text input, not number input - avoids mobile keyboard bugs)
-  const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, otherExpenses: null, otherExpensesLabel: null, groupEdits: {}, deletedRoomIds: new Set(), deletedGroupKeys: new Set(), addedGroups: {}, hubEdits: null, fabricEdits: {}, clearedPriceKeys: new Set() });
+  const [tableEditValues, setTableEditValues] = useState({ perWindowPrices: {}, motorCost: null, smallMotorCost: null, solarCost: null, taxRate: null, otherExpenses: null, otherExpensesLabel: null, groupEdits: {}, deletedRoomIds: new Set(), deletedGroupKeys: new Set(), addedGroups: {}, hubEdits: null, fabricEdits: {}, clearedPriceKeys: new Set() });
   const [activeEditText, setActiveEditText] = useState('');
   // ✅ NEW: for range-priced windows, editing uses two separate Min/Max boxes
   // instead of one text field with a typed hyphen - simpler and fully
@@ -678,7 +678,7 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
   // ✅ CRITICAL FIX: Reset editing state when viewing a different quote
   useEffect(() => {
     // Reset editing state whenever a different quote is selected
-    setTableEditValues({ perWindowPrices: {}, motorCost: null, solarCost: null, taxRate: null, otherExpenses: null, otherExpensesLabel: null, groupEdits: {}, deletedRoomIds: new Set(), deletedGroupKeys: new Set(), addedGroups: {}, hubEdits: null, fabricEdits: {}, clearedPriceKeys: new Set() });
+    setTableEditValues({ perWindowPrices: {}, motorCost: null, smallMotorCost: null, solarCost: null, taxRate: null, otherExpenses: null, otherExpensesLabel: null, groupEdits: {}, deletedRoomIds: new Set(), deletedGroupKeys: new Set(), addedGroups: {}, hubEdits: null, fabricEdits: {}, clearedPriceKeys: new Set() });
     setEditingTableField(null);
     setActiveEditText('');
     setActiveEditTextMax('');
@@ -968,6 +968,8 @@ export default function BlindsQuoteApp({ uid, onLogout }) {
         width: g.width || '',
         height: g.height || '',
         controlType: g.controlType || 'Manual',
+        // Small motor (2026-11-26); older quotes have none = regular motor.
+        motorSize: g.motorSize || '',
         solar: g.solar || false,
         mount: g.mount || 'Inside',
         surchargeOverride: g.surchargeOverride !== undefined ? g.surchargeOverride : null,

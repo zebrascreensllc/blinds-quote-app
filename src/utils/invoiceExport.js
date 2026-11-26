@@ -9,6 +9,7 @@ import { formatMoney, formatPrice } from './formatters';
 import { quoteCassetteLabel } from './cassette';
 import { INVOICE_BUSINESS, TERMS_AND_CONDITIONS, WARRANTY_SUMMARY, WARRANTY_SECTIONS } from './invoiceContent';
 import zebraLogoUrl from '../assets/zebra-logo.png';
+import { isSmallMotor, SMALL_MOTOR_INVOICE_LABEL, smallMotorClientCost } from './smallMotor';
 
 const isRangeOverride = (v) => v !== null && typeof v === 'object' && typeof v.min === 'number' && typeof v.max === 'number';
 
@@ -84,8 +85,12 @@ export function buildInvoiceLineItems(quote, { motorLabels = null } = {}) {
           width: group.width || '',
           height: group.height || '',
           motorSmart: group.controlType === 'Motor' ? 'Smart' : 'Manual',
+          // Small motor: still Smart, but priced on its own line (see computeInvoiceTotals).
+          smallMotor: isSmallMotor(group),
           // The specific type from the measurement sheet, if any (display only).
-          motorLabel: typeof groupLabels[i] === 'string' && groupLabels[i].trim() ? groupLabels[i].trim() : null,
+          // With no sheet label: a small motor reads "Motor with remote" and a
+          // regular motor (Zigbee by default) "Smart motor" (owner, 2026-11-26).
+          motorLabel: typeof groupLabels[i] === 'string' && groupLabels[i].trim() ? groupLabels[i].trim() : (isSmallMotor(group) ? SMALL_MOTOR_INVOICE_LABEL : (group.controlType === 'Motor' ? 'Smart motor' : null)),
           // The exact type when a fabric is picked; otherwise every type
           // the room is still choosing between ("Roller / Zebra").
           blindType: fabricNumbers.length > 0 ? actualBlindType : (room.blindTypes || [actualBlindType]).join(' / '),
@@ -217,7 +222,10 @@ export const fmtMaybeRange = (min, max) => (
  */
 export function computeInvoiceTotals(quote, items, { advanceAmount = 0, discountAmount = 0 } = {}) {
   const storedPricing = quote.pricing || null;
-  const motorCount = items.filter(it => it.motorSmart === 'Smart').length;
+  const motorCount = items.filter(it => it.motorSmart === 'Smart' && !it.smallMotor).length;
+  const smallMotorCount = items.filter(it => it.motorSmart === 'Smart' && it.smallMotor).length;
+  const effectiveSmallMotorCost = smallMotorClientCost(storedPricing, quote.editedPrices);
+  const smallMotorGrandTotal = smallMotorCount * effectiveSmallMotorCost;
   const solarCount = (quote.rooms || []).reduce((sum, room) => sum + room.windowGroups.filter(g => g.solar).reduce((s2, g) => s2 + (parseInt(g.quantity) || 0), 0), 0);
   const effectiveMotorCost = typeof quote.editedPrices?.motorCost === 'number' ? quote.editedPrices.motorCost : (storedPricing?.MOTOR_COST_CLIENT || 80);
   const effectiveSolarCost = typeof quote.editedPrices?.solarCost === 'number' ? quote.editedPrices.solarCost : (storedPricing?.SOLAR_COST_CLIENT || 40);
@@ -227,8 +235,8 @@ export function computeInvoiceTotals(quote, items, { advanceAmount = 0, discount
 
   const itemsSubtotal = items.reduce((sum, it) => sum + it.unitPrice, 0);
   const itemsSubtotalMax = items.reduce((sum, it) => sum + (typeof it.unitPriceMax === 'number' ? it.unitPriceMax : it.unitPrice), 0);
-  const total = itemsSubtotal + motorGrandTotal + solarGrandTotal + hubTotal;
-  const totalMax = itemsSubtotalMax + motorGrandTotal + solarGrandTotal + hubTotal;
+  const total = itemsSubtotal + motorGrandTotal + smallMotorGrandTotal + solarGrandTotal + hubTotal;
+  const totalMax = itemsSubtotalMax + motorGrandTotal + smallMotorGrandTotal + solarGrandTotal + hubTotal;
   const taxRate = typeof quote.editedPrices?.taxRate === 'number' ? quote.editedPrices.taxRate : (storedPricing?.SALES_TAX_RATE || SALES_TAX_RATE);
   const salesTax = total * taxRate;
   const salesTaxMax = totalMax * taxRate;
@@ -244,6 +252,7 @@ export function computeInvoiceTotals(quote, items, { advanceAmount = 0, discount
 
   return {
     motorCount, solarCount, effectiveMotorCost, effectiveSolarCost, motorGrandTotal, solarGrandTotal, hubTotal,
+    smallMotorCount, effectiveSmallMotorCost, smallMotorGrandTotal,
     itemsSubtotal, itemsSubtotalMax, total, totalMax, taxRate, salesTax, salesTaxMax, otherExpensesAmount, otherExpensesLabel, grandTotal, grandTotalMax, remainingBalance
   };
 }
@@ -338,6 +347,7 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
   const { items } = buildInvoiceLineItems(quote, { motorLabels });
   const {
     motorCount, solarCount, effectiveMotorCost, effectiveSolarCost, motorGrandTotal, solarGrandTotal, hubTotal,
+    smallMotorCount, effectiveSmallMotorCost, smallMotorGrandTotal,
     total, taxRate, salesTax, otherExpensesAmount, otherExpensesLabel, grandTotal
   } = computeInvoiceTotals(quote, items, { advanceAmount, discountAmount });
 
@@ -365,6 +375,7 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
     return finishModel(quote, cols, rows, highlights, summary, grandTotal, shortGrand, shortGrand - advanceAmount);
   }
   if (motorCount > 0) summary.push({ label: `Motor windows ${motorCount}*$${formatMoney(effectiveMotorCost)}`, value: `$${formatMoney(motorGrandTotal)}` });
+  if (smallMotorCount > 0) summary.push({ label: `${SMALL_MOTOR_INVOICE_LABEL} windows ${smallMotorCount}*$${formatMoney(effectiveSmallMotorCost)}`, value: `$${formatMoney(smallMotorGrandTotal)}` });
   if (solarCount > 0) summary.push({ label: `Solar windows ${solarCount}*$${formatMoney(effectiveSolarCost)}`, value: `$${formatMoney(solarGrandTotal)}` });
   if (quote.hub?.included) {
     const hubLabel = quote.hub.quantity > 1 ? `Hub ${quote.hub.quantity}*$${formatMoney(quote.hub.price)}` : 'Hub';
@@ -418,6 +429,7 @@ function buildQuoteDocModel(quote, { discountAmount = 0, columns, motorLabels = 
   const summary = [];
   if (columnKeys.includes('unitPrice')) {
     if (totals.motorCount > 0) summary.push({ label: `Motor windows ${totals.motorCount}*$${formatMoney(totals.effectiveMotorCost)}`, value: `$${formatMoney(totals.motorGrandTotal)}` });
+    if (totals.smallMotorCount > 0) summary.push({ label: `${SMALL_MOTOR_INVOICE_LABEL} windows ${totals.smallMotorCount}*$${formatMoney(totals.effectiveSmallMotorCost)}`, value: `$${formatMoney(totals.smallMotorGrandTotal)}` });
     if (totals.solarCount > 0) summary.push({ label: `Solar windows ${totals.solarCount}*$${formatMoney(totals.effectiveSolarCost)}`, value: `$${formatMoney(totals.solarGrandTotal)}` });
     if (quote.hub?.included) {
       const hubLabel = quote.hub.quantity > 1 ? `Hub ${quote.hub.quantity}*$${formatMoney(quote.hub.price)}` : 'Hub';
@@ -439,7 +451,7 @@ function buildQuoteDocModel(quote, { discountAmount = 0, columns, motorLabels = 
   let optionGrand = null;
   if (options) {
     optionGrand = optionGrandTotals(options, {
-      motorGrandTotal: totals.motorGrandTotal, solarGrandTotal: totals.solarGrandTotal,
+      motorGrandTotal: totals.motorGrandTotal, smallMotorGrandTotal: totals.smallMotorGrandTotal, solarGrandTotal: totals.solarGrandTotal,
       hubTotal: totals.hubTotal, taxRate: totals.taxRate, otherExpenses: totals.otherExpensesAmount
     });
     options.types.forEach(t => summary.push({ label: `If all ${t}`, value: fmtMaybeRange(optionGrand[t].grandMin - discount, optionGrand[t].grandMax - discount) }));
