@@ -1,6 +1,7 @@
 import { PRICING_DATA } from '../data/pricingData';
 import { cassetteUpgradePerSqm } from './cassette';
 import { parseUnits } from './formatters';
+import { isSmallMotor, smallMotorClientCost, smallMotorSupplierCost } from './smallMotor';
 
 // Width surcharge based on inches
 export const getWidthSurcharge = (width, pricing = null) => {
@@ -307,7 +308,11 @@ export const calculateGroupQuote = (group, fabricNumbers, blindType, totalMotori
   
   if (group.controlType === 'Motor') {
     const remoteType = totalMotorizedInRoom > 6 ? p.REMOTE_16CH : p.REMOTE_6CH;
-    profitPerWindow += p.MOTOR_COST_CLIENT - p.MOTOR_COST_SUPPLIER - (remoteType / totalMotorizedInRoom);
+    // A small motor has its own client price/supplier cost (utils/smallMotor.js).
+    const motorMargin = isSmallMotor(group)
+      ? smallMotorClientCost(p, null) - smallMotorSupplierCost(p)
+      : p.MOTOR_COST_CLIENT - p.MOTOR_COST_SUPPLIER;
+    profitPerWindow += motorMargin - (remoteType / totalMotorizedInRoom);
   }
   
   if (group.solar) {
@@ -444,7 +449,7 @@ export const computeQuoteFinancials = (quote) => {
 
   let totalMin = 0, totalMax = 0;
   let fabricCost = 0, shippingCost = 0, motorSupplierCost = 0, remoteSupplierCost = 0, solarSupplierCost = 0;
-  let motorCount = 0, solarCount = 0;
+  let motorCount = 0, smallMotorCount = 0, solarCount = 0;
 
   rooms.forEach(room => {
     const fabricNumbers = (room.fabricInput || '').split(',').map(f => f.trim()).filter(f => f);
@@ -460,7 +465,8 @@ export const computeQuoteFinancials = (quote) => {
 
     room.windowGroups.forEach((group, groupIdx) => {
       const qty = parseInt(group.quantity) || 0;
-      if (group.controlType === 'Motor') motorCount += qty;
+      if (isSmallMotor(group)) smallMotorCount += qty;
+      else if (group.controlType === 'Motor') motorCount += qty;
       if (group.solar) solarCount += qty;
 
       const q = calculateGroupQuote(group, fabricNumbers, estimateBlindTypes(room, fabricNumbers, actualBlindType), motorizedCount, storedPricing);
@@ -473,7 +479,7 @@ export const computeQuoteFinancials = (quote) => {
       fabricCost += (avgGroupCost - shippingForGroup);
       if (group.controlType === 'Motor') {
         const remoteType = motorizedCount > 6 ? (storedPricing?.REMOTE_16CH ?? 10) : (storedPricing?.REMOTE_6CH ?? 7);
-        motorSupplierCost += (storedPricing?.MOTOR_COST_SUPPLIER ?? 50) * quantityForCost;
+        motorSupplierCost += (isSmallMotor(group) ? smallMotorSupplierCost(storedPricing) : (storedPricing?.MOTOR_COST_SUPPLIER ?? 50)) * quantityForCost;
         remoteSupplierCost += (remoteType / motorizedCount) * quantityForCost;
       }
       if (group.solar) {
@@ -503,7 +509,8 @@ export const computeQuoteFinancials = (quote) => {
   const effectiveMotorCost = typeof quote.editedPrices?.motorCost === 'number' ? quote.editedPrices.motorCost : defaultMotorCostClient;
   const defaultSolarCostClient = storedPricing?.SOLAR_COST_CLIENT || 40;
   const effectiveSolarCost = typeof quote.editedPrices?.solarCost === 'number' ? quote.editedPrices.solarCost : defaultSolarCostClient;
-  const motorGrandTotal = motorCount * effectiveMotorCost;
+  // Regular motors and small motors are separate lines, each at its own price.
+  const motorGrandTotal = motorCount * effectiveMotorCost + smallMotorCount * smallMotorClientCost(storedPricing, quote.editedPrices);
   const solarGrandTotal = solarCount * effectiveSolarCost;
   // Hub has no known supplier-cost figure (unlike Motor/Solar), so it's only
   // added to revenue/profit, never to appGeneratedCosts - fabricating a
@@ -529,6 +536,7 @@ export const computeQuoteFinancials = (quote) => {
     revenueSubtotalMax: totalMax + motorGrandTotal + solarGrandTotal + hubTotal,
     appEstimatedProfit: (totalMin + motorGrandTotal + solarGrandTotal + hubTotal) - appGeneratedCosts.total,
     motorCount,
+    smallMotorCount,
     solarCount,
     hubTotal
   };
@@ -633,10 +641,10 @@ export const estimateOptionTotals = (rooms, getOverride, storedPricing) => {
  * screen does: tax applies to windows + motor + solar + hub; other expenses go
  * on after tax.
  */
-export const optionGrandTotals = (options, { motorGrandTotal = 0, solarGrandTotal = 0, hubTotal = 0, taxRate = 0, otherExpenses = 0 }) => {
+export const optionGrandTotals = (options, { motorGrandTotal = 0, smallMotorGrandTotal = 0, solarGrandTotal = 0, hubTotal = 0, taxRate = 0, otherExpenses = 0 }) => {
   const out = {};
   options.types.forEach(t => {
-    const addOns = motorGrandTotal + solarGrandTotal + hubTotal;
+    const addOns = motorGrandTotal + smallMotorGrandTotal + solarGrandTotal + hubTotal;
     const subtotalMin = options.byType[t].windowMin + addOns;
     const subtotalMax = options.byType[t].windowMax + addOns;
     out[t] = {

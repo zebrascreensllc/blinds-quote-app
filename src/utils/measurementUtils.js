@@ -11,6 +11,7 @@
 
 import { parseUnits } from './formatters';
 import { DEFAULT_CASSETTE, cassetteFromQuoteGroup } from './cassette';
+import { isSmallMotor, SMALL_MOTOR_SHEET_TYPE } from './smallMotor';
 
 // ---- Dropdown option constants -------------------------------------------
 
@@ -28,7 +29,9 @@ export const CHAIN_WAND_OPTIONS = [
 // chain typed under 'Custom' showed as Smart). Both keep the text in
 // row.motorCustomText.
 export const MANUAL_CUSTOM_MOTOR = 'Manual - Custom';
-export const MOTOR_OPTIONS = ['Manual', 'motor-recharge', 'motor-Zigbee', 'motor-wire-zigbee', 'Custom', ...CHAIN_WAND_OPTIONS, MANUAL_CUSTOM_MOTOR];
+// 'Small motor' (2026-11-26) is a Smart type (needs a remote like any motor);
+// the quote prices it at $65 instead of $80 - see utils/smallMotor.js.
+export const MOTOR_OPTIONS = ['Manual', 'motor-recharge', 'motor-Zigbee', 'motor-wire-zigbee', SMALL_MOTOR_SHEET_TYPE, 'Custom', ...CHAIN_WAND_OPTIONS, MANUAL_CUSTOM_MOTOR];
 export const isManualMotor = motor => motor === 'Manual' || motor === MANUAL_CUSTOM_MOTOR || CHAIN_WAND_OPTIONS.includes(motor);
 export const isCustomMotor = motor => motor === 'Custom' || motor === MANUAL_CUSTOM_MOTOR;
 // Dropdown text only - the stored value stays the plain option.
@@ -460,7 +463,7 @@ export function expandQuoteIntoRows(quote, options = {}) {
           locationBase: room.name || 'Room',
           locationIndex: windowCounter,
           totalInLocation: totalWindows,
-          motor: isMotor ? DEFAULT_MOTOR_TYPE : 'Manual',
+          motor: isMotor ? (isSmallMotor(group) ? SMALL_MOTOR_SHEET_TYPE : DEFAULT_MOTOR_TYPE) : 'Manual',
           motorCustomText: '',
           motorSide: '', // '' = Right (default, not written to export), 'Left' = the exception
           chainSide: '', // same idea for a Manual (chain) window: '' = Right (default), 'Left' = the exception

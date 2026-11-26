@@ -24,6 +24,7 @@
 
 import { getLocationLabel, isManualMotor } from './measurementUtils';
 import { quoteCassetteFromRow } from './cassette';
+import { SMALL_MOTOR, SMALL_MOTOR_SHEET_TYPE } from './smallMotor';
 
 const BLANK_GROUP = { id: 1, quantity: '', width: '', height: '', controlType: 'Manual', solar: false, mount: 'Inside', surchargeOverride: null, cassette: '', cassetteCustomText: '' };
 
@@ -66,6 +67,8 @@ function groupFromRow(row, src, sizeFallback) {
     width: str(row.width) || (sizeFallback ? str(sizeFallback.width) : ''),
     height: str(row.height) || (sizeFallback ? str(sizeFallback.height) : ''),
     controlType: motor ? 'Motor' : 'Manual',
+    // The sheet decides Small vs regular motor, like it decides Motor vs Manual.
+    motorSize: motor && row.motor === SMALL_MOTOR_SHEET_TYPE ? SMALL_MOTOR : '',
     solar: motor ? (row.solar || false) : false,
     // The sheet's cassette comes back to the quote; a row still on the
     // standard cassette for its height stays Standard ('').
@@ -78,7 +81,7 @@ function groupFromRow(row, src, sizeFallback) {
 function mergeGroups(groups) {
   const out = [];
   groups.forEach(g => {
-    const same = out.find(o => !o._key && !g._key && o.width === g.width && o.height === g.height && o.controlType === g.controlType && o.solar === g.solar && (o.cassette || '') === (g.cassette || '') && (o.cassetteCustomText || '') === (g.cassetteCustomText || ''));
+    const same = out.find(o => !o._key && !g._key && o.width === g.width && o.height === g.height && o.controlType === g.controlType && (o.motorSize || '') === (g.motorSize || '') && o.solar === g.solar && (o.cassette || '') === (g.cassette || '') && (o.cassetteCustomText || '') === (g.cassetteCustomText || ''));
     if (same) same.quantity = String((parseInt(same.quantity) || 0) + 1);
     else out.push({ ...g });
   });
@@ -316,6 +319,8 @@ export function linkRowsToQuote(rows, quote, parse) {
         if (dw > MATCH_TOLERANCE || dh > MATCH_TOLERANCE) return;
         const score = dw + dh
           + ((o.g.controlType === 'Motor') === motor ? 0 : 100)
+          // Tie-break only: same Small/regular motor as the row.
+          + ((o.g.controlType === 'Motor' && o.g.motorSize === SMALL_MOTOR) === (row.motor === SMALL_MOTOR_SHEET_TYPE) ? 0 : 0.01)
           + ((left.get(`${o.room.id}_${o.i}`) || 0) > 0 ? 0 : 1000);
         if (!best || score < best.score) best = { ...o, score };
       });

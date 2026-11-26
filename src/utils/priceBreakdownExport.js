@@ -75,6 +75,7 @@ export async function generatePriceBreakdownExcel(quote) {
 
   ws.addRow([]);
   if (totals.motorCount > 0) summaryRow(`Motor windows ${totals.motorCount} x $${formatMoney(totals.effectiveMotorCost)}`, `$${formatMoney(totals.motorGrandTotal)}`);
+  if (totals.smallMotorCount > 0) summaryRow(`Motor with remote windows ${totals.smallMotorCount} x $${formatMoney(totals.effectiveSmallMotorCost)}`, `$${formatMoney(totals.smallMotorGrandTotal)}`);
   if (totals.solarCount > 0) summaryRow(`Solar windows ${totals.solarCount} x $${formatMoney(totals.effectiveSolarCost)}`, `$${formatMoney(totals.solarGrandTotal)}`);
   if (quote.hub?.included) {
     const hubLabel = quote.hub.quantity > 1 ? `Hub ${quote.hub.quantity} x $${formatMoney(quote.hub.price)}` : 'Hub';
@@ -94,7 +95,7 @@ export async function generatePriceBreakdownExcel(quote) {
   }, quote.pricing || null);
   if (options) {
     const grand = optionGrandTotals(options, {
-      motorGrandTotal: totals.motorGrandTotal, solarGrandTotal: totals.solarGrandTotal,
+      motorGrandTotal: totals.motorGrandTotal, smallMotorGrandTotal: totals.smallMotorGrandTotal, solarGrandTotal: totals.solarGrandTotal,
       hubTotal: totals.hubTotal, taxRate: totals.taxRate, otherExpenses: totals.otherExpensesAmount
     });
     ws.addRow([]);

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { CONTROL_CHOICES, SMALL_MOTOR_LABEL, DEFAULT_SMALL_MOTOR_COST_CLIENT, controlChoice, controlPatch } from '../../utils/smallMotor';
 import { ArrowLeft, Trash2 } from 'lucide-react';
 import { isBlankGroup } from '../../utils/quoteGroups';
 // The exact cassette names the supplier sheet uses, so a cassette picked here
@@ -243,10 +244,9 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
       windowGroups: room.windowGroups.map((group, groupIndex) => {
         const key = `${room.id}_${groupIndex}`;
         if (!motorSelectedKeys.has(key)) return group;
-        const patch = { controlType: bulkMotorValue };
-        // Manual doesn't support Solar - same rule enforced elsewhere in
-        // the app (Solar checkbox only shows for Motor windows).
-        if (bulkMotorValue !== 'Motor') patch.solar = false;
+        // controlPatch: 'Small motor' = Motor + motorSize 'Small'; anything that
+        // isn't a motor also drops Solar (same rule as everywhere else).
+        const patch = controlPatch(bulkMotorValue);
         return { ...group, ...patch };
       })
     }));
@@ -519,9 +519,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
         <BulkToolPanel title="Bulk Assign Motor" icon="⚙️" bg="#2a2a1a" border="#8a7a4a" accentColor="#fbbf24" isOpen={showMotorTool} onToggle={() => setShowMotorTool(!showMotorTool)}>
           <label style={labelStyle}>Set Type to</label>
           <select value={bulkMotorValue} onChange={(e) => setBulkMotorValue(e.target.value)} style={{ ...selectStyle, marginBottom: '10px' }}>
-            <option value="Manual">Manual</option>
-            <option value="Cordless">Cordless</option>
-            <option value="Motor">Motor</option>
+            {CONTROL_CHOICES.map(c => <option key={c} value={c}>{c === SMALL_MOTOR_LABEL ? `${c} ($${DEFAULT_SMALL_MOTOR_COST_CLIENT} motor)` : c}</option>)}
           </select>
           <RowChecklist
             items={allGroupItems}
@@ -530,7 +528,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
             setSelectedIds={setMotorSelectedKeys}
             accentColor="#fbbf24"
             renderLabel={(item) => (
-              <>{item.room.name || 'Room'} ({item.group.width || '?'}x{item.group.height || '?'})<span style={{ color: '#666' }}> — currently {item.group.controlType || 'Manual'}</span></>
+              <>{item.room.name || 'Room'} ({item.group.width || '?'}x{item.group.height || '?'})<span style={{ color: '#666' }}> — currently {controlChoice(item.group)}</span></>
             )}
           />
           <button onClick={applyBulkMotor} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: '#a16207', color: '#fff', border: 'none', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>
@@ -716,7 +714,7 @@ export default function BulkQuoteFormScreen({ formData, setFormData, generateQuo
                   <td style={cellStyle}>{item.group.quantity || '—'}</td>
                   <td style={cellStyle}>{item.group.width || '?'} x {item.group.height || '?'}</td>
                   <td style={cellStyle}>{item.room.fabricInput || `${(item.room.blindTypes || ['Roller']).join(', ')} (no fabric)`}</td>
-                  <td style={cellStyle}>{item.group.controlType || 'Manual'}</td>
+                  <td style={cellStyle}>{controlChoice(item.group)}</td>
                   <td style={cellStyle}>{item.group.solar || 'No'}</td>
                   <td style={cellStyle}>{quoteCassetteLabel(item.group)}</td>
                 </tr>

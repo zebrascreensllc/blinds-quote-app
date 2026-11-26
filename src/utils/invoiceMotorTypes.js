@@ -20,6 +20,7 @@
 import { isManualMotor, MANUAL_CUSTOM_MOTOR, motorDisplay } from './measurementUtils';
 import { resolveSheetQuote, moveRowsToVersion } from './sheetToQuote';
 import { parseUnits } from './formatters';
+import { isSmallMotor, SMALL_MOTOR_SHEET_TYPE, SMALL_MOTOR_INVOICE_LABEL } from './smallMotor';
 
 const lineageOf = q => (q && (q.lineageId || q.id)) || null;
 
@@ -40,6 +41,10 @@ export function invoiceMotorLabel(row) {
     if (motor === MANUAL_CUSTOM_MOTOR && !String(row.motorCustomText || '').trim()) return 'Manual';
     return motorDisplay(row); // "Manual - Chain wand - White", "Manual - chain 6ft"
   }
+  // Small motor: the client's invoice says "Motor with remote" (owner, 2026-11-26).
+  if (motor === SMALL_MOTOR_SHEET_TYPE) return SMALL_MOTOR_INVOICE_LABEL;
+  // Zigbee: the client's invoice says "Smart motor" (owner, 2026-11-26).
+  if (motor === 'motor-Zigbee') return 'Smart motor';
   const name = motor === 'Custom' ? String(row.motorCustomText || '').trim() : (SMART_NAMES[motor] || motor);
   return name ? `Smart - ${name}` : 'Smart';
 }
@@ -91,8 +96,13 @@ export function invoiceMotorLabels(quote, sheets, quotes) {
   (quote.rooms || []).forEach(room => (room.windowGroups || []).forEach((group, idx) => {
     const key = `${room.id}_${idx}`;
     const isMotor = group.controlType === 'Motor';
+    const small = isSmallMotor(group);
+    // Same rule for Small vs regular motor: a sheet label is only used when it
+    // agrees with the motor the quote charges for, so the label never
+    // contradicts the price.
     const list = (byKey[key] || [])
       .filter(r => r.motor && isManualMotor(r.motor) !== isMotor)
+      .filter(r => !isMotor || (r.motor === SMALL_MOTOR_SHEET_TYPE) === small)
       .map(invoiceMotorLabel)
       .filter(Boolean);
     if (list.length === 0) return;
