@@ -116,10 +116,15 @@ test('old saved quote (no fabricInput, legacy solar, no snapshot flag) works', (
 });
 
 test('no Unit Price column -> only the Grand Total (no breakdown, no payments)', () => {
-  const m = buildInvoiceModel(exactQuote(), { docType: 'quote', columns: ['itemNo', 'location', 'motorSmart'] });
+  const m = buildInvoiceModel(exactQuote(), { docType: 'quote', columns: ['itemNo', 'location', 'motorSmart'], showCardPrice: false });
   assert.deepEqual(labels(m), ['Grand Total']);
-  const o = buildInvoiceModel(optionQuote(), { docType: 'quote', columns: ['location', 'width'] });
+  const o = buildInvoiceModel(optionQuote(), { docType: 'quote', columns: ['location', 'width'], showCardPrice: false });
   assert.deepEqual(labels(o), ['Grand Total', 'If all Roller', 'If all Zebra']);
+  // With the credit card price (on by default, 2026-11-26) it sits right
+  // under the Grand Total, before the "If all" lines.
+  const card = ['If paying by credit card: fee 3.5%', 'Grand Total by credit card'];
+  assert.deepEqual(labels(buildInvoiceModel(exactQuote(), { docType: 'quote', columns: ['itemNo', 'location', 'motorSmart'] })), ['Grand Total', ...card]);
+  assert.deepEqual(labels(buildInvoiceModel(optionQuote(), { docType: 'quote', columns: ['location', 'width'] })), ['Grand Total', ...card, 'If all Roller', 'If all Zebra']);
 });
 
 test('motor types from a measurement sheet show on the quote too', () => {

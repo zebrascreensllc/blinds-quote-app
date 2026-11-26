@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { buildInvoiceModel, loadLogoBytes } from './invoiceExport';
-import { INVOICE_BUSINESS, TERMS_AND_CONDITIONS, WARRANTY_SUMMARY, WARRANTY_SECTIONS } from './invoiceContent';
+import { INVOICE_BUSINESS, WARRANTY_SUMMARY, WARRANTY_SECTIONS } from './invoiceContent';
 
 // PDF version of the invoice. It prints exactly what the Word invoice
 // prints - both are built from buildInvoiceModel() (same columns, rows and
@@ -217,7 +217,7 @@ export function buildInvoicePdf(quote, options = {}, logoBytes) {
   };
 
   heading('Terms and Conditions', 14);
-  TERMS_AND_CONDITIONS.forEach(t => paragraph(t, { bullet: true }));
+  model.termsAndConditions.forEach(t => paragraph(t, { bullet: true }));
   y += 12;
   heading('Warranty Coverage', 14);
   WARRANTY_SUMMARY.forEach(t => paragraph(t, { bullet: true }));

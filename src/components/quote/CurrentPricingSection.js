@@ -5,6 +5,7 @@ import { formatPrice, formatMoney, isRangeOverride, formatPriceOverride, filterN
 import { motorStepperInfo, savedGroupQty, hasBadQty } from '../../utils/quoteGroups';
 import { CASSETTE_OPTIONS, quoteCassetteLabel, hasChosenCassette, CASSETTE_UPGRADE_PER_SQM } from '../../utils/cassette';
 import { calculateGroupQuote, getBlindTypeFromFabric, estimateBlindTypes } from '../../utils/pricing';
+import { cardFeeRate, cardFeeOn, cardFeePercentText } from '../../utils/cardFee';
 
 // ✅ NEW: Solar went from a plain yes/no to naming which panel/wire was
 // used - blank means "no solar", same falsy-check semantics every existing
@@ -837,6 +838,17 @@ export default function CurrentPricingSection({
                 <span style={{ color: '#fff' }}>GRAND TOTAL:</span>
                 <span style={{ color: '#fff' }}>{formatPrice(grandMin, grandMax)}</span>
               </div>
+              {/* Paying by credit card (2026-11-26): not part of the price, just
+                  what the client pays if they use a card. */}
+              {grandMin > 0 && (() => {
+                const cardRate = cardFeeRate(selectedQuote);
+                return (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 12px 0', fontSize: '13px', color: '#aaa' }}>
+                    <span>By credit card (+{cardFeePercentText(cardRate)} fee):</span>
+                    <span>{formatPrice(grandMin + cardFeeOn(grandMin, cardRate), grandMax + cardFeeOn(grandMax, cardRate))}</span>
+                  </div>
+                );
+              })()}
 
               {/* Undecided blind types: what the whole quote comes to if the client
                   picks each one (Grand Total above is the span of all options). */}

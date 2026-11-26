@@ -7,6 +7,7 @@ import { isFabricValid, calculateGroupQuote, estimateBlindTypes, estimateOptionT
 import { pruneRooms, remapPriceKeys, buildEffectiveRooms, stepMotor } from '../../utils/quoteGroups';
 import { nextVersionInLineage } from '../../utils/quoteLineage';
 import { hasPendingTableEdits, UNSAVED_LEAVE_MESSAGE } from '../../utils/pendingEdits';
+import { cardFeeRate, cardFeeOn, cardFeePercentText } from '../../utils/cardFee';
 import CurrentPricingSection from './CurrentPricingSection';
 import PricingDetailsSection from './PricingDetailsSection';
 import QuoteActionButtons from './QuoteActionButtons';
@@ -661,6 +662,11 @@ export default function QuoteDetailScreen({
         text += `${effectiveOtherExpensesLabel}: $${formatMoney(effectiveOtherExpenses)}\n`;
       }
       text += `GRAND TOTAL: ${formatTextPrice(grandMin, grandMax)}`;
+      // Paying by credit card (2026-11-26): same line as the quote file.
+      if (grandMin > 0) {
+        const cardRate = cardFeeRate(selectedQuote);
+        text += `\nBy credit card (+${cardFeePercentText(cardRate)} fee): ${formatTextPrice(grandMin + cardFeeOn(grandMin, cardRate), grandMax + cardFeeOn(grandMax, cardRate))}`;
+      }
       if (optionGrand) {
         text += `\n\nOPTIONS (final price depends on the blind type you choose):`;
         optionTotals.types.forEach(t => {

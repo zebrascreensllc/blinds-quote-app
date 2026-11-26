@@ -3,6 +3,7 @@ import { formatMoney, formatPrice } from '../../utils/formatters';
 import { INVOICE_COLUMNS, DEFAULT_INVOICE_COLUMN_KEYS, normalizeInvoiceColumns, generateInvoiceDocx, invoiceFileName, buildInvoiceModel, loadLogoBytes } from '../../utils/invoiceExport';
 import { generateInvoicePdf } from '../../utils/invoicePdf';
 import { invoiceMotorLabels } from '../../utils/invoiceMotorTypes';
+import { cardFeeRate, cardFeeOn, cardFeePercentText } from '../../utils/cardFee';
 import { subscribeToBulkSheets } from '../../services/bulkMeasurementSync';
 
 // "Create Invoice" options, shown as one sheet instead of a chain of
@@ -123,6 +124,13 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose, k
   const [priceMode, setPriceMode] = useState('keep');
   const [finalText, setFinalText] = useState('');
   const [busy, setBusy] = useState(null); // 'pdf' | 'docx' while creating
+  // Credit card fee (2026-11-26). Invoice: which part the client pays by
+  // card ('none' | 'all' | 'advance' | 'remaining'). Quote: whether to show
+  // the "by credit card" price under Grand Total (on unless turned off).
+  const [cardPayment, setCardPayment] = useState('none');
+  const [showCardPrice, setShowCardPrice] = useState(true);
+  const cardRate = cardFeeRate(quote);
+  const cardPct = cardFeePercentText(cardRate);
 
   const toggleColumn = (key) => {
     setColumns(prev => (prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]));
@@ -162,16 +170,26 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose, k
     }
   }, [isQuoteDoc, quote, discountAmount]);
 
+  // While the owner hasn't typed an advance, it stays half of what the
+  // client pays in total: with the whole bill on a card, that includes the fee.
+  const halfAdvance = (grand, mode) => formatMoney((mode === 'all' ? grand + cardFeeOn(grand, cardRate) : grand) / 2);
+
+  const chooseCardPayment = (mode) => {
+    setCardPayment(mode);
+    const grand = changingPrice ? finalPrice : calculatedGrandTotal;
+    if (!advanceTouched && typeof grand === 'number' && grand > 0) setAdvanceText(halfAdvance(grand, mode));
+  };
+
   const onFinalTextChange = (text) => {
     setFinalText(text);
     const value = parseMoneyInput(text);
-    if (!advanceTouched && value !== null && value > 0) setAdvanceText(formatMoney(value / 2));
+    if (!advanceTouched && value !== null && value > 0) setAdvanceText(halfAdvance(value, cardPayment));
   };
 
   const choosePriceMode = (mode) => {
     setPriceMode(mode);
     if (mode === 'change' && finalText === '') setFinalText(formatMoney(calculatedGrandTotal));
-    if (mode === 'keep' && !advanceTouched) setAdvanceText(formatMoney(calculatedGrandTotal / 2));
+    if (mode === 'keep' && !advanceTouched) setAdvanceText(halfAdvance(calculatedGrandTotal, cardPayment));
   };
 
   // Grand Total before any discount (the low end, for a range). A discount
@@ -196,7 +214,19 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose, k
   else if (advanceAmount === null) problem = 'Advance Payment must be a number, e.g. 1800.';
   else if (!changingPrice && discountAmount === null) problem = 'Discount must be a number, e.g. 0 or 150.';
   else if (discountTooBig) problem = discountTooBigText;
-  else if (advanceAmount > (changingPrice ? finalPrice : calculatedGrandTotal) + 0.005) problem = 'Advance Payment is more than the Grand Total.';
+  else if (advanceAmount > (changingPrice ? finalPrice : calculatedGrandTotal) + (cardPayment === 'all' ? cardFeeOn(changingPrice ? finalPrice : calculatedGrandTotal, cardRate) : 0) + 0.005) problem = cardPayment === 'all' ? 'Advance Payment is more than the total by credit card.' : 'Advance Payment is more than the Grand Total.';
+  else if (cardPayment === 'advance' && !(advanceAmount > 0)) problem = 'Enter the advance the client pays by card.';
+  else if (cardPayment === 'remaining' && !((changingPrice ? finalPrice : calculatedGrandTotal) - advanceAmount > 0.005)) problem = 'Nothing is left to pay by card (the advance covers the Grand Total).';
+
+  // What goes on the card and the fee on it, shown under the card choice
+  // (same rounding as the invoice, which uses cardFeeOn too).
+  const invoiceGrand = changingPrice ? finalPrice : calculatedGrandTotal;
+  let cardPreview = '';
+  if (!isQuoteDoc && cardPayment !== 'none' && !problem) {
+    const onCard = cardPayment === 'all' ? invoiceGrand : cardPayment === 'advance' ? advanceAmount : invoiceGrand - advanceAmount;
+    const fee = cardFeeOn(onCard, cardRate);
+    cardPreview = `Fee ${cardPct} on $${formatMoney(onCard)} = $${formatMoney(fee)}. Charge to the card: $${formatMoney(onCard + fee)}.`;
+  }
 
   const [downloaded, setDownloaded] = useState({});
   // A created file waiting for a tap on "Send", used when the phone won't
@@ -227,10 +257,10 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose, k
     saveColumns(ordered, columnsKey);
     const motorLabels = motorInfo ? motorInfo.labels : null;
     const options = isQuoteDoc
-      ? { docType: 'quote', discountAmount, columns: ordered, motorLabels }
+      ? { docType: 'quote', discountAmount, columns: ordered, motorLabels, showCardPrice }
       : changingPrice
-      ? { advanceAmount, discountAmount: 0, finalPrice, columns: ordered, motorLabels }
-      : { advanceAmount, discountAmount, columns: ordered, motorLabels };
+      ? { advanceAmount, discountAmount: 0, finalPrice, columns: ordered, motorLabels, cardPayment }
+      : { advanceAmount, discountAmount, columns: ordered, motorLabels, cardPayment };
     try {
       const blob = format === 'pdf' ? await generateInvoicePdf(quote, options) : await generateInvoiceDocx(quote, options);
       const fileName = invoiceFileName(quote, format, kind);
@@ -334,6 +364,23 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose, k
             </div>
             <label style={labelStyle} htmlFor="quote-discount">Discount ($)</label>
             <input id="quote-discount" type="text" inputMode="decimal" value={discountText} onChange={(e) => setDiscountText(e.target.value)} style={{ ...inputStyle, marginBottom: '16px' }} />
+            <span style={labelStyle}>Show the credit card price?</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '4px' }}>
+              {[
+                { yes: true, label: 'Yes, show it' },
+                { yes: false, label: 'No' }
+              ].map(opt => {
+                const on = showCardPrice === opt.yes;
+                return (
+                  <button key={opt.label} type="button" onClick={() => setShowCardPrice(opt.yes)} aria-pressed={on} style={{ padding: '12px 10px', borderRadius: '8px', border: `1px solid ${on ? '#0e7490' : '#444'}`, background: on ? '#0e749033' : '#1f1f1f', color: '#fff', fontSize: '14px', fontWeight: on ? 'bold' : 'normal', minHeight: '44px', cursor: 'pointer' }}>
+                    {on ? '● ' : '○ '}{opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: '12px', color: '#888', marginBottom: '16px' }}>{showCardPrice
+              ? `Adds "If paying by credit card: fee ${cardPct}" and "Grand Total by credit card" under the Grand Total.`
+              : 'The quote shows only the cash/check Grand Total.'}</div>
           </>
         ) : (<>
         <span style={labelStyle}>Final price</span>
@@ -373,7 +420,25 @@ export default function InvoiceDialog({ quote, quotes, uid, grandMin, onClose, k
 
         <label style={labelStyle} htmlFor="invoice-advance">Advance Payment ($)</label>
         <input id="invoice-advance" type="text" inputMode="decimal" value={advanceText} onChange={(e) => { setAdvanceTouched(true); setAdvanceText(e.target.value); }} style={{ ...inputStyle, marginBottom: '4px' }} />
-        <div style={{ fontSize: '12px', color: '#888', marginBottom: '16px' }}>Starts at half of the Grand Total - change it if different.</div>
+        <div style={{ fontSize: '12px', color: '#888', marginBottom: '16px' }}>Starts at half of the {cardPayment === 'all' ? 'total by credit card' : 'Grand Total'} - change it if different.</div>
+
+        <span style={labelStyle}>Paying by credit card? (+{cardPct} fee)</span>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '4px' }}>
+          {[
+            { mode: 'none', label: 'No (cash/check)' },
+            { mode: 'all', label: 'Yes, all of it' },
+            { mode: 'advance', label: 'Advance only' },
+            { mode: 'remaining', label: 'Remaining only' }
+          ].map(opt => {
+            const on = cardPayment === opt.mode;
+            return (
+              <button key={opt.mode} type="button" onClick={() => chooseCardPayment(opt.mode)} aria-pressed={on} style={{ padding: '12px 10px', borderRadius: '8px', border: `1px solid ${on ? '#0e7490' : '#444'}`, background: on ? '#0e749033' : '#1f1f1f', color: '#fff', fontSize: '14px', fontWeight: on ? 'bold' : 'normal', minHeight: '44px', cursor: 'pointer' }}>
+                {on ? '● ' : '○ '}{opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: '12px', color: cardPreview ? '#fbbf24' : '#888', marginBottom: '16px' }}>{cardPreview || (cardPayment === 'none' ? 'No card fee on this invoice.' : '')}</div>
         </>)}
 
         {problem && <div style={{ color: '#f87171', fontSize: '13px', marginBottom: '12px' }}>{problem}</div>}

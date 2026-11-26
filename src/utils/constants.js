@@ -31,6 +31,10 @@ export const getPricingSnapshot = () => ({
   // CHARGE_AUTO_S3_CASSETTE (so older quotes never change price).
   CASSETTE_UPGRADE_PER_SQM: 6,
   CHARGE_AUTO_S3_CASSETTE: true,
+  // Credit card service fee (2026-11-26): never in the quote's price - shown
+  // as the "by credit card" price on the quote file and added on an invoice
+  // only when the client pays by card. Saved per quote (see utils/cardFee.js).
+  CARD_FEE_RATE: 0.035,
   CREATED_DATE: new Date().toISOString()
 });
 
