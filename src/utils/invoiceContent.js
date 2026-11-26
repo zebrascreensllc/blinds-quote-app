@@ -4,6 +4,8 @@
 // template. None of this varies per-quote, so it lives here as plain data
 // rather than mixed into invoiceExport.js's document-building logic.
 
+import { cardFeeTermsLine, DEFAULT_CARD_FEE_RATE } from './cardFee';
+
 export const INVOICE_BUSINESS = {
   name: 'Zebra Screens & Rollers',
   tagline: 'Elevate Your Windows',
@@ -13,14 +15,19 @@ export const INVOICE_BUSINESS = {
   email: 'zebrascreensllc@gmail.com'
 };
 
-export const TERMS_AND_CONDITIONS = [
+// The card line used to say only "Credit card convenience fees are NOT
+// included." (no rate). It now names the quote's own card fee rate, so use
+// termsAndConditions(rate) - TERMS_AND_CONDITIONS is the default-rate copy.
+export const termsAndConditions = (cardRate = DEFAULT_CARD_FEE_RATE) => [
   'All Sales are final, no refunds, exchange, returns, or revisions.',
   'All window coverings come with a manufacturer warranty for non-human errors - the customer is responsible for any associated shipping costs.',
   'Half down payment due upon ordering, remaining due upon installation.',
-  'Credit card convenience fees are NOT included.',
+  cardFeeTermsLine(cardRate),
   'The window coverings you are ordering and have approved are a custom-made product for your windows.',
   'Installation Timeline: Installation is typically completed within 2–3 weeks from the order date. Delays due to shipping issues or product damage may extend this timeframe, and we will work to resolve them as quickly as possible.'
 ];
+
+export const TERMS_AND_CONDITIONS = termsAndConditions();
 
 export const WARRANTY_SUMMARY = [
   'Fabric: 1 Year Limited Warranty',

@@ -7,7 +7,8 @@ import { SALES_TAX_RATE } from './constants';
 import { calculateGroupQuote, getBlindTypeFromFabric, getHubTotal, estimateBlindTypes, estimateOptionTotals, optionGrandTotals } from './pricing';
 import { formatMoney, formatPrice } from './formatters';
 import { quoteCassetteLabel } from './cassette';
-import { INVOICE_BUSINESS, TERMS_AND_CONDITIONS, WARRANTY_SUMMARY, WARRANTY_SECTIONS } from './invoiceContent';
+import { INVOICE_BUSINESS, termsAndConditions, WARRANTY_SUMMARY, WARRANTY_SECTIONS } from './invoiceContent';
+import { cardFeeRate, cardFeeOn, cardFeePercentText, CARD_PAYMENT_MODES } from './cardFee';
 import zebraLogoUrl from '../assets/zebra-logo.png';
 
 const isRangeOverride = (v) => v !== null && typeof v === 'object' && typeof v.min === 'number' && typeof v.max === 'number';
@@ -331,8 +332,9 @@ function invoiceCellText(key, it, idx, isQuote = false) {
  * "Discount" (or "Price adjustment" if the agreed price is higher) line
  * makes it add up exactly to finalPrice.
  */
-export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0, columns, finalPrice = null, motorLabels = null, docType = 'invoice' } = {}) {
-  if (docType === 'quote') return buildQuoteDocModel(quote, { discountAmount, columns, motorLabels });
+export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0, columns, finalPrice = null, motorLabels = null, docType = 'invoice', cardPayment = 'none', showCardPrice = true } = {}) {
+  if (docType === 'quote') return buildQuoteDocModel(quote, { discountAmount, columns, motorLabels, showCardPrice });
+  const cardMode = CARD_PAYMENT_MODES.includes(cardPayment) ? cardPayment : 'none';
   const useFinalPrice = typeof finalPrice === 'number' && Number.isFinite(finalPrice) && finalPrice >= 0;
   if (useFinalPrice) discountAmount = 0;
   const { items } = buildInvoiceLineItems(quote, { motorLabels });
@@ -359,10 +361,9 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
   // Advance Payment and Remaining Balance.
   if (!showsUnitPrice) {
     const shortGrand = useFinalPrice ? finalPrice : grandTotal;
-    summary.push({ label: 'Grand Total', value: `$${formatMoney(shortGrand)}`, bold: true });
-    summary.push({ label: 'Advance Payment', value: `$${formatMoney(advanceAmount)}`, bold: true, color: '0e7490' });
-    summary.push({ label: 'Remaining Balance', value: `$${formatMoney(shortGrand - advanceAmount)}`, bold: true, color: '0e7490' });
-    return finishModel(quote, cols, rows, highlights, summary, grandTotal, shortGrand, shortGrand - advanceAmount);
+    const pay = paymentLines(shortGrand, advanceAmount, cardMode, cardFeeRate(quote));
+    summary.push(...pay.lines);
+    return { ...finishModel(quote, cols, rows, highlights, summary, grandTotal, shortGrand, pay.remaining), cardPayment: cardMode, cardFee: pay.fee };
   }
   if (motorCount > 0) summary.push({ label: `Motor windows ${motorCount}*$${formatMoney(effectiveMotorCost)}`, value: `$${formatMoney(motorGrandTotal)}` });
   if (solarCount > 0) summary.push({ label: `Solar windows ${solarCount}*$${formatMoney(effectiveSolarCost)}`, value: `$${formatMoney(solarGrandTotal)}` });
@@ -383,12 +384,52 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
     if (diff < 0) summary.push({ label: 'Discount', value: `-$${formatMoney(-diff)}`, color: 'CC0000' });
     else if (diff > 0) summary.push({ label: 'Price adjustment', value: `$${formatMoney(diff)}` });
   }
-  const finalRemaining = finalGrand - advanceAmount;
-  summary.push({ label: 'Grand Total', value: `$${formatMoney(finalGrand)}`, bold: true });
-  summary.push({ label: 'Advance Payment', value: `$${formatMoney(advanceAmount)}`, bold: true, color: '0e7490' });
-  summary.push({ label: 'Remaining Balance', value: `$${formatMoney(finalRemaining)}`, bold: true, color: '0e7490' });
+  const pay = paymentLines(finalGrand, advanceAmount, cardMode, cardFeeRate(quote));
+  summary.push(...pay.lines);
 
-  return finishModel(quote, cols, rows, highlights, summary, grandTotal, finalGrand, finalRemaining);
+  return { ...finishModel(quote, cols, rows, highlights, summary, grandTotal, finalGrand, pay.remaining), cardPayment: cardMode, cardFee: pay.fee };
+}
+
+/**
+ * The invoice's last lines: Grand Total, Advance Payment, Remaining Balance,
+ * plus the credit card fee when the client pays (part of) the bill by card
+ * (2026-11-26). The fee is charged only on what goes on the card:
+ *   'all'       - the whole bill: fee on the Grand Total, then the Advance
+ *                 and Remaining are parts of the "Total by credit card".
+ *   'advance'   - only the advance: fee on the advance.
+ *   'remaining' - only the rest: fee on the Remaining Balance.
+ * 'none' prints exactly the three lines the invoice always had.
+ */
+export function paymentLines(grand, advance, mode, rate) {
+  const pct = cardFeePercentText(rate);
+  const money = (n) => `$${formatMoney(n)}`;
+  const lines = [{ label: 'Grand Total', value: money(grand), bold: true }];
+  const advanceLine = { label: 'Advance Payment', value: money(advance), bold: true, color: '0e7490' };
+  let fee = 0;
+  let remaining = grand - advance;
+  if (mode === 'all') {
+    fee = cardFeeOn(grand, rate);
+    remaining = grand + fee - advance;
+    lines.push({ label: `Credit card fee ${pct}`, value: money(fee) });
+    lines.push({ label: 'Total by credit card', value: money(grand + fee), bold: true });
+    lines.push(advanceLine);
+  } else if (mode === 'advance') {
+    fee = cardFeeOn(advance, rate);
+    lines.push(advanceLine);
+    lines.push({ label: `Credit card fee ${pct} (on advance)`, value: money(fee) });
+    lines.push({ label: 'Advance charged to card', value: money(advance + fee), bold: true, color: '0e7490' });
+  } else if (mode === 'remaining') {
+    fee = cardFeeOn(grand - advance, rate);
+    lines.push(advanceLine);
+  } else {
+    lines.push(advanceLine);
+  }
+  lines.push({ label: 'Remaining Balance', value: money(remaining), bold: true, color: '0e7490' });
+  if (mode === 'remaining') {
+    lines.push({ label: `Credit card fee ${pct} (on remaining)`, value: money(fee) });
+    lines.push({ label: 'Remaining by credit card', value: money(remaining + fee), bold: true, color: '0e7490' });
+  }
+  return { lines, fee, remaining };
 }
 
 /**
@@ -402,7 +443,7 @@ export function buildInvoiceModel(quote, { advanceAmount = 0, discountAmount = 0
  * buildInvoiceLineItems/computeInvoiceTotals/estimateOptionTotals, so it
  * matches the quote screen and the Price Breakdown Excel exactly.
  */
-function buildQuoteDocModel(quote, { discountAmount = 0, columns, motorLabels = null }) {
+function buildQuoteDocModel(quote, { discountAmount = 0, columns, motorLabels = null, showCardPrice = true }) {
   const discount = typeof discountAmount === 'number' && Number.isFinite(discountAmount) && discountAmount > 0 ? discountAmount : 0;
   const { items, hasRangePricing } = buildInvoiceLineItems(quote, { motorLabels });
   const totals = computeInvoiceTotals(quote, items, { discountAmount: discount });
@@ -429,6 +470,16 @@ function buildQuoteDocModel(quote, { discountAmount = 0, columns, motorLabels = 
     if (totals.otherExpensesAmount > 0) summary.push({ label: totals.otherExpensesLabel, value: `$${formatMoney(totals.otherExpensesAmount)}` });
   }
   summary.push({ label: 'Grand Total', value: fmtMaybeRange(totals.grandTotal, totals.grandTotalMax), bold: true, color: '0e7490' });
+  // Paying by credit card (2026-11-26): the fee and the card price, so the
+  // client sees both prices before agreeing. Never part of the Grand Total.
+  const rate = cardFeeRate(quote);
+  const pct = cardFeePercentText(rate);
+  if (showCardPrice && totals.grandTotal > 0) {
+    const feeMin = cardFeeOn(totals.grandTotal, rate);
+    const feeMax = cardFeeOn(totals.grandTotalMax, rate);
+    summary.push({ label: `If paying by credit card: fee ${pct}`, value: fmtMaybeRange(feeMin, feeMax) });
+    summary.push({ label: 'Grand Total by credit card', value: fmtMaybeRange(totals.grandTotal + feeMin, totals.grandTotalMax + feeMax), bold: true });
+  }
 
   // Undecided blind types: what the client pays for each choice.
   const savedPrices = quote.editedPrices?.perWindowPrices || {};
@@ -447,10 +498,10 @@ function buildQuoteDocModel(quote, { discountAmount = 0, columns, motorLabels = 
 
   const notes = [];
   if (hasRangePricing) notes.push('Prices shown as a range are estimates until the exact fabric is chosen.');
-  if (options) notes.push(`Some rooms are still choosing between ${options.types.join(' and ')}. The "If all" lines show the Grand Total for each choice.`);
+  if (options) notes.push(`Some rooms are still choosing between ${options.types.join(' and ')}. The "If all" lines show the Grand Total for each choice${showCardPrice ? ' (cash or check)' : ''}.`);
 
   const model = finishModel(quote, cols, rows, highlights, summary, totals.grandTotal, totals.grandTotal, totals.grandTotal, 'quote');
-  return { ...model, grandTotalMax: totals.grandTotalMax, optionGrand, notes };
+  return { ...model, grandTotalMax: totals.grandTotalMax, optionGrand, notes, showCardPrice: !!showCardPrice };
 }
 
 function finishModel(quote, cols, rows, highlights, summary, calculatedGrandTotal, grandTotal, remainingBalance, docType = 'invoice') {
@@ -475,7 +526,10 @@ function finishModel(quote, cols, rows, highlights, summary, calculatedGrandTota
     summary,
     calculatedGrandTotal,
     grandTotal,
-    remainingBalance
+    remainingBalance,
+    // The card fee rate this quote was saved with, and the terms that name it.
+    cardFeeRate: cardFeeRate(quote),
+    termsAndConditions: termsAndConditions(cardFeeRate(quote))
   };
 }
 
@@ -582,7 +636,7 @@ export function buildInvoiceDocument(quote, options = {}, logoBytes) {
 
   const termsParagraphs = [
     new Paragraph({ pageBreakBefore: true, heading: HeadingLevel.HEADING_2, spacing: { after: 160 }, children: [new TextRun({ text: 'Terms and Conditions', bold: true })] }),
-    ...TERMS_AND_CONDITIONS.map(bulletParagraph),
+    ...model.termsAndConditions.map(bulletParagraph),
     new Paragraph({ spacing: { before: 300, after: 160 }, heading: HeadingLevel.HEADING_2, children: [new TextRun({ text: 'Warranty Coverage', bold: true })] }),
     ...WARRANTY_SUMMARY.map(bulletParagraph),
     ...WARRANTY_SECTIONS.flatMap(section => [
