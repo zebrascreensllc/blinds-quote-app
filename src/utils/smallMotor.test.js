@@ -15,7 +15,8 @@ import {
 } from './smallMotor';
 import { calculateGroupQuote, computeQuoteFinancials, estimateOptionTotals, optionGrandTotals } from './pricing';
 import { buildInvoiceModel, buildInvoiceLineItems, computeInvoiceTotals } from './invoiceExport';
-import { MOTOR_OPTIONS, isManualMotor, expandQuoteIntoRows, buildRowExportFields, getIncompleteFields } from './measurementUtils';
+import { MOTOR_OPTIONS, isManualMotor, expandQuoteIntoRows, buildRowExportFields, getIncompleteFields, sheetToCSV } from './measurementUtils';
+import { sheetToExcelBuffer } from './xlsxExport';
 import { buildRoomsFromSheet, linkRowsToQuote } from './sheetToQuote';
 import { buildEffectiveRooms, stepMotor, pruneRooms } from './quoteGroups';
 import { invoiceMotorLabels, invoiceMotorLabel } from './invoiceMotorTypes';
@@ -138,7 +139,7 @@ describe('supplier measurement sheet', () => {
     const rows = expandQuoteIntoRows(mixedQuote(), { prefillMeasurements: true });
     expect(rows.map(r => r.motor)).toEqual(['Small motor', 'Small motor', 'motor-Zigbee', 'Manual']);
     const f = buildRowExportFields(rows[0], 0, {});
-    expect(f.manualSmart).toBe('Smart');
+    expect(f.manualSmart).toBe('Motor');
     expect(f.motorType).toBe('Small motor');
     // Needs a remote (or "No remote") like any motor.
     expect(getIncompleteFields({ ...rows[0], fabricNumber: 'x' })).toContain('remote group');
@@ -263,4 +264,33 @@ test('pricing snapshot for new quotes stores the $65 small motor price', () => {
   assert.strictEqual(snap.SMALL_MOTOR_COST_CLIENT, 65);
   assert.strictEqual(typeof snap.SMALL_MOTOR_COST_SUPPLIER, 'number');
   assert.strictEqual(SMALL_MOTOR_LABEL, 'Small motor');
+});
+
+describe('supplier file says Motor, not Smart (owner, 2026-11-26)', () => {
+  const row = { id: 'r1', clientName: 'Ann', locationBase: 'Den', locationIndex: 1, totalInLocation: 1, motor: 'motor-Zigbee', motorSide: 'Left', solar: 'AOK', remoteGroup: 1, remoteChannel: 1, cassette: 'S1', mount: 'Inside', fabricNumber: '83003L', width: '35', height: '70', blindType: 'Zebra', comment: '' };
+  test('CSV: header Manual/Motor and Motor values with variants', () => {
+    const csv = sheetToCSV({}, [row, { ...row, id: 'r2', locationIndex: 2, motor: 'Manual', motorSide: '', solar: false, remoteGroup: null }]).split('\n');
+    expect(csv[0]).toContain('Manual/Motor');
+    expect(csv[0]).not.toContain('Smart');
+    expect(csv[1]).toContain('Motor - Left side - Solar - AOK');
+    expect(csv[2]).toContain(',Manual,');
+  });
+  test('Excel: header Manual/Motor, value Motor, still highlighted', async () => {
+    const ExcelJS = require('exceljs');
+    const buf = await sheetToExcelBuffer({}, [row, { ...row, id: 'r2', motor: 'Small motor', motorSide: '', solar: false }]);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const ws = wb.worksheets[0];
+    const cells = [];
+    ws.eachRow(r => cells.push(Array.from(r.values, v => (v === undefined || v === null ? '' : String(v)))));
+    const headerAt = cells.findIndex(r => r.includes('Manual/Motor'));
+    expect(headerAt).toBeGreaterThanOrEqual(0);
+    expect(cells.flat()).not.toContain('Manual/Smart');
+    const col = cells[headerAt].indexOf('Manual/Motor');
+    expect(cells[headerAt + 1][col]).toBe('Motor - Left side - Solar - AOK');
+    expect(cells[headerAt + 2][col]).toBe('Motor');
+    let fillOk = false;
+    ws.eachRow((r, n) => { if (String(r.getCell(col).value) === 'Motor - Left side - Solar - AOK') fillOk = !!(r.getCell(col).fill && r.getCell(col).fill.fgColor); });
+    expect(fillOk).toBe(true);
+  });
 });

@@ -653,7 +653,8 @@ export function buildRowExportFields(row, idx, remoteLabels) {
   // plain yes/no - the supplier needs to know which one to ship. A legacy
   // `true` (an older saved row from before this changed) just shows "Solar".
   if (row.solar) variants.push(typeof row.solar === 'string' ? `Solar - ${row.solar}` : 'Solar');
-  const manualSmart = (isMotor ? 'Smart' : 'Manual') + (variants.length ? ' - ' + variants.join(' - ') : '');
+  // Owner (2026-11-26): the supplier file says "Motor", not "Smart" (column "Manual/Motor").
+  const manualSmart = (isMotor ? 'Motor' : 'Manual') + (variants.length ? ' - ' + variants.join(' - ') : '');
   // A chain wand window is Manual, but the supplier still needs the wand colour,
   // so its full option text goes in the Motor-type column.
   // A 'Manual - Custom' window (e.g. custom chain length) shows its typed text
@@ -690,7 +691,7 @@ export function sheetToCSV(sheet, rows) {
   const remoteLabels = computeRemoteLabels(rows);
   // ✅ BUGFIX: header renamed 'Motor/Smart' -> 'Manual/Smart' and a Comment
   // column added, both to match the supplier's actual reference format exactly.
-  const headers = ['S No', 'Client name', 'LOCATION', 'Comment', 'Manual/Smart', 'Motor-type', 'Remote', 'CASSETTE', 'MOUNT', 'FABRIC MODEL', 'Width (Inches)', 'Height (Inches)', 'Blind Type'];
+  const headers = ['S No', 'Client name', 'LOCATION', 'Comment', 'Manual/Motor', 'Motor-type', 'Remote', 'CASSETTE', 'MOUNT', 'FABRIC MODEL', 'Width (Inches)', 'Height (Inches)', 'Blind Type'];
   const lines = [headers.map(escapeCsv).join(',')];
 
   rows.forEach((row, idx) => {

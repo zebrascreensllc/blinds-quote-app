@@ -35,6 +35,6 @@ test('Manual - Custom (e.g. custom chain length) is Manual and shows its text', 
   expect(buildRowExportFields({ ...row, chainSide: 'Left' }, 1, {}).manualSmart).toBe('Manual - Left side');
   // Smart Custom unchanged
   const smart = buildRowExportFields({ ...base, motor: 'Custom', motorCustomText: 'motor-xyz', motorSide: '', noRemote: true }, 1, {});
-  expect(smart.manualSmart).toBe('Smart');
+  expect(smart.manualSmart).toBe('Motor');
   expect(smart.motorType).toBe('motor-xyz');
 });

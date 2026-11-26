@@ -222,10 +222,10 @@ Core formula per window group: `cost (fabric+shipping+misc) + PROFIT_PER_WINDOW 
 CSV/Excel headers and behavior were reverse-engineered against the supplier's actual reference spreadsheet (not guessed). Current confirmed format:
 
 ```
-S No, Client name, LOCATION, Comment, Manual/Smart, Motor-type, Remote, CASSETTE, MOUNT, FABRIC MODEL, Width (Inches), Height (Inches), Blind Type
+S No, Client name, LOCATION, Comment, Manual/Motor, Motor-type, Remote, CASSETTE, MOUNT, FABRIC MODEL, Width (Inches), Height (Inches), Blind Type
 ```
 
-- **"Manual/Smart" column** (not "Motor/Smart") — value is `Smart`/`Manual`, with variants **appended to the same cell**: `Smart - Left side`, `Smart - Solar`, or both combined. Never a separate column for these.
+- **"Manual/Motor" column** (owner, 2026-11-26: was "Manual/Smart") — value is `Motor`/`Manual`, with variants **appended to the same cell**: `Motor - Left side`, `Motor - Solar - AOK`, or both combined. Never a separate column for these. (The client invoice keeps its own "Manual/Smart" column.)
 - **Motor side / Chain side** — `row.motorSide` (motorized windows) and `row.chainSide` (Manual/chain windows) are both `''` = Right (default, not exported) or `'Left'`. Left exports as `Smart - Left side` / `Manual - Left side` and is highlighted. `buildRowExportFields` reads each one only for its own kind of window, and the bulk Motor tool clears the other side when a window switches Manual <-> Motor. Any new side-like field needs the same three places: row builders, `buildRowExportFields`, and the Motor switch.
 - **Custom motor type** - `Custom` is a typed-in Smart type (exports Smart + the text). `Manual - Custom` (bottom of the list, `MANUAL_CUSTOM_MOTOR`) is a typed-in manual detail such as a custom chain length: exports `Manual` + Motor-type `Manual - chain 6ft`. Both keep the text in `row.motorCustomText`; use `isManualMotor`/`isCustomMotor`/`motorDisplay`, never compare to `'Custom'` alone (2026-11-16: a custom chain under `Custom` showed as Smart).
 - **Comment column** — free-text per-window note (e.g. "Side-by-side" for special mounting configs), sits between LOCATION and Manual/Smart.

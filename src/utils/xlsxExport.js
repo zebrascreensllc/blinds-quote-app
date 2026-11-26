@@ -8,7 +8,7 @@ const HEADERS = [
   { header: 'Client name', key: 'clientName', width: 14 },
   { header: 'LOCATION', key: 'location', width: 16 },
   { header: 'Comment', key: 'comment', width: 16 },
-  { header: 'Manual/Smart', key: 'manualSmart', width: 18 },
+  { header: 'Manual/Motor', key: 'manualSmart', width: 18 },
   { header: 'Motor-type', key: 'motorType', width: 14 },
   { header: 'Remote', key: 'remote', width: 13 },
   { header: 'CASSETTE', key: 'cassette', width: 50 },

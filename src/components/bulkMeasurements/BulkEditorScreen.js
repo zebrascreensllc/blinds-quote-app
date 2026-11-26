@@ -460,7 +460,7 @@ export default function BulkEditorScreen({
             />
           )}
           {bulkMotorValue === 'Custom' && looksManualText(bulkMotorCustomText) && (
-            <p style={{ fontSize: '12px', color: '#fbbf24', marginBottom: '10px' }}>This looks like a manual window. "Custom (Smart / motor)" exports as Smart - pick "Manual - Custom" at the bottom of the list instead.</p>
+            <p style={{ fontSize: '12px', color: '#fbbf24', marginBottom: '10px' }}>This looks like a manual window. "Custom (Smart / motor)" exports as Motor - pick "Manual - Custom" at the bottom of the list instead.</p>
           )}
           {isManualMotor(bulkMotorValue) && (
             <p style={{ fontSize: '11px', color: '#888', marginBottom: '10px', fontStyle: 'italic' }}>Setting to Manual also clears Solar and Remote Group on the selected windows.</p>
@@ -509,7 +509,7 @@ export default function BulkEditorScreen({
 
         {/* 5. Bulk Assign Motor Side - parity with the original feature's
             per-row Right/Left toggle (Right is the default, never written to
-            export; Left is the exception, shows as "Smart - Left side"). */}
+            export; Left is the exception, shows as "Motor - Left side"). */}
         <p style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>5. Motor Side / Chain Side</p>
         <BulkToolPanel title="Motor Side (motorized windows only)" icon="↔️" bg="#2a1a1a" border="#8a5a4a" accentColor="#fca5a5" isOpen={showMotorSideTool} onToggle={() => setShowMotorSideTool(!showMotorSideTool)}>
           <label style={labelStyle}>Set Side to</label>
@@ -728,7 +728,7 @@ export default function BulkEditorScreen({
               <tr>
                 <th style={stickyHeaderCellStyle}>Location</th>
                 <th style={headerCellStyle}>Comment</th>
-                <th style={headerCellStyle}>Manual/Smart</th>
+                <th style={headerCellStyle}>Manual/Motor</th>
                 <th style={headerCellStyle}>Motor-type</th>
                 <th style={headerCellStyle}>Remote</th>
                 <th style={headerCellStyle}>Cassette</th>
